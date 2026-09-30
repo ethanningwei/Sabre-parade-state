@@ -1,3 +1,11 @@
+> **Historical.** This is the original v1 plan from 2026-09-30, kept for context. Several decisions changed during the build:
+> - Google sign-in became one shared password.
+> - The Extra/RF/SOL and off-shift rules were rewritten.
+> - The bot's off-shift quirk was fixed rather than kept.
+> - The team-workflow section was never used.
+>
+> See [STATUS.md](STATUS.md) for what actually shipped.
+
 # Sabre Company Web App — MVP: Parade State
 
 ## Context
