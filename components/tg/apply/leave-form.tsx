@@ -7,7 +7,7 @@ import { holidayOn } from "@/lib/wb/domain/holidays";
 import { leaveRefusal } from "@/lib/wb/domain/rules";
 import { AL_PLACES, LEAVE_REASONS } from "@/lib/wb/domain/roles";
 import { checkRange, dayMonth, daysTouched, type RangeInput } from "@/lib/wb/domain/timeline";
-import { BigButton, ClashStep, Done, ErrorBox, Field, Header, hhmm, inputClass, Submit, useAction } from "../form-bits";
+import { BigButton, Choice, ClashStep, Done, ErrorBox, Field, Header, hhmm, inputClass, Submit, useAction } from "../form-bits";
 
 // AL, OL and Off (ports Sabre Bot's _leave_steps and OFF). Off stops after
 // the clash check; leave goes on to what it costs, where, and why.
@@ -241,18 +241,5 @@ export function DateTime({
         <input type="time" required className={inputClass} value={time} onChange={(e) => onTime(e.target.value)} aria-label={`${label} time`} />
       </div>
     </Field>
-  );
-}
-
-export function Choice({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={on}
-      className={`flex min-h-11 items-center rounded-lg border px-3 text-left active:bg-muted ${on ? "border-primary bg-primary/10 font-medium" : "bg-card"}`}
-    >
-      {children}
-    </button>
   );
 }

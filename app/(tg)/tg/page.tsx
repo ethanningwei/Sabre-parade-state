@@ -1,4 +1,4 @@
-import { CalendarPlus, ClipboardCheck, ClipboardList, History, ListChecks, Settings, UserPen, UsersRound } from "lucide-react";
+import { CalendarPlus, ClipboardCheck, ClipboardList, CloudUpload, History, ListChecks, Settings, UserPen, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { StateChip } from "@/components/tg/record-summary";
@@ -11,7 +11,7 @@ import { place } from "@/lib/wb/format";
 import { rosterSelf } from "@/lib/wb/me";
 import { profileOf } from "@/lib/wb/members";
 import { ADMIN_ROLES, GAPS_ROLES } from "@/lib/wb/permissions";
-import { nowAndNext, pendingFor, type RecordView } from "@/lib/wb/records";
+import { nowAndNext, onensOwedFor, pendingFor, type RecordView } from "@/lib/wb/records";
 
 // Home: who you are, where you are now and what's next, and the screens you can reach.
 export default async function TgHome() {
@@ -22,7 +22,7 @@ export default async function TgHome() {
   const [me, self] = await Promise.all([profileOf(member), rosterSelf(member)]);
   const { current, next } = self ? await nowAndNext(self.personId) : { current: null, next: null };
   const decides = decidesAnything(member.grants);
-  const waiting = decides ? (await pendingFor(member.grants)).length : 0;
+  const [waiting, owed] = decides ? await Promise.all([pendingFor(member.grants).then((p) => p.length), onensOwedFor(member.grants).then((o) => o.length)]) : [0, 0];
 
   return (
     <div className="flex flex-col gap-5">
@@ -47,9 +47,10 @@ export default async function TgHome() {
       )}
 
       <nav className="flex flex-col gap-2">
-        {self && <Tile href="/tg/apply" icon={<CalendarPlus />} title="Apply or report" hint={`Leave, off, MA, courses · ${member.leaveLeft ?? 0} days of leave left`} />}
+        {self && <Tile href="/tg/apply" icon={<CalendarPlus />} title="Apply or report" hint={`Report sick, MC, leave, off, MA, courses · ${member.leaveLeft ?? 0} days of leave left`} />}
         {self && <Tile href="/tg/records" icon={<ListChecks />} title="My records" hint="Everything you've applied for and reported" />}
         {decides && <Tile href="/tg/approvals" icon={<ClipboardCheck />} title={waiting ? `Approvals · ${waiting}` : "Approvals"} hint="Requests waiting on you" />}
+        {decides && <Tile href="/tg/onens" icon={<CloudUpload />} title={owed ? `ONENS owed · ${owed}` : "ONENS owed"} hint="Civilian MCs not uploaded yet" />}
         {decides && <Tile href="/tg/people" icon={<History />} title="Person history" hint="Anyone's records; void a mistake" />}
         {proxiesAnything(member.grants) && <Tile href="/tg/add" icon={<UsersRound />} title="Add for several men" hint="A course or duty they've been detailed for" />}
         {hasGrant(member.grants, GAPS_ROLES, "any") && (

@@ -8,7 +8,7 @@ import { BigButton, Done, ErrorBox, Field, Header, hhmm, inputClass, Submit, use
 // A medical appointment (ports Sabre Bot's MA). Physio is weekly and the
 // answers never change, so someone who's been before is offered last time's
 // time and place first: a repeat booking is one question, not three.
-// The appointment slip photo arrives with Phase 3.
+// What the doctor gives him is recorded afterwards, from My records.
 
 export function MaForm({ today, last }: { today: string; last: { maTiming: string; location: string } | null }) {
   const [again, setAgain] = useState<boolean | null>(last ? null : false);
@@ -18,7 +18,14 @@ export function MaForm({ today, last }: { today: string; last: { maTiming: strin
   const [result, setResult] = useState<Submitted | null>(null);
   const { pending, error, call } = useAction();
 
-  if (result) return <Done title="Appointment recorded" delivery={result.delivery} subunitName={result.subunitName} needsApproval={false} />;
+  if (result) {
+    return (
+      <div className="flex flex-col gap-4">
+        <Done title="Appointment recorded" delivery={result.delivery} subunitName={result.subunitName} needsApproval={false} />
+        <p className="text-center text-sm text-muted-foreground">If the doctor gives you an MC or status, open My records and tap Update outcome.</p>
+      </div>
+    );
+  }
 
   const submit = () =>
     call(

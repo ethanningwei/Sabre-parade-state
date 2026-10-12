@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { Api } from "grammy";
 import { featureOff } from "@/lib/flags";
+import { eveningRound } from "@/lib/wb/evening";
 import { ALLOWED_UPDATES, GROUP_COMMANDS, PRIVATE_COMMANDS } from "@/lib/wb/telegram/commands";
 import { miniAppUrl } from "@/lib/wb/telegram/links";
 
@@ -11,6 +12,8 @@ import { miniAppUrl } from "@/lib/wb/telegram/links";
 //   webhook   points Telegram at /api/wb/telegram with the secret
 //   menu      the chat menu button opens the Mini App
 //   commands  command lists for private chats and groups
+//   evening   run the evening round now (forced: even if it ran today). Vercel
+//             crons only fire on production, so this is how a preview runs it
 export async function POST(request: Request): Promise<Response> {
   const off = featureOff();
   if (off) return off;
@@ -42,10 +45,14 @@ export async function POST(request: Request): Promise<Response> {
         await api.setMyCommands(PRIVATE_COMMANDS, { scope: { type: "all_private_chats" } });
         await api.setMyCommands(GROUP_COMMANDS, { scope: { type: "all_group_chats" } });
         break;
+      case "evening": {
+        const me = await api.getMe();
+        return Response.json(await eveningRound({ api, botUsername: me.username }, new Date(), { force: true }));
+      }
       case "status":
         break;
       default:
-        return Response.json({ error: "action must be status, webhook, menu or commands" }, { status: 400 });
+        return Response.json({ error: "action must be status, webhook, menu, commands or evening" }, { status: 400 });
     }
     const [me, hook, menu] = await Promise.all([api.getMe(), api.getWebhookInfo(), api.getChatMenuButton()]);
     return Response.json({

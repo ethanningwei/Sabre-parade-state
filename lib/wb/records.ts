@@ -121,6 +121,12 @@ export async function pendingFor(grants: readonly GrantRow[]): Promise<RecordVie
   return rows.map(toView).filter((r) => canDecide(grants, r));
 }
 
+/** MCs still owed on ONENS that this member decides for, oldest first. */
+export async function onensOwedFor(grants: readonly GrantRow[]): Promise<RecordView[]> {
+  const rows = await views(db, and(eq(wbRecord.onens, "OWED"), eq(wbRecord.state, "RECORDED"))).orderBy(asc(wbRecord.startAt));
+  return rows.map(toView).filter((r) => canDecide(grants, r));
+}
+
 /** What's in the way of a new range: live absent records and open v1 duties. */
 export async function clashFor(personId: string, range: Range, tx: Db = db): Promise<string[]> {
   const overlap = and(

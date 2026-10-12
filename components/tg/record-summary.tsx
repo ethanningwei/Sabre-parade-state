@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { KIND_LABEL, STATE_LABEL } from "@/lib/wb/domain/describe";
+import { KIND_LABEL, recordWhat, STATE_LABEL } from "@/lib/wb/domain/describe";
 import { costsLeave, type WbRecordState } from "@/lib/wb/domain/rules";
 import { dayMonthYear, rangeLabel } from "@/lib/wb/domain/timeline";
 import type { RecordView } from "@/lib/wb/records";
@@ -31,6 +31,15 @@ function details(r: RecordView): string {
       return `${r.maTiming}H @ ${r.location}`;
     case "EVENT":
       return r.detail;
+    case "RSI":
+      return r.reason;
+    case "RSO":
+      return [r.location && `@ ${r.location}`, r.reason].filter(Boolean).join(" · ");
+    case "MC":
+    case "HL":
+      return [r.mcCategory, r.onens === "OWED" ? "☁️ ONENS upload owed" : ""].filter(Boolean).join(" · ");
+    case "STATUS":
+      return `${r.detail} · present, on status`;
     default:
       return r.detail;
   }
@@ -51,7 +60,20 @@ function decision(r: RecordView): string | null {
   }
 }
 
-export function RecordSummary({ r, showWho, href, children }: { r: RecordView; showWho?: boolean; href?: string; children?: React.ReactNode }) {
+export function RecordSummary({
+  r,
+  showWho,
+  href,
+  under,
+  children,
+}: {
+  r: RecordView;
+  showWho?: boolean;
+  href?: string;
+  /** what this visit produced (an MC and its statuses), one line each */
+  under?: RecordView[];
+  children?: React.ReactNode;
+}) {
   const body = (
     <>
       <div className="flex items-start justify-between gap-2">
@@ -66,6 +88,12 @@ export function RecordSummary({ r, showWho, href, children }: { r: RecordView; s
       <p className="text-sm">{rangeLabel(r, dayMonthYear)}</p>
       {details(r) && <p className="text-sm text-muted-foreground">{details(r)}</p>}
       {decision(r) && <p className="text-xs text-muted-foreground">{decision(r)}</p>}
+      {under?.map((u) => (
+        <p key={u.id} className={`text-sm ${u.state === "CANCELLED" ? "text-muted-foreground line-through" : ""}`}>
+          ↳ {recordWhat(u)}
+          {u.onens === "OWED" && " · ☁️ ONENS owed"}
+        </p>
+      ))}
     </>
   );
   return (

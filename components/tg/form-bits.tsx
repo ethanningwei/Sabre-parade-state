@@ -150,3 +150,33 @@ export function Done({ title, delivery, subunitName, needsApproval }: { title: s
 
 /** "HH:MM" from a time input -> "HHMM"; the actions accept either. */
 export const hhmm = (t: string) => t.replace(":", "");
+
+/** One answer of several, as a big tappable row (Sabre Bot's buttons). */
+export function Choice({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      className={`flex min-h-11 items-center rounded-lg border px-3 text-left active:bg-muted ${on ? "border-primary bg-primary/10 font-medium" : "bg-card"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** A yes/no question answered with two big buttons. */
+export function YesNo({ label, value, onChange, yes = "Yes", no = "No" }: { label: string; value: boolean | null; onChange: (v: boolean) => void; yes?: string; no?: string }) {
+  return (
+    <Field label={label}>
+      <div className="grid grid-cols-2 gap-2">
+        <Choice on={value === true} onClick={() => onChange(true)}>
+          {yes}
+        </Choice>
+        <Choice on={value === false} onClick={() => onChange(false)}>
+          {no}
+        </Choice>
+      </div>
+    </Field>
+  );
+}
