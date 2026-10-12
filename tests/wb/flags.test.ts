@@ -91,6 +91,14 @@ describe("every whereabouts entry point is guarded", () => {
     expect(readFileSync(f, "utf8")).toMatch(/await requireFeaturePage\(/);
   });
 
+  // loading.tsx renders before the page's own guard and data, so it must be static:
+  // no data, no server code, only the skeleton pieces.
+  it.each(files(join(root, "app/(tg)")).filter((f) => /\/loading\.tsx$/.test(f)))("%s is a static skeleton", (f) => {
+    const imports = [...readFileSync(f, "utf8").matchAll(/from "([^"]+)"/g)].map((m) => m[1]);
+    expect(imports.every((i) => i === "@/components/tg/ui")).toBe(true);
+    expect(readFileSync(f, "utf8")).not.toMatch(/\basync\b|await|fetch\(/);
+  });
+
   it.each(files(join(root, "app/api/wb")).filter((f) => f.endsWith("route.ts")))("%s checks featureOff()", (f) => {
     expect(readFileSync(f, "utf8")).toMatch(/featureOff\(/);
   });

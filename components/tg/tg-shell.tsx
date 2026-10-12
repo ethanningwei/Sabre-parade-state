@@ -20,9 +20,11 @@ export function TgShell({ signedIn, children }: { signedIn: boolean; children: R
     <>
       <Script src="https://telegram.org/js/telegram-web-app.js" strategy="afterInteractive" onReady={onReady} />
       {ready && <TelegramChrome signedIn={signedIn} />}
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(2rem+env(safe-area-inset-bottom))]">
-        {signedIn ? children : <SignIn ready={ready} />}
-      </main>
+      <div className="tg-app flex min-h-dvh flex-1 flex-col">
+        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col pt-[calc(1rem+env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(2rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]">
+          {signedIn ? children : <SignIn ready={ready} />}
+        </main>
+      </div>
     </>
   );
 }
@@ -52,6 +54,11 @@ function TelegramChrome({ signedIn }: { signedIn: boolean }) {
     const apply = () => {
       root.classList.add("tg-themed");
       root.classList.toggle("dark", app.colorScheme === "dark");
+      // Telegram's own header and overscroll match the page (miniapp.css --tg-page)
+      if (app.isVersionAtLeast?.("6.1")) {
+        app.setHeaderColor?.("secondary_bg_color");
+        app.setBackgroundColor?.("secondary_bg_color");
+      }
     };
     apply();
     app.onEvent("themeChanged", apply);

@@ -3,6 +3,7 @@ import { TgShell } from "@/components/tg/tg-shell";
 import { requireFeaturePage } from "@/lib/flags";
 import { getMember } from "@/lib/wb/auth";
 import "./telegram-theme.css";
+import "./miniapp.css";
 
 export const metadata: Metadata = { title: "Sabre", robots: { index: false } };
 

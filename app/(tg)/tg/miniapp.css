@@ -1,0 +1,90 @@
+/*
+ * The Mini App's own look, scoped under .tg-app (TgShell) so nothing here can
+ * reach the v1 screens. Colours come from the theme tokens, which
+ * telegram-theme.css maps onto Telegram's --tg-theme-* inside Telegram.
+ *
+ * Surfaces follow Telegram's own grouped lists: the page is the secondary
+ * background and cards are sections on top of it.
+ */
+.tg-app {
+  --tg-page: oklch(0.965 0.004 258);
+  --tg-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  background: var(--tg-page);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.dark .tg-app {
+  --tg-page: var(--background);
+}
+:root.tg-themed .tg-app {
+  --tg-page: var(--tg-theme-secondary-bg-color, var(--background));
+}
+
+/* keyboard focus: visible on every tappable thing, never on a tap */
+.tg-app :is(a, button, summary, label, [role="button"]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* a hairline between rows of one group, like Telegram's settings */
+.tg-app .tg-rows > * + * {
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--border) 80%, transparent);
+}
+
+/* ---------------------------------------------------------------- motion */
+/* Everything below is opt-in and switched off for reduced motion. Only
+   opacity and transform move, so nothing reflows. */
+@media (prefers-reduced-motion: no-preference) {
+  /* a list item or screen arriving: up 6px and in, staggered by --i */
+  .tg-app .tg-enter {
+    animation: tg-enter 220ms var(--tg-ease) both;
+    animation-delay: calc(min(var(--i, 0), 8) * 35ms);
+  }
+  /* the next question appearing under a Yes/No or a choice */
+  .tg-app .tg-reveal {
+    animation: tg-reveal 180ms var(--tg-ease) both;
+  }
+  /* the Done tick */
+  .tg-app .tg-pop {
+    animation: tg-pop 260ms var(--tg-ease) both;
+    animation-delay: 60ms;
+  }
+  /* press feedback on rows, tiles and buttons */
+  .tg-app .tg-press {
+    transition:
+      transform 120ms ease-out,
+      background-color 150ms ease-out,
+      border-color 150ms ease-out,
+      opacity 150ms ease-out;
+  }
+  .tg-app .tg-press:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .tg-app .tg-skeleton {
+    animation: tg-pulse 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes tg-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes tg-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes tg-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+@keyframes tg-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}

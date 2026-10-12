@@ -16,10 +16,20 @@ export interface TelegramWebApp {
     onClick(cb: () => void): void;
     offClick(cb: () => void): void;
   };
-  HapticFeedback?: { notificationOccurred(type: "error" | "success" | "warning"): void };
+  isVersionAtLeast?(version: string): boolean;
+  setHeaderColor?(color: "bg_color" | "secondary_bg_color" | `#${string}`): void;
+  setBackgroundColor?(color: "bg_color" | "secondary_bg_color" | `#${string}`): void;
+  HapticFeedback?: {
+    notificationOccurred(type: "error" | "success" | "warning"): void;
+    impactOccurred(style: "light" | "medium" | "heavy" | "rigid" | "soft"): void;
+    selectionChanged(): void;
+  };
 }
 
 export function webApp(): TelegramWebApp | null {
   if (typeof window === "undefined") return null;
   return (window as unknown as { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp ?? null;
 }
+
+/** A light tick when an answer is picked. Telegram only; a browser does nothing. */
+export const tick = () => webApp()?.HapticFeedback?.selectionChanged();
