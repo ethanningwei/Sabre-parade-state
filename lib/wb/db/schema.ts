@@ -17,7 +17,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { camp, person, subunit } from "../../db/schema";
 import { WB_ROLES, type WbRole } from "../domain/roles";
-import { WB_RECORD_KINDS, WB_RECORD_STATES, type WbRecordKind, type WbRecordState } from "../domain/rules";
+import { WB_ONENS, WB_RECORD_KINDS, WB_RECORD_STATES, WB_SEEN_BY, type WbRecordKind, type WbRecordState } from "../domain/rules";
 
 // ---------------------------------------------------------------------------
 // Whereabouts (FEATURE_WHEREABOUTS). Additive only: every table, enum and
@@ -149,6 +149,10 @@ export { WB_RECORD_KINDS, WB_RECORD_STATES, type WbRecordKind, type WbRecordStat
 export const wbRecordKind = pgEnum("wb_record_kind", WB_RECORD_KINDS);
 export const wbRecordState = pgEnum("wb_record_state", WB_RECORD_STATES);
 export const wbCreatedVia = pgEnum("wb_created_via", ["SELF", "PROXY", "IMPORT"]);
+/** Phase 3: whether an MC still has to go up on ONENS. Only a civilian doctor's MC is ever OWED. */
+export const wbOnens = pgEnum("wb_onens", WB_ONENS);
+/** Phase 3: who wrote an MC that has no RSI/RSO above it to say so. */
+export const wbSeenBy = pgEnum("wb_seen_by", WB_SEEN_BY);
 
 /**
  * The timeline: one row per fact about one trooper. Ranges are half-open
@@ -184,6 +188,19 @@ export const wbRecord = pgTable(
     reason: text("reason").default("").notNull(),
     /** MA only, HHMM */
     maTiming: text("ma_timing"),
+    // ---- Phase 3: medical. diagnosis and evidence_file_id are read only
+    // through lib/wb/medical.ts, which checks canSeeMedical and audits the read.
+    /** MC/HL: one of MC_CATEGORIES, or "Other". What a card may show. */
+    mcCategory: text("mc_category"),
+    /** MC/HL: the doctor's words. Never on a card, never in a group chat. */
+    diagnosis: text("diagnosis"),
+    /** MC/HL/STATUS: the Telegram file_id of the document's photo. The photo itself stays on Telegram. */
+    evidenceFileId: text("evidence_file_id"),
+    onens: wbOnens("onens").default("NA").notNull(),
+    /** MC/HL with no RSI/RSO above it: the camp MO or a civilian doctor */
+    seenBy: wbSeenBy("seen_by"),
+    /** RSI/RSO/MA: when the outcome was recorded (including "nothing given"). Stops the chase. */
+    outcomeAt: tstz("outcome_at"),
     createdBy: uuid("created_by").references(() => wbMember.id, { onDelete: "set null" }),
     createdVia: wbCreatedVia("created_via").notNull(),
     createdAt: tstz("created_at").defaultNow().notNull(),
@@ -192,6 +209,7 @@ export const wbRecord = pgTable(
   (t) => [
     index("wb_record_person_range_idx").on(t.personId, t.startAt, t.endAt),
     index("wb_record_state_idx").on(t.state),
+    index("wb_record_parent_idx").on(t.parentId),
     check("wb_record_range", sql`${t.endAt} is null or ${t.endAt} > ${t.startAt}`),
   ],
 );

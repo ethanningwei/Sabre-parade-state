@@ -12,12 +12,18 @@ export const WB_RECORD_STATES = ["PENDING", "APPROVED", "REJECTED", "RECORDED", 
 export type WbRecordState = (typeof WB_RECORD_STATES)[number];
 
 /** Requests a commander can refuse. MA and EVENT are facts: recorded, not approved. */
-export const APPROVAL_KINDS: readonly WbRecordKind[] = ["AL", "OL", "OFF"];
+export const APPROVAL_KINDS: readonly WbRecordKind[] = ["AL", "OL", "OFF", "RSI", "RSO"];
 /** The kinds that cost leave days. */
 export const LEAVE_KINDS: readonly WbRecordKind[] = ["AL", "OL"];
 
 /** A SELF member who isn't on the roster yet: every record needs a roster person. */
 export const NOT_ON_ROSTER = "Ask your PS to add you to the parade state first.";
+
+/** wb_record.onens. NA: nothing to upload; OWED: a civilian MC not on ONENS yet; DONE: uploaded. */
+export const WB_ONENS = ["NA", "OWED", "DONE"] as const;
+export type WbOnens = (typeof WB_ONENS)[number];
+export const WB_SEEN_BY = ["MO", "CIVILIAN"] as const;
+export type WbSeenBy = (typeof WB_SEEN_BY)[number];
 
 export const needsApproval = (kind: WbRecordKind) => APPROVAL_KINDS.includes(kind);
 export const costsLeave = (kind: WbRecordKind) => LEAVE_KINDS.includes(kind);
@@ -28,6 +34,71 @@ export const DEAD_STATES: readonly WbRecordState[] = ["REJECTED", "CANCELLED", "
 export const isLive = (s: WbRecordState) => !DEAD_STATES.includes(s);
 /** States that are true: the person really is away. */
 export const STANDING_STATES: readonly WbRecordState[] = ["APPROVED", "RECORDED"];
+
+// ------------------------------------------------------------------ medical
+
+/** A visit to a doctor: what an outcome hangs off. */
+export const VISIT_KINDS: readonly WbRecordKind[] = ["RSI", "RSO", "MA"];
+/** What the doctor gave him. Always RECORDED, never approved. */
+export const OUTCOME_KINDS: readonly WbRecordKind[] = ["MC", "HL", "STATUS"];
+export const isOutcome = (kind: WbRecordKind) => OUTCOME_KINDS.includes(kind);
+
+/**
+ * Whether a kind takes him off the parade state. RSI never does: he walks to
+ * the medical centre and back. RSO does, for the day. A STATUS (light duty)
+ * keeps him present; an MC or HL doesn't.
+ */
+export function isAbsentKind(kind: WbRecordKind): boolean {
+  return !(kind === "RSI" || kind === "STATUS");
+}
+
+export interface VisitRow {
+  kind: WbRecordKind;
+  state: WbRecordState;
+  personId: string;
+}
+
+/**
+ * Why an outcome can't be recorded against this record, or null if it can.
+ * Only a report sick a commander has approved, or an MA (recorded, no
+ * approval), is a visit a doctor's paper can come out of.
+ */
+export function outcomeParentRefusal(parent: VisitRow, personId: string): string | null {
+  if (parent.personId !== personId) return "That isn't yours.";
+  if (!VISIT_KINDS.includes(parent.kind)) return "An outcome goes on a report sick or a medical appointment.";
+  if (parent.kind === "MA" ? parent.state !== "RECORDED" : parent.state !== "APPROVED") {
+    return parent.state === "PENDING" ? "Your commander hasn't approved this report sick yet." : "That report sick wasn't approved, so there's no outcome to record.";
+  }
+  return null;
+}
+
+/**
+ * Whether the MC still has to go up on ONENS. An MC from the camp MO is on
+ * ONENS already; only a civilian doctor's is ever owed. An RSO says so by
+ * itself; an RSI is the MO; with no report sick above it (standalone, or an
+ * MA, which is usually at a civilian hospital) he's asked who he saw.
+ */
+export function onensFor(kind: WbRecordKind, parentKind: WbRecordKind | null, seenBy: WbSeenBy | null, uploaded: boolean): WbOnens {
+  if (kind !== "MC" && kind !== "HL") return "NA";
+  const civilian = parentKind === "RSO" || ((parentKind === null || parentKind === "MA") && seenBy === "CIVILIAN");
+  if (!civilian) return "NA";
+  return uploaded ? "DONE" : "OWED";
+}
+
+/** Whether the form asks "Who did you see?": only when no report sick says so. */
+export const asksSeenBy = (parentKind: WbRecordKind | null) => parentKind === null || parentKind === "MA";
+
+/**
+ * A record and whatever it produced (Sabre Bot's _void_kin). An RSO and the MC
+ * it turned into are one afternoon: voiding half of it leaves an MC belonging
+ * to a report sick that never happened. Direct children only, live only.
+ */
+export function kinOf<R extends { id: string; parentId: string | null; state: WbRecordState }>(head: R, rows: readonly R[]): R[] {
+  return [head, ...rows.filter((r) => r.parentId === head.id && r.id !== head.id && isLive(r.state))];
+}
+
+/** Statuses on one paper. More than this is a second entry. */
+export const MAX_STATUSES = 4;
 
 // ------------------------------------------------------------------ who
 
@@ -123,6 +194,15 @@ export function leaveRefusal(days: number, left: number): string | null {
     );
   }
   return null;
+}
+
+/**
+ * Who may read a diagnosis or a document photo: the trooper himself, his PC
+ * and PS, and OC/2IC/CSM. Not a GC, not another platoon, not an admin. Every
+ * read is audited (lib/wb/medical.ts).
+ */
+export function canSeeMedical(viewer: { personId: string | null; grants: readonly GrantRow[] }, r: Where & { personId: string }): boolean {
+  return (!!viewer.personId && viewer.personId === r.personId) || canDecide(viewer.grants, r);
 }
 
 // ------------------------------------------------------------------ what a viewer may do

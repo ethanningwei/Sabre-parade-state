@@ -44,3 +44,24 @@ export const LEAVE_REASONS = ["Holiday", "Family", "Wedding", "Religious", "Medi
 
 /** Annual leave is Singapore or Johor Bahru and nothing else: further is overseas leave. */
 export const AL_PLACES = ["SINGAPORE", "JOHOR BAHRU"] as const;
+
+/**
+ * What an MC or HL was for. One of these, always: the company's own reporting
+ * asks how many days went to what, and free text can't be counted. "Other" is
+ * allowed, and then the card says "Other": the doctor's words never go on a card.
+ */
+export const MC_CATEGORIES = [
+  "Respiratory",
+  "Gastrointestinal",
+  "Musculoskeletal",
+  "Dermatological",
+  "Psychiatric",
+  "Neurological",
+  "Eye condition",
+  "Ear-Nose-Throat",
+  "Dental",
+  "Medical Appointment",
+] as const;
+
+/** Common statuses as buttons, plus "Something else" typed as written on the paper. */
+export const STATUSES = ["LIGHT DUTY"] as const;

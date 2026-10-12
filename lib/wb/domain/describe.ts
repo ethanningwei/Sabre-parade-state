@@ -1,5 +1,5 @@
 import { toSgt } from "@/lib/parade/time";
-import { datesLabel, dayMonth, rangeLabel, type Range } from "./timeline";
+import { datesLabel, dayCount, dayMonth, rangeLabel, type Range } from "./timeline";
 import type { WbRecordKind, WbRecordState } from "./rules";
 
 // How a record reads, everywhere one is shown: cards, My records, the clash
@@ -41,14 +41,46 @@ export interface Describable extends Range {
   detail: string;
   location: string;
   maTiming: string | null;
+  /** MC/HL only. Never the diagnosis: this line goes on group cards. */
+  mcCategory?: string | null;
 }
 
-/** "AL 27/08–29/08", "MA 27/08 1530H @ NSC", "DV DRIVER COURSE @ MAJU CAMP 27/08–29/08". */
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * "AL 27/08–29/08", "MA 27/08 1530H @ NSC", "DV DRIVER COURSE @ MAJU CAMP 27/08–29/08",
+ * "RSO 14/10 @ RAFFLES MEDICAL", "MC 3 days · 14/10–16/10 · Respiratory",
+ * "LIGHT DUTY 17/10–20/10", "EXCUSE RMJ from 17/10 (permanent)".
+ *
+ * Safe for a group chat: an MC carries its category, never its diagnosis.
+ */
 export function recordWhat(r: Describable): string {
-  if (r.kind === "MA") return `MA ${dayMonth(toSgt(r.startAt).date)} ${r.maTiming}H @ ${r.location}`;
-  if (r.kind === "EVENT") return `${r.detail} ${datesLabel(r)}`;
-  return `${r.kind} ${rangeLabel(r)}`;
+  switch (r.kind) {
+    case "MA":
+      return `MA ${dayMonth(toSgt(r.startAt).date)} ${r.maTiming}H @ ${r.location}`;
+    case "EVENT":
+      return `${r.detail} ${datesLabel(r)}`;
+    case "RSI":
+      return `RSI ${datesLabel(r)}`;
+    case "RSO":
+      return `RSO ${datesLabel(r)}${r.location ? ` @ ${r.location}` : ""}`;
+    case "MC":
+    case "HL":
+      return [`${r.kind} ${plural(dayCount(r), "day")}`, datesLabel(r), r.mcCategory].filter(Boolean).join(" · ");
+    case "STATUS":
+      return `${r.detail} ${datesLabel(r)}${r.endAt ? "" : " (permanent)"}`;
+    default:
+      return `${r.kind} ${rangeLabel(r)}`;
+  }
 }
+
+/** "Respiratory", or "Other" for anything typed: what the company counts. */
+export function mcCategoryOf(chosen: string): string {
+  return chosen === "OTHER" ? "Other" : chosen;
+}
+
+/** A status as the paper says it: a listed one, or what he typed, upper case. */
+export const statusLabel = (type: string, other: string) => (type === "OTHER" ? other.trim().toUpperCase() : type);
 
 /** "AL 27/08–29/08 · approved": the clash warning's line. */
 export const recordLine = (r: Describable & { state: WbRecordState }) => `${recordWhat(r)} · ${STATE_LABEL[r.state]}`;
