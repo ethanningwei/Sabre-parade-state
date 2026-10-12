@@ -53,7 +53,7 @@
 - [ ] `WB_WEBHOOK_SECRET` (`openssl rand -hex 32`), `WB_ADMIN_TELEGRAM_IDS` (your id from `/whoami`) and `WB_APP_URL`, in `.env.local` and on the Vercel preview. See `.env.example`.
 - [ ] In @BotFather: `/newapp` for @sabreopsbot, title **Sabre**, short name **`app`** (the code builds `t.me/sabreopsbot/app`), URL `<WB_APP_URL>/tg`, a 640×360 photo. Privacy mode stays **on** (the default).
 - [ ] A test Telegram group with the user in it. Approval cards go there during development.
-- [ ] A Neon branch database for previews (free). Local development uses `sabre_dev`/`sabre_test` as for v1. Apply migration `0003_wb_foundation` to it (`DATABASE_URL=<branch url> npx drizzle-kit migrate`).
+- [ ] A Neon branch database for previews (free). **As of 2026-10-12 Vercel's Preview environment shares Production's `DATABASE_URL`** (same variables for both) and has no `AUTH_SECRET`/`APP_PASSWORD`, and preview deployments sit behind Vercel Authentication. Give the `whereabouts` branch its own Preview `DATABASE_URL` and `AUTH_SECRET`, and turn preview protection off, before testing with Telegram. Local development uses `sabre_dev`/`sabre_test` as for v1. Apply migration `0003_wb_foundation` to it (`DATABASE_URL=<branch url> npx drizzle-kit migrate`).
 
 ---
 
