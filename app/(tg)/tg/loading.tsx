@@ -1,8 +1,10 @@
 import { Bone, Group } from "@/components/tg/ui";
+import { isEnabled } from "@/lib/flags";
 
 // Shown at once while a /tg screen loads (Home, and any screen without its
 // own). Static: no data. The layout's flag check runs before this.
 export default function Loading() {
+  if (!isEnabled("WHEREABOUTS")) return null; // flag off: not even a skeleton in the 404
   return (
     <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading">
       <div className="flex flex-col gap-2 px-1">
