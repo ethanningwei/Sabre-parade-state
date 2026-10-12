@@ -19,7 +19,7 @@ export function TgShell({ signedIn, children }: { signedIn: boolean; children: R
   return (
     <>
       <Script src="https://telegram.org/js/telegram-web-app.js" strategy="afterInteractive" onReady={onReady} />
-      {ready && <TelegramChrome />}
+      {ready && <TelegramChrome signedIn={signedIn} />}
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(2rem+env(safe-area-inset-bottom))]">
         {signedIn ? children : <SignIn ready={ready} />}
       </main>
@@ -27,10 +27,21 @@ export function TgShell({ signedIn, children }: { signedIn: boolean; children: R
   );
 }
 
-/** Theme + BackButton. Rendered once the script has loaded. */
-function TelegramChrome() {
+/** Theme + BackButton, and deep links. Rendered once the script has loaded. */
+function TelegramChrome({ signedIn }: { signedIn: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
+  const followed = useRef(false);
+
+  // A t.me/<bot>/app?startapp=... link (a card's Open) always lands on /tg.
+  // Signed out, SignIn follows it after sign-in; signed in, follow it here,
+  // once, so Back to Home doesn't bounce to the record again.
+  useEffect(() => {
+    if (!signedIn || followed.current) return;
+    followed.current = true;
+    const to = startParamToPath(webApp()?.initDataUnsafe.start_param);
+    if (to !== "/tg" && pathname === "/tg") router.replace(to);
+  }, [signedIn, pathname, router]);
 
   useEffect(() => {
     const app = webApp();
