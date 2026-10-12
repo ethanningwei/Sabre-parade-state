@@ -43,7 +43,7 @@
 | 2 | Self-service timeline: AL/OL/OFF/MA/EVENT, approvals, leave balance, My records, void | ✅ Done 2026-10-12 (3c4b478…89bb596, pushed). Verified on the user's phone with @sabreopsbot on the preview: the full checklist (apply, card in the topic, approve/undo, reject/Say why, withdraw, MA/event, Approvals, void, Add for several men, Gaps, Open from a card) |
 | 3 | Medical: RSI/RSO → MC/HL/status outcomes, ONENS, evening round | ✅ Done 2026-10-12 (958b4a4…a382f5c, pushed), migration 0005 on the preview branch. Verified on the user's phone (the user, 2026-10-12). Medical data cleared for real use (no S6 involved) |
 | 3½ | UI/UX pass on the Mini App (not a phase): current-only records + Full history, restyle, motion, skeletons | ✅ Done 2026-10-12 (aa3949f…61513ca, pushed). Verified on the user's phone (the user, 2026-10-12) |
-| 4 | Shifts + forecast: patterns, HOTO, min manning, forecast grid, impact on cards | 🧪 Built 2026-10-12 (5f0ec8d…), **not pushed yet**. Migration 0006 and the agreed patterns/minimums (`scripts/wb-seed-shifts.ts`) are on the preview branch. **Waiting for the user's phone check** (checklist in §3a) |
+| 4 | Shifts + forecast: patterns, HOTO, min manning, forecast grid, impact on cards | 🧪 Built and pushed 2026-10-12 (5f0ec8d…2ae2cd1); preview built, commands re-registered. Migration 0006 and the agreed patterns/minimums (`scripts/wb-seed-shifts.ts`) are on the preview branch. **Waiting for the user's phone check** (checklist in §3a) |
 | 5 | RF requests + deploy | ⏳ Next. Spec in §3b |
 | 6 | Projection into the parade state (shadow diff first) | — |
 | 7 | Transport claims | — |
