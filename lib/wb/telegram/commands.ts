@@ -3,6 +3,7 @@
 /** Command menus per scope (setMyCommands). Privacy mode is on, so groups only see these. */
 export const PRIVATE_COMMANDS = [
   { command: "start", description: "Open Sabre" },
+  { command: "sick", description: "Report sick, or record an MC or status" },
   { command: "leave", description: "Apply for annual or overseas leave" },
   { command: "off", description: "Apply for off" },
   { command: "ma", description: "Report a medical appointment" },
@@ -13,6 +14,13 @@ export const PRIVATE_COMMANDS = [
 
 /** Quick commands: each is a button straight to a Mini App screen. */
 export const QUICK_COMMANDS: Record<string, { text: string; buttons: { label: string; route: string }[] }> = {
+  sick: {
+    text: "Report sick before you go. Back from the doctor? Record what he gave you from My records. Saw a doctor without reporting sick first?",
+    buttons: [
+      { label: "🤒 Report sick", route: "apply/sick" },
+      { label: "💊 Record an MC or status", route: "apply/outcome" },
+    ],
+  },
   leave: {
     text: "Which leave?",
     buttons: [

@@ -9,7 +9,8 @@ import { hasGrant, type GrantRow } from "@/lib/wb/auth";
 import { decide, sayWhy, undo, type Actor } from "@/lib/wb/decide";
 import { wbCommanderChat, wbConversation, wbGrant, wbMember } from "@/lib/wb/db/schema";
 import { memberLabel, recordView } from "@/lib/wb/records";
-import { CARD_CALLBACK } from "./cards";
+import { markOnens } from "@/lib/wb/outcome";
+import { CARD_CALLBACK, ONENS_CALLBACK } from "./cards";
 import { matchSubunit, QUICK_COMMANDS } from "./commands";
 import { miniAppLink, miniAppUrl } from "./links";
 import type { Outbound } from "./outbound";
@@ -30,7 +31,7 @@ const topicOf = (ctx: Context) => (ctx.msg?.is_topic_message ? (ctx.msg.message_
 
 async function start(ctx: Context) {
   if (ctx.chat?.type === "private") {
-    await ctx.reply("Sabre takes your report sick, MA, leave and off, and puts them in front of your commanders.", {
+    await ctx.reply("Sabre takes your report sick, MC, MA, leave and off, and puts them in front of your commanders.", {
       reply_markup: new InlineKeyboard().webApp("Open Sabre", miniAppUrl(appUrl())),
     });
     return;
@@ -103,7 +104,7 @@ async function here(ctx: Context) {
   await reply(`✅ ${target.name}'s approval cards will come to ${where}.${displaced}`);
 }
 
-/** /leave, /off, /ma, /event, /me: a button straight to that screen. */
+/** /sick, /leave, /off, /ma, /event, /me: a button straight to that screen. */
 async function quick(ctx: Context) {
   const name = (ctx.msg?.text ?? "").split(/[\s@]/)[0].slice(1).toLowerCase();
   const q = QUICK_COMMANDS[name];
@@ -170,6 +171,24 @@ async function onCard(ctx: Context) {
     .onConflictDoUpdate({ target: [wbConversation.telegramUserId, wbConversation.chatId], set: values });
 }
 
+/** "☁️ Uploaded" on the evening ONENS reminder: o:<recordId>. */
+async function onOnens(ctx: Context) {
+  const [, recordId] = ctx.match as RegExpMatchArray;
+  const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
+  if (!member?.registeredAt) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
+  const res = await markOnens(outboundOf(ctx), actorOf(member), recordId, "BOT");
+  if (!res.ok) return void (await ctx.answerCallbackQuery({ text: res.error, show_alert: true }));
+  await ctx.answerCallbackQuery({ text: "Marked as uploaded" });
+  // drop just this button; any other MC on the same reminder keeps its own
+  const kb = ctx.callbackQuery?.message?.reply_markup?.inline_keyboard ?? [];
+  const left = kb.filter((row) => !row.some((b) => "callback_data" in b && b.callback_data === ctx.callbackQuery?.data));
+  try {
+    await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: left } });
+  } catch (e) {
+    console.error("wb onens edit:", e);
+  }
+}
+
 /** A reply to a "Say why" prompt. Anything else passes through untouched. */
 async function onReply(ctx: Context, next: NextFunction) {
   const replyTo = ctx.msg?.reply_to_message;
@@ -201,6 +220,7 @@ export function createBot(token: string, botInfo?: UserFromGetMe): Bot {
   safe.command("here", here);
   safe.command(Object.keys(QUICK_COMMANDS), quick);
   safe.callbackQuery(CARD_CALLBACK, onCard);
+  safe.callbackQuery(ONENS_CALLBACK, onOnens);
   safe.on("message:text", onReply);
   // an old or unknown button: at least stop the spinner
   safe.on("callback_query:data", (ctx) => ctx.answerCallbackQuery());

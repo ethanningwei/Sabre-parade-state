@@ -1,13 +1,15 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import type { InlineKeyboardMarkup } from "grammy/types";
 import { db } from "@/lib/db";
 import { wbAudit } from "@/lib/wb/audit";
 import { wbCard, wbCommanderChat, wbMember, wbRecord, type WbRecordKind } from "@/lib/wb/db/schema";
 import { STATE_LABEL } from "@/lib/wb/domain/describe";
 import type { GrantRow } from "@/lib/wb/domain/grants";
-import { canDecide, initialState, leaveChange, nextState, undoRefusal, type RecordAction } from "@/lib/wb/domain/rules";
-import { memberLabel, recordView, type Db, type RecordView } from "@/lib/wb/records";
-import { cardKeyboard, cardText, noticeText } from "@/lib/wb/telegram/cards";
+import { canDecide, initialState, isLive, isOutcome, kinOf, leaveChange, nextState, undoRefusal, type RecordAction } from "@/lib/wb/domain/rules";
+import { memberLabel, recordView, recordViews, type Db, type RecordView } from "@/lib/wb/records";
+import { cardKeyboard, cardText, noticeText, outcomeCardText, outcomeKeyboard } from "@/lib/wb/telegram/cards";
+import { miniAppLink } from "@/lib/wb/telegram/links";
 import type { Outbound } from "@/lib/wb/telegram/outbound";
 
 // The decision core, shared by the bot's card buttons and the Mini App. Every
@@ -26,7 +28,7 @@ export interface Actor {
 export type Result = { ok: true; record: RecordView } | { ok: false; error: string; record?: RecordView };
 
 /** Thrown inside a transaction to roll it back with a message for the user. */
-class Refusal extends Error {}
+export class Refusal extends Error {}
 
 const NOTE_MAX = 300;
 
@@ -34,13 +36,29 @@ const NOTE_MAX = 300;
 
 const isNotModified = (e: unknown) => String((e as Error)?.message ?? e).includes("message is not modified");
 
-/** Edit every copy of a record's card to its current state. */
+/**
+ * Every row of one outcome: an MC and the statuses on the same paper. They're
+ * saved in one statement with one created_at, which is what ties them.
+ */
+export async function outcomeBatch(r: RecordView, tx: Db = db): Promise<RecordView[]> {
+  const ids = await tx
+    .select({ id: wbRecord.id })
+    .from(wbRecord)
+    .where(and(eq(wbRecord.personId, r.personId), eq(wbRecord.createdAt, r.createdAt), inArray(wbRecord.kind, ["MC", "HL", "STATUS"])));
+  const rows = await recordViews(ids.map((x) => x.id), tx);
+  return rows.sort((a, b) => (a.kind === "STATUS" ? 1 : 0) - (b.kind === "STATUS" ? 1 : 0) || a.startAt.getTime() - b.startAt.getTime());
+}
+
+/** Edit every copy of a record's card to its current state. An outcome's card shows the whole outcome. */
 export async function refreshCards(out: Outbound | null, r: RecordView): Promise<void> {
   if (!out) return;
-  const cards = await db.select().from(wbCard).where(eq(wbCard.recordId, r.id));
+  const batch = isOutcome(r.kind) ? await outcomeBatch(r) : [r];
+  const cards = await db.select().from(wbCard).where(inArray(wbCard.recordId, batch.map((x) => x.id)));
   for (const c of cards) {
+    const text = isOutcome(r.kind) ? outcomeCardText(batch) : cardText(r);
+    const reply_markup = isOutcome(r.kind) ? outcomeKeyboard(batch, out.botUsername) : cardKeyboard(r, out.botUsername);
     try {
-      await out.api.editMessageText(c.chatId, c.messageId, cardText(r), { reply_markup: cardKeyboard(r, out.botUsername) });
+      await out.api.editMessageText(c.chatId, c.messageId, text, { reply_markup });
     } catch (e) {
       if (!isNotModified(e)) console.error("wb card edit:", e);
     }
@@ -48,14 +66,21 @@ export async function refreshCards(out: Outbound | null, r: RecordView): Promise
 }
 
 /** A DM to the trooper. If he's blocked the bot, it's logged and life goes on. */
-async function tell(out: Outbound | null, r: RecordView, text: string): Promise<void> {
-  if (!out || !r.ownerTelegramId) return;
+export async function tell(out: Outbound | null, r: { ownerTelegramId: number | null }, text: string, reply_markup?: InlineKeyboardMarkup): Promise<boolean> {
+  if (!out || !r.ownerTelegramId) return false;
   try {
-    await out.api.sendMessage(r.ownerTelegramId, text);
+    await out.api.sendMessage(r.ownerTelegramId, text, reply_markup ? { reply_markup } : undefined);
+    return true;
   } catch (e) {
     console.error("wb dm:", e);
+    return false;
   }
 }
+
+/** A button straight to a record's outcome form. */
+export const outcomeButton = (out: Outbound, recordId: string): InlineKeyboardMarkup => ({
+  inline_keyboard: [[{ text: "💊 Update outcome", url: miniAppLink(out.botUsername, `records/${recordId}/outcome`) }]],
+});
 
 export type Delivery = "sent" | "no-chat" | "failed";
 
@@ -94,7 +119,7 @@ async function moveLeave(tx: Db, personId: string, delta: number, who: string): 
   await tx.update(wbMember).set({ leaveLeft: left + delta }).where(eq(wbMember.id, m.id));
 }
 
-async function inTx<T>(fn: (tx: Db) => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: string }> {
+export async function inTx<T>(fn: (tx: Db) => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: string }> {
   try {
     return { ok: true, value: await db.transaction(fn) };
   } catch (e) {
@@ -185,7 +210,8 @@ export async function decide(out: Outbound | null, actor: Actor, recordId: strin
   if (!res.value) {
     return { ok: false, error: `Already ${STATE_LABEL[after.state]}${after.deciderLabel ? ` by ${after.deciderLabel}` : ""}.`, record: after };
   }
-  await tell(out, after, noticeText(after, { kind: "decided" }));
+  const sickApproved = (after.kind === "RSI" || after.kind === "RSO") && after.state === "APPROVED";
+  await tell(out, after, noticeText(after, { kind: "decided" }), sickApproved && out ? outcomeButton(out, after.id) : undefined);
   return { ok: true, record: after };
 }
 
@@ -197,6 +223,8 @@ export async function undo(out: Outbound | null, actor: Actor, recordId: string,
     const label = row.decidedBy ? await memberLabel(row.decidedBy, tx) : "whoever decided it";
     const refusal = undoRefusal(row, actor.id, label);
     if (refusal) throw new Refusal(refusal);
+    const outcome = await tx.select({ id: wbRecord.id, state: wbRecord.state }).from(wbRecord).where(eq(wbRecord.parentId, recordId));
+    if (outcome.some((o) => isLive(o.state))) throw new Refusal("He's already recorded what the doctor gave him. Void it instead.");
     await tx
       .update(wbRecord)
       .set({ state: "PENDING", decidedBy: null, decidedAt: null, decisionNote: null, updatedAt: new Date() })
@@ -230,9 +258,10 @@ export async function withdraw(out: Outbound | null, actor: Actor, recordId: str
 }
 
 /**
- * A commander takes an approved or recorded entry off the timeline. Cancelled,
- * never deleted; whoever approved it stays on the row, and the voider and why
- * go in the note and the audit. Approved leave is refunded.
+ * A commander takes an approved or recorded entry off the timeline, with
+ * whatever it produced (an RSO and its MC are one afternoon). Cancelled, never
+ * deleted; whoever approved it stays on the row, and the voider and why go in
+ * the note and the audit. Approved leave is refunded.
  */
 export async function voidRecord(out: Outbound | null, actor: Actor, recordId: string, reason: string, via: Via): Promise<Result> {
   const before = await recordView(recordId);
@@ -241,23 +270,35 @@ export async function voidRecord(out: Outbound | null, actor: Actor, recordId: s
   const why = reason.trim().slice(0, NOTE_MAX);
   if (why.length < 3) return { ok: false, error: "Say why you're voiding it.", record: before };
   const by = await memberLabel(actor.id);
+  const note = `Voided by ${by}: ${why}`;
 
   const res = await inTx(async (tx) => {
     const [row] = await tx.select().from(wbRecord).where(eq(wbRecord.id, recordId)).for("update");
     if (!row || !nextState(row.state, "void")) throw new Refusal("Only an approved or recorded entry can be voided.");
+    const children = await tx.select({ id: wbRecord.id, parentId: wbRecord.parentId, state: wbRecord.state }).from(wbRecord).where(eq(wbRecord.parentId, recordId));
+    const kin = kinOf({ id: row.id, parentId: row.parentId, state: row.state }, children);
     await tx
       .update(wbRecord)
-      .set({ state: "CANCELLED", decisionNote: `Voided by ${by}: ${why}`, updatedAt: new Date() })
-      .where(eq(wbRecord.id, recordId));
+      .set({ state: "CANCELLED", decisionNote: note, updatedAt: new Date() })
+      .where(inArray(wbRecord.id, kin.map((k) => k.id)));
     const delta = leaveChange(row.kind, row.state, "void", row.leaveDays);
     if (delta) await moveLeave(tx, row.personId, delta, `${before.rank} ${before.name}`);
-    await wbAudit(tx, { memberId: actor.id, via, action: "void", entity: "wb_record", entityId: row.id, before: { state: row.state }, after: { state: "CANCELLED", note: why, leave: delta || undefined } });
-    return delta;
+    await wbAudit(tx, {
+      memberId: actor.id,
+      via,
+      action: "void",
+      entity: "wb_record",
+      entityId: row.id,
+      before: { state: row.state },
+      after: { state: "CANCELLED", note: why, leave: delta || undefined, alsoVoided: kin.length > 1 ? kin.slice(1).map((k) => k.id) : undefined },
+    });
+    return { delta, also: kin.slice(1).map((k) => k.id) };
   });
   if (!res.ok) return { ok: false, error: res.error, record: before };
   const after = (await recordView(recordId))!;
   await refreshCards(out, after);
-  await tell(out, after, noticeText(after, { kind: "voided", by, reason: why, refunded: res.value }));
+  for (const k of await recordViews(res.value.also)) await refreshCards(out, k);
+  await tell(out, after, noticeText(after, { kind: "voided", by, reason: why, refunded: res.value.delta }));
   return { ok: true, record: after };
 }
 

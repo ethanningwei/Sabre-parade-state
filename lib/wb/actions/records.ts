@@ -8,7 +8,7 @@ import { actionMember, type Member } from "@/lib/wb/auth";
 import { decide, sayWhy, submit, undo, voidRecord, withdraw, type Actor, type Delivery, type NewRecord, type Result } from "@/lib/wb/decide";
 import { eventDetail, leaveDetail, overseasWhere, reasonText } from "@/lib/wb/domain/describe";
 import { AL_PLACES, LEAVE_REASONS } from "@/lib/wb/domain/roles";
-import { canProxy, leaveRefusal, NOT_ON_ROSTER } from "@/lib/wb/domain/rules";
+import { canProxy, isAbsentKind, leaveRefusal, NOT_ON_ROSTER } from "@/lib/wb/domain/rules";
 import { checkRange, dayCount, dayRange, daysTouched, MAX_DAYS, todaySgt, type Range } from "@/lib/wb/domain/timeline";
 import { clashFor, personWhere } from "@/lib/wb/records";
 import { outbound, type Outbound } from "@/lib/wb/telegram/outbound";
@@ -154,6 +154,37 @@ export async function reportMa(input: z.input<typeof maInput>) {
     if (a.date < todaySgt()) throw new UserError("The appointment is in the past. Tell your PS instead.");
     const r = dayRange(a.date);
     return submitOwn({ kind: "MA", ...r, endAt: r.endAt!, absent: true, detail: "MA", maTiming: a.time, location: a.place.toUpperCase() });
+  });
+}
+
+const sickInput = z.object({
+  where: z.enum(["RSI", "RSO"], { message: "Say where you're reporting sick." }),
+  date: zDate,
+  clinic: z.string().trim().max(100).default(""),
+  symptoms: zText("what's wrong", 300),
+});
+
+/**
+ * Report sick (ports Sabre Bot's SICK): in camp (RSI) or outside (RSO), the
+ * day, the clinic for an RSO, and his symptoms for his commander. Waits for
+ * his PC or PS like leave. An RSO is away for the day; an RSI isn't.
+ */
+export async function reportSick(input: z.input<typeof sickInput>) {
+  requireFeature();
+  return run(async () => {
+    const a = sickInput.parse(input);
+    if (a.date < todaySgt()) throw new UserError("That day is over. Tell your PS instead.");
+    if (a.where === "RSO" && !a.clinic) throw new UserError("Say which clinic or hospital.");
+    const r = dayRange(a.date);
+    return submitOwn({
+      kind: a.where,
+      ...r,
+      endAt: r.endAt!,
+      absent: isAbsentKind(a.where),
+      detail: a.where,
+      location: a.where === "RSO" ? a.clinic.toUpperCase() : "",
+      reason: a.symptoms,
+    });
   });
 }
 

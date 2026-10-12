@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, gt, inArray, isNull, lt, or, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, inArray, isNull, lt, or, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import { camp, duty, person, subunit } from "@/lib/db/schema";
@@ -18,8 +18,14 @@ const decider = alias(wbMember, "decider");
 const deciderPerson = alias(person, "decider_person");
 const owner = alias(wbMember, "owner");
 
+// The diagnosis and the photo's file_id are left out of every view: a view
+// reaches pages, cards and DMs. They're read only through lib/wb/medical.ts,
+// which checks who's asking and audits the read.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const { diagnosis: _diagnosis, evidenceFileId: _evidence, ...openColumns } = getTableColumns(wbRecord);
+
 const viewColumns = {
-  r: wbRecord,
+  r: openColumns,
   rank: person.rank,
   name: person.name,
   campId: camp.id,
@@ -34,7 +40,7 @@ const viewColumns = {
   ownerLeaveLeft: owner.leaveLeft,
 };
 
-export type RecordRow = typeof wbRecord.$inferSelect;
+export type RecordRow = Omit<typeof wbRecord.$inferSelect, "diagnosis" | "evidenceFileId">;
 
 export interface RecordView extends RecordRow {
   rank: string;
@@ -88,6 +94,24 @@ export async function recordView(id: string, tx: Db = db): Promise<RecordView | 
 /** A person's records, newest first. */
 export async function recordsOfPerson(personId: string, limit = 50): Promise<RecordView[]> {
   const rows = await views(db, eq(wbRecord.personId, personId)).orderBy(desc(wbRecord.startAt), desc(wbRecord.createdAt)).limit(limit);
+  return rows.map(toView);
+}
+
+/** Records matching a condition, as views (the evening round's queries). */
+export async function findViews(where: SQL, tx: Db = db): Promise<RecordView[]> {
+  return (await views(tx, where).orderBy(asc(wbRecord.startAt))).map(toView);
+}
+
+/** Several records by id (any order). */
+export async function recordViews(ids: readonly string[], tx: Db = db): Promise<RecordView[]> {
+  if (!ids.length) return [];
+  return (await views(tx, inArray(wbRecord.id, [...ids]))).map(toView);
+}
+
+/** The direct children of these records (outcomes of a visit, statuses under a standalone MC), oldest first. */
+export async function childrenOf(parentIds: readonly string[], tx: Db = db): Promise<RecordView[]> {
+  if (!parentIds.length) return [];
+  const rows = await views(tx, inArray(wbRecord.parentId, [...parentIds])).orderBy(asc(wbRecord.createdAt), asc(wbRecord.startAt));
   return rows.map(toView);
 }
 
