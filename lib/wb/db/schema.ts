@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   bigint,
   boolean,
@@ -16,6 +17,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { camp, person, subunit } from "../../db/schema";
 import { WB_ROLES, type WbRole } from "../domain/roles";
+import { WB_RECORD_KINDS, WB_RECORD_STATES, type WbRecordKind, type WbRecordState } from "../domain/rules";
 
 // ---------------------------------------------------------------------------
 // Whereabouts (FEATURE_WHEREABOUTS). Additive only: every table, enum and
@@ -136,4 +138,92 @@ export const wbAudit = pgTable(
     at: tstz("at").defaultNow().notNull(),
   },
   (t) => [index("wb_audit_at_idx").on(t.at), index("wb_audit_entity_idx").on(t.entity, t.entityId)],
+);
+
+// ---------------------------------------------------------------------------
+// Phase 2: the timeline.
+// ---------------------------------------------------------------------------
+
+export { WB_RECORD_KINDS, WB_RECORD_STATES, type WbRecordKind, type WbRecordState };
+
+export const wbRecordKind = pgEnum("wb_record_kind", WB_RECORD_KINDS);
+export const wbRecordState = pgEnum("wb_record_state", WB_RECORD_STATES);
+export const wbCreatedVia = pgEnum("wb_created_via", ["SELF", "PROXY", "IMPORT"]);
+
+/**
+ * The timeline: one row per fact about one trooper. Ranges are half-open
+ * [start_at, end_at). A date range D1..D2 is [D1 00:00 SGT, D2+1 00:00 SGT).
+ *
+ * person_id cascades: v1's Sheets re-import deletes and recreates every
+ * person, and a RESTRICT here would make that import fail. See status §6.
+ */
+export const wbRecord = pgTable(
+  "wb_record",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => person.id, { onDelete: "cascade" }),
+    /** who it's about, when they're a member; null for proxy entries */
+    memberId: uuid("member_id").references(() => wbMember.id, { onDelete: "set null" }),
+    kind: wbRecordKind("kind").notNull(),
+    parentId: uuid("parent_id").references((): AnyPgColumn => wbRecord.id, { onDelete: "cascade" }),
+    startAt: tstz("start_at").notNull(),
+    /** null = open-ended (a permanent status, Phase 3) */
+    endAt: tstz("end_at"),
+    absent: boolean("absent").notNull(),
+    state: wbRecordState("state").notNull(),
+    decidedBy: uuid("decided_by").references(() => wbMember.id, { onDelete: "set null" }),
+    decidedAt: tstz("decided_at"),
+    decisionNote: text("decision_note"),
+    /** AL/OL only: the days it costs */
+    leaveDays: integer("leave_days"),
+    /** e.g. "AL @ JOHOR BAHRU", "DV DRIVER COURSE @ MAJU CAMP" */
+    detail: text("detail").default("").notNull(),
+    location: text("location").default("").notNull(),
+    reason: text("reason").default("").notNull(),
+    /** MA only, HHMM */
+    maTiming: text("ma_timing"),
+    createdBy: uuid("created_by").references(() => wbMember.id, { onDelete: "set null" }),
+    createdVia: wbCreatedVia("created_via").notNull(),
+    createdAt: tstz("created_at").defaultNow().notNull(),
+    updatedAt: tstz("updated_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("wb_record_person_range_idx").on(t.personId, t.startAt, t.endAt),
+    index("wb_record_state_idx").on(t.state),
+    check("wb_record_range", sql`${t.endAt} is null or ${t.endAt} > ${t.startAt}`),
+  ],
+);
+
+/** One row per approval card sent, so a decision can edit every copy. */
+export const wbCard = pgTable(
+  "wb_card",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    recordId: uuid("record_id")
+      .notNull()
+      .references(() => wbRecord.id, { onDelete: "cascade" }),
+    chatId: tgId("chat_id").notNull(),
+    threadId: tgId("thread_id"),
+    messageId: integer("message_id").notNull(),
+    sentAt: tstz("sent_at").defaultNow().notNull(),
+  },
+  (t) => [index("wb_card_record_idx").on(t.recordId)],
+);
+
+/** Bot flow state, one per user per chat. Phase 2 uses it only for "Say why". */
+export const wbConversation = pgTable(
+  "wb_conversation",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    telegramUserId: tgId("telegram_user_id").notNull(),
+    chatId: tgId("chat_id").notNull(),
+    flow: text("flow").notNull(),
+    step: text("step").default("").notNull(),
+    answers: jsonb("answers").default({}).notNull(),
+    ctx: jsonb("ctx").default({}).notNull(),
+    updatedAt: tstz("updated_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("wb_conversation_user_chat_uq").on(t.telegramUserId, t.chatId)],
 );

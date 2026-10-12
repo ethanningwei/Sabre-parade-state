@@ -38,3 +38,9 @@ export function roleOf(raw: string | null | undefined): string {
   const text = (raw ?? "").toUpperCase().split(/\s+/).filter(Boolean).join(" ");
   return ROLE_ALIASES[text] ?? text;
 }
+
+/** What leave is for (Sabre Bot's LEAVE_REASONS). Anything else is typed. */
+export const LEAVE_REASONS = ["Holiday", "Family", "Wedding", "Religious", "Medical"] as const;
+
+/** Annual leave is Singapore or Johor Bahru and nothing else: further is overseas leave. */
+export const AL_PLACES = ["SINGAPORE", "JOHOR BAHRU"] as const;

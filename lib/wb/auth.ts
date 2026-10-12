@@ -8,6 +8,7 @@ import { ForbiddenError } from "@/lib/authz";
 import { db } from "@/lib/db";
 import { wbGrant, wbMember, type WbRole } from "@/lib/wb/db/schema";
 import { wbAudit } from "@/lib/wb/audit";
+import { hasGrant, type GrantRow, type GrantScope } from "@/lib/wb/domain/grants";
 
 // Mini App sign-in. Telegram signs `initData` with the bot token; we check it,
 // then hand out our own stateless cookie so later requests don't need it.
@@ -124,29 +125,7 @@ export function verifySession(
 
 // ------------------------------------------------------------------ grants
 
-export type GrantRow = Pick<typeof wbGrant.$inferSelect, "role" | "subunitId" | "campId">;
-
-/**
- * What a check is about:
- *   "any"      holding the role anywhere is enough (e.g. seeing Gaps)
- *   "company"  only a company-wide grant will do
- *   {subunitId, campId?}  a platoon, or a camp in it: a company-wide grant,
- *              a grant for that platoon, or a grant for that very camp
- */
-export type GrantScope = "any" | "company" | { subunitId: string; campId?: string | null };
-
-export function grantCovers(g: GrantRow, roles: readonly WbRole[], scope: GrantScope): boolean {
-  if (!roles.includes(g.role)) return false;
-  if (scope === "any") return true;
-  const companyWide = !g.subunitId && !g.campId;
-  if (companyWide) return true;
-  if (scope === "company") return false;
-  if (g.subunitId) return g.subunitId === scope.subunitId;
-  return !!scope.campId && g.campId === scope.campId;
-}
-
-export const hasGrant = (grants: readonly GrantRow[], roles: readonly WbRole[], scope: GrantScope) =>
-  grants.some((g) => grantCovers(g, roles, scope));
+export { grantCovers, hasGrant, type GrantRow, type GrantScope } from "@/lib/wb/domain/grants";
 
 /** WB_ADMIN_TELEGRAM_IDS: comma-separated Telegram user ids that are always ADMIN. */
 export function bootstrapAdminIds(): number[] {
