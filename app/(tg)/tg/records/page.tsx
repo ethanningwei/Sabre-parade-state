@@ -6,6 +6,7 @@ import { RecordSummary } from "@/components/tg/record-summary";
 import { buttonVariants } from "@/components/ui/button";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
+import { outcomeOrder } from "@/lib/wb/decide";
 import { accessTo, isLive, VISIT_KINDS } from "@/lib/wb/domain/rules";
 import { rosterSelf } from "@/lib/wb/me";
 import { recordsOfPerson } from "@/lib/wb/records";
@@ -24,6 +25,7 @@ export default async function MyRecordsPage() {
   for (const r of all) {
     if (r.parentId && ids.has(r.parentId) && isLive(r.state)) under.set(r.parentId, [...(under.get(r.parentId) ?? []), r]);
   }
+  for (const kids of under.values()) outcomeOrder(kids);
   // children are shown under their parent; dead outcomes (corrected, voided with their visit) drop out
   const records = all.filter((r) => !(r.parentId && ids.has(r.parentId)) && !(r.state === "CANCELLED" && r.decisionNote?.startsWith("Corrected by")));
   const waiting = (r: (typeof all)[number]) =>

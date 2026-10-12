@@ -17,6 +17,7 @@ export function VisitSection({
   photoId,
   outcomeHref,
   canMarkOnens,
+  own,
 }: {
   outcome: RecordView[];
   /** an outcome (or "nothing given") is in */
@@ -27,6 +28,8 @@ export function VisitSection({
   /** the trooper's own Update/Correct link; null for anyone else */
   outcomeHref: string | null;
   canMarkOnens: boolean;
+  /** the trooper looking at his own */
+  own: boolean;
 }) {
   const owed = outcome.find((r) => r.onens === "OWED");
   const done = outcome.find((r) => r.onens === "DONE");
@@ -64,7 +67,8 @@ export function VisitSection({
       )}
       {(diagnoses?.size || photoId) && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Lock className="size-3" /> Only he, his PC and PS, and OC, 2IC and CSM see this. Each look is logged.
+          <Lock className="size-3 shrink-0" />
+          {own ? "Only you, your PC and PS, and OC, 2IC and CSM see this." : "Only he, his PC and PS, and OC, 2IC and CSM see this."} Each look is logged.
         </p>
       )}
       {owed && canMarkOnens && <OnensButton recordId={owed.id} />}

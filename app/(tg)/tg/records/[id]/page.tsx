@@ -46,7 +46,8 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
     <div className="flex flex-col gap-4">
       <Header title={KIND_LABEL[r.kind]} hint={`${r.rank} ${r.name} · ${r.campName} · ${r.subunitName}`} />
       <RecordSummary r={r}>
-        <RecordActions recordId={r.id} can={can} />
+        {/* once he's recorded what the doctor gave, the approval can only be voided (decide.ts undo refuses too) */}
+        <RecordActions recordId={r.id} can={visit && r.id === visit.anchor.id && visit.outcome.length ? { ...can, undo: false } : can} />
       </RecordSummary>
       {visit && showVisit && (
         <VisitSection
@@ -56,6 +57,7 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
           photoId={photo}
           outcomeHref={canOutcome ? `/tg/records/${visit.anchor.id}/outcome` : null}
           canMarkOnens={owner || canDecide(member.grants, visit.anchor)}
+          own={owner}
         />
       )}
       <p className="text-xs text-muted-foreground">
