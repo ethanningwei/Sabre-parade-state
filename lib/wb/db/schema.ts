@@ -15,6 +15,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { camp, person, subunit } from "../../db/schema";
+import { WB_ROLES, type WbRole } from "../domain/roles";
 
 // ---------------------------------------------------------------------------
 // Whereabouts (FEATURE_WHEREABOUTS). Additive only: every table, enum and
@@ -71,8 +72,7 @@ export const wbMember = pgTable(
   ],
 );
 
-export const WB_ROLES = ["GC", "PS", "PC", "2IC", "OC", "CSM", "ASA", "ADMIN"] as const;
-export type WbRole = (typeof WB_ROLES)[number];
+export { WB_ROLES, type WbRole };
 export const wbRole = pgEnum("wb_role", WB_ROLES);
 
 /**

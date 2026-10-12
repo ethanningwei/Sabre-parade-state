@@ -1,4 +1,4 @@
-import type { WbRole } from "@/lib/wb/db/schema";
+import type { WbRole } from "@/lib/wb/domain/roles";
 
 // Who may use which Phase 1 screen or command. Scope is checked separately.
 
