@@ -36,7 +36,7 @@ Yes, this is possible. Four rules guarantee it:
 
    `lib/parade/` is **never edited**, so parity is untouched.
 4. **Separate Telegram bot.**
-   - The whereabouts bot gets its **own token** (`WB_BOT_TOKEN`, e.g. `@sabrecoybot`). That bot uses a webhook, which would break the old parade-state bot if it were polling the same token.
+   - The whereabouts bot gets its **own token** (`WB_BOT_TOKEN`, @sabreopsbot). That bot uses a webhook, which would break the old parade-state bot if it were polling the same token.
    - The parade-state send button keeps `TELEGRAM_BOT_TOKEN`.
    - Sabre Bot's token sits in plaintext in `temp.txt`. Don't reuse it unless it's been rotated.
 
