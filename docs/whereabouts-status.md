@@ -40,7 +40,7 @@
 |---|---|---|
 | 0 | Freeze v1, branch, plan | ✅ Done 2026-10-12: `v1.0` tag (pushed), `whereabouts` branch, plan committed |
 | 1 | Foundation: flags, schema, Mini App shell + auth, registration, grants, `/here`, Gaps | ✅ Done 2026-10-12 (6e961be…9ecdbd2, pushed). Verified on the user's phone with @sabreopsbot on the Vercel preview: registration worked and `/here` linked the test group |
-| 2 | Self-service timeline: AL/OL/OFF/MA/EVENT, approvals, leave balance, My records, void | ✅ Built 2026-10-12 (3c4b478…). Tests, build and a local walkthrough green; migration 0004 on the preview branch. **Phone check with the real bot pending** (user's checklist) |
+| 2 | Self-service timeline: AL/OL/OFF/MA/EVENT, approvals, leave balance, My records, void | ✅ Done 2026-10-12 (3c4b478…89bb596, pushed). Verified on the user's phone with @sabreopsbot on the preview: the full checklist (apply, card in the topic, approve/undo, reject/Say why, withdraw, MA/event, Approvals, void, Add for several men, Gaps, Open from a card) |
 | 3 | Medical: RSI/RSO → MC/HL/status outcomes, ONENS, evening round. **S6 sign-off before live** | ⏳ Next. Spec in §3b |
 | 4 | Shifts + forecast: patterns, HOTO, min manning, forecast grid, impact on cards | — |
 | 5 | RF requests + deploy | — |
@@ -89,7 +89,7 @@
 **Verified 2026-10-12 (Phase 2):**
 - 217 tests, typecheck, lint and `next build` green. `git diff v1.0` touches no v1 app code beyond Phase 1's approved files; `lib/parade/` is unchanged; migration 0004 only adds `wb_` objects.
 - Locally (flag on, throwaway token, `sabre_dev`) on a 375px viewport: AL across Deepavali (8 and 9 Nov pre-unticked, 2 days charged) → "Saved, but PLATOON 6 has no commanders chat yet" → Approvals → Approve (balance 14 → 12) → Undo (back to pending, balance back) → Reject with a reason → Add for several men (2 picked, IPPT 0800–1200) → Home shows it under Next → Gaps "Your platoon only", collapsed by platoon.
-- **Not yet verified on a phone** with the real bot: cards in the test group's topic, tapping Approve/Undo/Say why there, DMs. That's the user's checklist after pushing.
+- On the user's phone with the real bot (2026-10-12): cards in the test group's topic, Approve/Undo/Say why there, DMs, and a card's Open landing on the record whether or not the Mini App was already signed in.
 
 **Gotchas (Phases 1–2):**
 - `notFound()` inside `run()` is swallowed into "Something went wrong", so server actions call `requireFeature()` **before** `return run(…)`. The guard test checks this pattern (and its regex needs the parameter list without parentheses inside it).
