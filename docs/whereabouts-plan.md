@@ -1,5 +1,7 @@
 # Sabre Whereabouts: a Telegram bot and Mini App on top of the parade-state app
 
+> This is the **design**. For progress, the next phase's spec, ground rules, decisions and open questions, see [whereabouts-status.md](whereabouts-status.md).
+
 ## Context
 Sabre coy (8SIR) has two standalone tools today:
 - **The parade-state web app** (`~/Developer/Sabre`). It's live on Vercel/Neon, produces output identical to the old bot, and is about to be rolled out. GCs mark who is absent *now*.
@@ -181,6 +183,15 @@ Decide-once is enforced in the database (`UPDATE … WHERE state='PENDING'`). Th
 - **GC:** Camp check (expected people at CAA; tap only the differences) · HOTO · Raise RF.
 - **PS/PC:** Approvals · Today and Day (platoon) · Forecast grid · Person history · Add for several men · Void · RF board · Gaps · ONENS owed.
 - **OC/2IC/CSM/ASA:** company Forecast · Claims (OC decides) · Grants and commander-chat admin · a link to the v1 parade-state web app.
+
+**Which chats the bot is in** (full table in whereabouts-status.md §4):
+- each trooper's DM;
+- each platoon commanders' chat, linked with `/here`;
+- the COY HQ chat.
+
+It is never in troopers' platoon groups or the parade-state topic. Approving needs a `wb_grant`; being in the chat is not enough. Privacy mode stays on.
+
+**Cost:** must stay free (Vercel Hobby, Neon free, Telegram). Crons run daily only.
 
 **Bot (thin):**
 - `/start` opens the Mini App.
