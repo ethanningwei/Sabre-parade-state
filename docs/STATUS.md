@@ -103,6 +103,8 @@ The parade-state engine is `lib/parade/` (pure TypeScript, no I/O). Its output m
 
 ## 5. v2: where to start
 
+> **Update 2026-10-12:** v2 is under way as **whereabouts** (a Telegram bot + Mini App behind `FEATURE_*` flags) on the `whereabouts` branch. Its progress, rules and next phase are in [whereabouts-status.md](whereabouts-status.md); this section is kept for history.
+
 The user's planned modules, in the order they mentioned them: **report sick handling, MC tracking, leave tracking, transport claims**, and others.
 
 What already helps:

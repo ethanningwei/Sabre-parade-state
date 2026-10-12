@@ -1,6 +1,6 @@
 # Whereabouts: status and handover
 
-**New session? Read this file first, then [whereabouts-plan.md](whereabouts-plan.md)** (the design: tables, flows, phases). After that, read `docs/STATUS.md` for the v1 domain rules this builds on.
+**New session? Start from the kickoff prompt in [whereabouts-kickoff.md](whereabouts-kickoff.md).** Read this file first, then [whereabouts-plan.md](whereabouts-plan.md) (the design: tables, flows, phases). After that, read `docs/STATUS.md` for the v1 domain rules this builds on.
 
 - **Branch:** `whereabouts`. Never commit whereabouts work to `main` directly. `main` is the live parade-state app.
 - **Tag:** `v1.0` (6486fb2) is the parade-state app before any whereabouts work.
@@ -39,7 +39,7 @@
 | Phase | Scope | State |
 |---|---|---|
 | 0 | Freeze v1, branch, plan | ✅ Done 2026-10-12: `v1.0` tag (pushed), `whereabouts` branch, plan committed |
-| 1 | Foundation: flags, schema, Mini App shell + auth, registration, grants, `/here`, Gaps | ✅ Built 2026-10-12 (commits 6e961be…9ecdbd2). Tests, typecheck, lint and `next build` green. **Not yet pushed** (`origin/whereabouts` is at 4bb5cda); not yet tried with the real bot (§3a) |
+| 1 | Foundation: flags, schema, Mini App shell + auth, registration, grants, `/here`, Gaps | ✅ Done 2026-10-12 (6e961be…9ecdbd2, pushed). Verified on the user's phone with @sabreopsbot on the Vercel preview: registration worked and `/here` linked the test group |
 | 2 | Self-service timeline: AL/OL/OFF/MA/EVENT, approvals, leave balance, My records, void | ⏳ Next. Spec in §3b |
 | 3 | Medical: RSI/RSO → MC/HL/status outcomes, ONENS, evening round. **S6 sign-off before live** | — |
 | 4 | Shifts + forecast: patterns, HOTO, min manning, forecast grid, impact on cards | — |
@@ -51,8 +51,8 @@
 - [x] A bot made with @BotFather: **@sabreopsbot** (confirmed by the user 2026-10-12).
 - [x] `WB_BOT_TOKEN` in `.env.local` and on Vercel Preview (branch `whereabouts`), 2026-10-12. The user puts it there; it's never pasted into chat. @sabreopsbot's token was in `.env.local` under `TELEGRAM_BOT_TOKEN`; rename that line to `WB_BOT_TOKEN`, and put the **old parade-state bot's** token back as `TELEGRAM_BOT_TOKEN` (the v1 Send button uses it).
 - [x] `WB_WEBHOOK_SECRET` (`openssl rand -hex 32`), `WB_ADMIN_TELEGRAM_IDS` (your id from `/whoami`) and `WB_APP_URL`, in `.env.local` and on the Vercel preview. See `.env.example`.
-- [ ] In @BotFather: `/newapp` for @sabreopsbot, title **Sabre**, short name **`app`** (the code builds `t.me/sabreopsbot/app`), URL `<WB_APP_URL>/tg`, a 640×360 photo. Privacy mode stays **on** (the default).
-- [ ] A test Telegram group with the user in it. Approval cards go there during development.
+- [ ] (Unconfirmed) In @BotFather: `/newapp` for @sabreopsbot, title **Sabre**, short name **`app`** (the code builds `t.me/sabreopsbot/app`), URL `<WB_APP_URL>/tg`, a 640×360 photo. Privacy mode stays **on** (the default).
+- [x] A test Telegram group with the user in it (linked with `/here`, 2026-10-12). Approval cards go there during development.
 - [x] A Neon branch database for previews (free): branch `whereabouts`, migrated to 0003, set as the Preview `DATABASE_URL` for branch `whereabouts` with its own `AUTH_SECRET`; preview protection off; webhook set (2026-10-12). Old note: **As of 2026-10-12 Vercel's Preview environment shares Production's `DATABASE_URL`** (same variables for both) and has no `AUTH_SECRET`/`APP_PASSWORD`, and preview deployments sit behind Vercel Authentication. Give the `whereabouts` branch its own Preview `DATABASE_URL` and `AUTH_SECRET`, and turn preview protection off, before testing with Telegram. Local development uses `sabre_dev`/`sabre_test` as for v1. Apply migration `0003_wb_foundation` to it (`DATABASE_URL=<branch url> npx drizzle-kit migrate`).
 
 ---
@@ -60,11 +60,15 @@
 ## 3. Handover
 
 ### 3a. Phase 1: what exists now
-**Try it with the real bot** (the last "Done when" item, which needs the user):
-1. Fill in the prerequisites in §2 (`WB_BOT_TOKEN`, `WB_WEBHOOK_SECRET`, `WB_ADMIN_TELEGRAM_IDS`, `WB_APP_URL`, BotFather `/newapp`).
-2. Put `FEATURE_WHEREABOUTS=1` on the **preview** environment only (or run `next dev` behind a tunnel such as `cloudflared tunnel --url http://localhost:3000` and set `WB_APP_URL` to it).
-3. `npm run wb:setup -- webhook`, then `-- menu` and `-- commands`. `npm run wb:setup -- status` shows the bot, privacy mode, the webhook and its last error.
-4. On your phone: open the bot, `/start`, **Open Sabre**, register. You're ADMIN because of `WB_ADMIN_TELEGRAM_IDS`. In Admin › Grants, grant yourself PS of a platoon. Add the bot to the test group and send `/here PLATOON 6` (use the command menu, so it's sent as `/here@<bot>`).
+**Preview environment (set up 2026-10-12; use it for every phase):**
+| | |
+|---|---|
+| URL | `https://sabre-git-whereabouts-ning-8b5f.vercel.app` (stable alias for the latest `whereabouts` build). Mini App at `/tg`. Vercel Authentication is **off** for previews |
+| Vercel env | Preview, branch `whereabouts` only: `DATABASE_URL` (Neon branch), `AUTH_SECRET`, `FEATURE_WHEREABOUTS=1`, `WB_BOT_TOKEN`, `WB_WEBHOOK_SECRET`, `WB_APP_URL`, `WB_ADMIN_TELEGRAM_IDS`. No `TELEGRAM_BOT_TOKEN`, so a preview can't send a parade state. Production has none of the `WB_*`/`FEATURE_*` variables |
+| Database | Neon branch `whereabouts` (copy of production taken 2026-10-12: real roster, 214 active people). Its unpooled URL is `WB_PREVIEW_DATABASE_URL` in `.env.local`. **Apply each new migration to it before pushing:** `DATABASE_URL="$WB_PREVIEW_DATABASE_URL" npx drizzle-kit migrate` (load `.env.local` first, e.g. `set -a; . ./.env.local; set +a`) |
+| Bot | @sabreopsbot, webhook → `<preview>/api/wb/telegram`, privacy mode on. `npm run wb:setup -- status` (reads `WB_WEBHOOK_SECRET`/`WB_APP_URL` from `.env.local`) shows the webhook's last error; re-run `-- commands` after changing the command lists |
+| Accounts | The user (Telegram id in `WB_ADMIN_TELEGRAM_IDS`) is registered, ADMIN, and PS of a platoon; a test group is linked with `/here` |
+| Local | `.env.local` has `WB_BOT_TOKEN` (no `TELEGRAM_BOT_TOKEN`), `WB_WEBHOOK_SECRET`, `WB_APP_URL`, `WB_ADMIN_TELEGRAM_IDS`, `WB_PREVIEW_DATABASE_URL`. `FEATURE_WHEREABOUTS` is not set locally; for a local run, prefix `FEATURE_WHEREABOUTS=1` and sign in with test initData signed with a throwaway `WB_BOT_TOKEN` (see the Phase 1 verification) |
 
 **Where things are:**
 | | |
@@ -82,7 +86,8 @@
 - 132 tests, typecheck, lint and `next build` green. `git diff v1.0` touches no v1 app code; `lib/parade/` is unchanged.
 - Locally with flags off: every `/tg/*` page and `/api/wb/*` route returns 404; v1 redirects to `/login` as before.
 - Locally with flags on, using test `initData` signed with a throwaway token: sign-in → Register (too-many, one match, bad ORD rejected, full NRIC stored as its last 4) → Home → Admin › Grants (PS · PLATOON 6) → Gaps → Members. The Telegram theme applies.
-- **Not yet verified:** a real phone inside Telegram, Telegram Web's iframe (the partitioned cookie), and `/here` against the real Bot API.
+- On the user's phone in Telegram (preview + @sabreopsbot): `/start` → Open Sabre → registration, and `/here` in the test group.
+- **Not yet verified:** Telegram Desktop/Web (the iframe and partitioned cookie), and the ☰ menu button (see §6).
 
 **Phase 1 gotchas for later phases:**
 - `notFound()` inside `run()` is swallowed into "Something went wrong", so server actions call `requireFeature()` **before** `return run(…)`. The guard test checks this pattern.
@@ -92,6 +97,8 @@
 - The Sheets re-import (`npm run import`) deletes and recreates every `person`. After whereabouts is live, a re-import would unlink every member (`person_id` → null) and drop camp/platoon grants. See §6.
 
 ### 3b. Next phase: Phase 2 (Self-service timeline, shadow mode)
+**Before building, settle with the user** the §6 questions marked *(Phase 2)*, and confirm the proposed decision at the end of §5 (SELF members can't apply until they're on the roster).
+
 **Goal:** a registered trooper applies for AL, OL and OFF in the Mini App and reports MA and events; his PC or PS approves or rejects from a card in the platoon's commanders chat (Undo for 10 minutes, Say why after a reject); leave is deducted on approval. He sees everything in My records and can withdraw what's pending; a commander can void. A commander can add an event for several men at once. **Nothing reaches the parade state** (`FEATURE_PROJECTION` stays off), so v1 is unaffected.
 
 **Build:**
@@ -182,8 +189,8 @@
 ---
 
 ## 6. Open questions
-- Are GCs in the platoon commanders' chats today, or do they get only DMs?
-- Does each platoon have its own commanders' chat, or is it one forum group with a topic per platoon?
+- *(Phase 2)* Are GCs in the platoon commanders' chats today, or do they get only DMs?
+- *(Phase 2)* Does each platoon have its own commanders' chat, or is it one forum group with a topic per platoon?
 - The cycle lengths and anchor dates for each paired camp (needed in Phase 4).
 - Minimum manning per camp, in `GC:ST CBT:ST SVC` form (needed in Phase 4).
 - S6 position on storing medical data and photos (needed before Phase 3 goes live).
@@ -192,6 +199,6 @@
 - `setChatMenuButton` returns ok but `getChatMenuButton` still reports `commands`; if the ☰ button doesn't open Sabre, set it in BotFather (Bot Settings › Menu Button).
 - Is Vercel's `TELEGRAM_BOT_TOKEN` (production) still the old parade-state bot? Locally it had been set to @sabreopsbot. If production has it too, the v1 Send button posts as @sabreopsbot.
 - **Sheets re-import vs whereabouts.** `npm run import` deletes and recreates every `person`, which would unlink every member and drop platoon/camp-scoped grants. Before whereabouts goes live, either stop re-importing (the STATUS.md cutover plan) or make the import update people in place. Changing the import touches v1, so it needs the user's go-ahead.
-- Should a PS see Gaps for the whole company or only their platoon? Phase 2 plans "own platoon by default" (§3b item 6).
-- Public holiday list for leave days (Phase 2): hard-code MOM's published dates for 2026–2028, or something else?
-- Do GCs approve anything, or only PC/PS? Phase 2 assumes only PC/PS (and OC/2IC/CSM company-wide), as in the plan.
+- *(Phase 2)* Should a PS see Gaps for the whole company or only their platoon? Phase 2 plans "own platoon by default" (§3b item 6).
+- *(Phase 2)* Public holiday list for leave days: hard-code MOM's published dates for 2026–2028, or something else?
+- *(Phase 2)* Do GCs approve anything, or only PC/PS? Phase 2 assumes only PC/PS (and OC/2IC/CSM company-wide), as in the plan.
