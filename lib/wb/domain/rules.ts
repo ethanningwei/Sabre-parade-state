@@ -94,7 +94,7 @@ export function undoRefusal(r: Decided, memberId: string, deciderLabel: string, 
   if (r.state === "PENDING") return "That's already waiting on a decision.";
   if (!nextState(r.state, "undo")) return "That can't be taken back.";
   if (r.decidedBy !== memberId) return `Only ${deciderLabel} can take that back.`;
-  if (!r.decidedAt || now.getTime() - r.decidedAt.getTime() > UNDO_WINDOW_MS) return "Too late to undo. Tell him yourself instead.";
+  if (!r.decidedAt || now.getTime() - r.decidedAt.getTime() > UNDO_WINDOW_MS) return "Too late to undo. Tell them yourself instead.";
   return null;
 }
 

@@ -1,14 +1,18 @@
 import "server-only";
 import { and, eq } from "drizzle-orm";
-import { Bot, type Context, InlineKeyboard } from "grammy";
+import { Bot, type Context, InlineKeyboard, type NextFunction } from "grammy";
 import type { UserFromGetMe } from "grammy/types";
 import { db } from "@/lib/db";
 import { subunit } from "@/lib/db/schema";
 import { wbAudit } from "@/lib/wb/audit";
 import { hasGrant, type GrantRow } from "@/lib/wb/auth";
-import { wbCommanderChat, wbGrant, wbMember } from "@/lib/wb/db/schema";
-import { matchSubunit } from "./commands";
+import { decide, sayWhy, undo, type Actor } from "@/lib/wb/decide";
+import { wbCommanderChat, wbConversation, wbGrant, wbMember } from "@/lib/wb/db/schema";
+import { memberLabel, recordView } from "@/lib/wb/records";
+import { CARD_CALLBACK } from "./cards";
+import { matchSubunit, QUICK_COMMANDS } from "./commands";
 import { miniAppLink, miniAppUrl } from "./links";
+import type { Outbound } from "./outbound";
 
 // The whereabouts bot (WB_BOT_TOKEN, webhook). Thin on purpose: forms live in
 // the Mini App. Privacy mode stays on, so in groups it only sees commands
@@ -99,6 +103,95 @@ async function here(ctx: Context) {
   await reply(`✅ ${target.name}'s approval cards will come to ${where}.${displaced}`);
 }
 
+/** /leave, /off, /ma, /event, /me: a button straight to that screen. */
+async function quick(ctx: Context) {
+  const name = (ctx.msg?.text ?? "").split(/[\s@]/)[0].slice(1).toLowerCase();
+  const q = QUICK_COMMANDS[name];
+  if (!q) return;
+  const dm = ctx.chat?.type === "private";
+  const kb = InlineKeyboard.from(
+    q.buttons.map((b) => [dm ? InlineKeyboard.webApp(b.label, miniAppUrl(appUrl(), b.route)) : InlineKeyboard.url(b.label, miniAppLink(ctx.me.username, b.route))]),
+  );
+  await ctx.reply(q.text, { reply_markup: kb, message_thread_id: topicOf(ctx) ?? undefined });
+}
+
+// ------------------------------------------------------------------ cards
+
+/** How long a "Say why" prompt waits for its reply. */
+const SAY_WHY_MS = 10 * 60 * 1000;
+
+const outboundOf = (ctx: Context): Outbound => ({ api: ctx.api, botUsername: ctx.me.username });
+const actorOf = (m: NonNullable<Awaited<ReturnType<typeof memberWithGrants>>>): Actor => ({ id: m.id, personId: m.personId, grants: m.grants });
+
+/** A tap on a card: d:<recordId>:a|r|u|w. Every decision rule lives in lib/wb/decide. */
+async function onCard(ctx: Context) {
+  const [, recordId, act] = ctx.match as RegExpMatchArray;
+  const alert = (text: string) => ctx.answerCallbackQuery({ text, show_alert: true });
+  const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
+  if (!member?.registeredAt) return void (await alert("Open Sabre and register first."));
+  const actor = actorOf(member);
+
+  if (act === "a" || act === "r") {
+    const res = await decide(outboundOf(ctx), actor, recordId, act === "a" ? "approve" : "reject", "BOT");
+    return void (await (res.ok ? ctx.answerCallbackQuery({ text: act === "a" ? "Approved" : "Rejected" }) : alert(res.error)));
+  }
+  if (act === "u") {
+    const res = await undo(outboundOf(ctx), actor, recordId, "BOT");
+    return void (await (res.ok ? ctx.answerCallbackQuery({ text: "Undone" }) : alert(res.error)));
+  }
+
+  // Say why: a prompt the decider answers by replying. Named and threaded under
+  // the card, since two commanders can be writing in the same chat at once.
+  const r = await recordView(recordId);
+  if (!r || r.state !== "REJECTED" || r.decidedBy !== member.id) return void (await alert("Only whoever rejected it can say why."));
+  await ctx.answerCallbackQuery();
+  const card = ctx.callbackQuery?.message;
+  const who = await memberLabel(member.id);
+  const text = `${who}, why did you turn down ${r.rank} ${r.name}?\n\nReply to this message and I'll send it to them as you wrote it.`;
+  const prompt = await ctx.reply(text, {
+    // a text_mention makes force_reply "selective" pick out this commander only
+    entities: [{ type: "text_mention", offset: 0, length: who.length, user: ctx.from! }],
+    reply_parameters: card ? { message_id: card.message_id, allow_sending_without_reply: true } : undefined,
+    message_thread_id: card && "is_topic_message" in card && card.is_topic_message ? card.message_thread_id : undefined,
+    reply_markup: { force_reply: true, selective: true, input_field_placeholder: "Why not?" },
+  });
+  const values = {
+    telegramUserId: ctx.from!.id,
+    chatId: ctx.chat!.id,
+    flow: "SAY_WHY",
+    step: "note",
+    answers: {},
+    ctx: { recordId, promptMessageId: prompt.message_id },
+    updatedAt: new Date(),
+  };
+  await db
+    .insert(wbConversation)
+    .values(values)
+    .onConflictDoUpdate({ target: [wbConversation.telegramUserId, wbConversation.chatId], set: values });
+}
+
+/** A reply to a "Say why" prompt. Anything else passes through untouched. */
+async function onReply(ctx: Context, next: NextFunction) {
+  const replyTo = ctx.msg?.reply_to_message;
+  const text = ctx.msg?.text ?? "";
+  if (!replyTo || !ctx.from || !ctx.chat) return next();
+  const where = and(eq(wbConversation.telegramUserId, ctx.from.id), eq(wbConversation.chatId, ctx.chat.id));
+  const [conv] = await db.select().from(wbConversation).where(where);
+  const c = conv?.ctx as { recordId?: string; promptMessageId?: number } | undefined;
+  if (!conv || conv.flow !== "SAY_WHY" || c?.promptMessageId !== replyTo.message_id || !c.recordId) return next();
+  // taken, not read: a reason can't be written twice
+  await db.delete(wbConversation).where(where);
+
+  const answer = (t: string) =>
+    ctx.reply(t, { reply_parameters: { message_id: ctx.msg!.message_id }, message_thread_id: topicOf(ctx) ?? undefined });
+  if (Date.now() - conv.updatedAt.getTime() > SAY_WHY_MS) return void (await answer("That was more than ten minutes ago. Tap Say why on the card again."));
+  if (text.startsWith("/")) return void (await answer("That looked like a command, so I dropped it. Tap Say why again."));
+  const member = await memberWithGrants(ctx.from.id);
+  if (!member) return;
+  const res = await sayWhy(outboundOf(ctx), actorOf(member), c.recordId, text, "BOT");
+  await answer(res.ok ? `✅ Sent to ${res.record.rank} ${res.record.name}.` : res.error);
+}
+
 export function createBot(token: string, botInfo?: UserFromGetMe): Bot {
   const bot = new Bot(token, { botInfo });
   // A failing handler is logged, not rethrown: a 500 makes Telegram resend the update.
@@ -106,6 +199,11 @@ export function createBot(token: string, botInfo?: UserFromGetMe): Bot {
   safe.command("start", start);
   safe.command("whoami", whoami);
   safe.command("here", here);
+  safe.command(Object.keys(QUICK_COMMANDS), quick);
+  safe.callbackQuery(CARD_CALLBACK, onCard);
+  safe.on("message:text", onReply);
+  // an old or unknown button: at least stop the spinner
+  safe.on("callback_query:data", (ctx) => ctx.answerCallbackQuery());
   return bot;
 }
 
