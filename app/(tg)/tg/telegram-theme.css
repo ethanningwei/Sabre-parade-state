@@ -1,0 +1,25 @@
+/*
+ * Inside Telegram, the Mini App takes Telegram's colours. telegram-web-app.js
+ * sets the --tg-theme-* variables on <html>; TgShell adds .tg-themed once it
+ * knows it's running in Telegram, so a plain browser keeps the app's theme.
+ */
+:root.tg-themed {
+  --background: var(--tg-theme-bg-color);
+  --foreground: var(--tg-theme-text-color);
+  --card: var(--tg-theme-section-bg-color, var(--tg-theme-secondary-bg-color));
+  --card-foreground: var(--tg-theme-text-color);
+  --popover: var(--tg-theme-bg-color);
+  --popover-foreground: var(--tg-theme-text-color);
+  --primary: var(--tg-theme-button-color);
+  --primary-foreground: var(--tg-theme-button-text-color);
+  --secondary: var(--tg-theme-secondary-bg-color);
+  --secondary-foreground: var(--tg-theme-text-color);
+  --muted: var(--tg-theme-secondary-bg-color);
+  --muted-foreground: var(--tg-theme-hint-color);
+  --accent: var(--tg-theme-secondary-bg-color);
+  --accent-foreground: var(--tg-theme-text-color);
+  --destructive: var(--tg-theme-destructive-text-color);
+  --ring: var(--tg-theme-link-color);
+  --border: color-mix(in oklab, var(--tg-theme-hint-color) 30%, transparent);
+  --input: color-mix(in oklab, var(--tg-theme-hint-color) 40%, transparent);
+}
