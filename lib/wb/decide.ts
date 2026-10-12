@@ -7,6 +7,7 @@ import { wbCard, wbCommanderChat, wbMember, wbRecord, type WbRecordKind } from "
 import { STATE_LABEL } from "@/lib/wb/domain/describe";
 import type { GrantRow } from "@/lib/wb/domain/grants";
 import { canDecide, initialState, isLive, isOutcome, kinOf, leaveChange, nextState, undoRefusal, type RecordAction } from "@/lib/wb/domain/rules";
+import { manningFor } from "@/lib/wb/forecast-data";
 import { memberLabel, recordView, recordViews, type Db, type RecordView } from "@/lib/wb/records";
 import { cardKeyboard, cardText, noticeText, outcomeCardText, outcomeKeyboard } from "@/lib/wb/telegram/cards";
 import { miniAppLink } from "@/lib/wb/telegram/links";
@@ -63,8 +64,11 @@ export async function refreshCards(out: Outbound | null, r: RecordView): Promise
   if (!out) return;
   const batch = isOutcome(r.kind) ? await outcomeBatch(r) : [r];
   const cards = await db.select().from(wbCard).where(inArray(wbCard.recordId, batch.map((x) => x.id)));
+  if (!cards.length) return;
+  // recomputed on every redraw: approving or undoing changes the camp's numbers
+  const manning = isOutcome(r.kind) ? null : await manningFor(r);
   for (const c of cards) {
-    const text = isOutcome(r.kind) ? outcomeCardText(batch) : cardText(r);
+    const text = isOutcome(r.kind) ? outcomeCardText(batch) : cardText(r, manning);
     const reply_markup = isOutcome(r.kind) ? outcomeKeyboard(batch, out.botUsername) : cardKeyboard(r, out.botUsername);
     try {
       await out.api.editMessageText(c.chatId, c.messageId, text, { reply_markup });
@@ -99,7 +103,7 @@ export async function sendCard(out: Outbound | null, r: RecordView): Promise<Del
   if (!chat) return "no-chat";
   if (!out) return "failed";
   try {
-    const msg = await out.api.sendMessage(chat.chatId, cardText(r), {
+    const msg = await out.api.sendMessage(chat.chatId, cardText(r, await manningFor(r)), {
       message_thread_id: chat.threadId ?? undefined,
       reply_markup: cardKeyboard(r, out.botUsername),
     });

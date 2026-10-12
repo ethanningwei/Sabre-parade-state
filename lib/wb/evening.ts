@@ -10,7 +10,8 @@ import { wbAudit as wbAuditTable, wbCommanderChat, wbMember, wbRecord } from "@/
 import { recordWhat } from "@/lib/wb/domain/describe";
 import { isLive } from "@/lib/wb/domain/rules";
 import { addDays, dayRange, todaySgt } from "@/lib/wb/domain/timeline";
-import { findViews, type RecordView } from "@/lib/wb/records";
+import { shortTomorrow } from "@/lib/wb/forecast-data";
+import { findViews } from "@/lib/wb/records";
 import { noticeText, onensData } from "@/lib/wb/telegram/cards";
 import { miniAppLink } from "@/lib/wb/telegram/links";
 import type { Outbound } from "@/lib/wb/telegram/outbound";
@@ -38,6 +39,8 @@ export interface RoundSummary {
   chased: number;
   digests: number;
   heartbeats: number;
+  /** camps below minimum tomorrow (Phase 4) */
+  short: number;
 }
 
 const groupBy = <T, K>(rows: readonly T[], key: (r: T) => K) => {
@@ -66,14 +69,14 @@ async function claim(date: string, force: boolean): Promise<boolean> {
 
 export async function eveningRound(out: Outbound, now: Date = new Date(), { force = false } = {}): Promise<RoundSummary> {
   const today = todaySgt(now);
-  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0 };
+  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0 };
   if (!(await claim(today, force))) return { ...summary, skipped: true };
 
   const todayStart = dayRange(today).startAt;
   const tomorrow = dayRange(addDays(today, 1));
   /** one message per platoon, not five: subunitId -> parts */
   const digest = new Map<string, { name: string; parts: string[]; approvals: boolean }>();
-  const addPart = (r: RecordView, part: string, approvals = false) => {
+  const addPart = (r: { subunitId: string; subunitName: string }, part: string, approvals = false) => {
     const d = digest.get(r.subunitId) ?? { name: r.subunitName, parts: [], approvals: false };
     d.parts.push(part);
     d.approvals ||= approvals;
@@ -133,6 +136,17 @@ export async function eveningRound(out: Outbound, now: Date = new Date(), { forc
     addPart(rows[0], `⏳ ${plural(rows.length, "request")} waiting more than 12 hours`, true);
   }
 
+  // ---------------------------------------------------------------- camps below minimum tomorrow (Phase 4)
+  try {
+    for (const [subunitId, d] of await shortTomorrow(now)) {
+      addPart({ subunitId, subunitName: d.name }, [`⚠️ Below minimum tomorrow`, ...d.lines].join("\n"));
+      summary.short += d.lines.length;
+    }
+  } catch (e) {
+    // the rest of the round still goes out
+    console.error("wb evening manning:", e);
+  }
+
   // ---------------------------------------------------------------- one digest per commanders chat
   if (digest.size) {
     const chats = await db.select().from(wbCommanderChat).where(inArray(wbCommanderChat.subunitId, [...digest.keys()]));
@@ -176,7 +190,7 @@ async function heartbeat(out: Outbound, now: Date, s: RoundSummary): Promise<num
     `${roster.n} on the roster · ${registered.n} registered\n` +
     `${pending.n} waiting on a decision · ${today.n} recorded today\n` +
     `${linked.n} commanders chats linked (${platoons.n} platoons)\n` +
-    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.digests} digests\n\n` +
+    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.digests} digests\n\n` +
     "Sent every evening. If an evening goes by without one, the bot isn't running.";
   let sent = 0;
   for (const id of ids) {

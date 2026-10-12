@@ -134,6 +134,30 @@ export const canProxy = (grants: readonly GrantRow[], where: Where) =>
 export const proxiesAnything = (grants: readonly GrantRow[]) =>
   hasGrant(grants, PROXY_ROLES, "any") || hasGrant(grants, COMPANY_DECIDERS, "company");
 
+// ------------------------------------------------------------------ shifts (Phase 4)
+
+/** Set a camp's shift pattern and minimum manning: ADMIN anywhere, or the platoon's PC/PS. */
+export const canEditShifts = (grants: readonly GrantRow[], subunitId: string) =>
+  hasGrant(grants, ["ADMIN"], "any") || hasGrant(grants, PLATOON_DECIDERS, { subunitId });
+
+export const editsShiftsAnything = (grants: readonly GrantRow[]) =>
+  hasGrant(grants, ["ADMIN"], "any") || hasGrant(grants, PLATOON_DECIDERS, "any");
+
+/**
+ * Log a HOTO for a physical camp: a GC of either of its teams, the platoon's
+ * PC/PS, or OC/2IC/CSM. `teams` are the camps sharing the post.
+ */
+export const canHoto = (grants: readonly GrantRow[], subunitId: string, teams: readonly string[]) =>
+  teams.some((campId) => hasGrant(grants, ["GC"], { subunitId, campId })) ||
+  hasGrant(grants, PLATOON_DECIDERS, { subunitId }) ||
+  hasGrant(grants, COMPANY_DECIDERS, "company");
+
+export const hotosAnything = (grants: readonly GrantRow[]) =>
+  hasGrant(grants, ["GC", ...PLATOON_DECIDERS], "any") || hasGrant(grants, COMPANY_DECIDERS, "company");
+
+/** The forecast and the day view: the platoon's PC/PS, or OC/2IC/CSM. The same people who decide. */
+export const canForecast = canDecide;
+
 // ------------------------------------------------------------------ what
 
 export type RecordAction = "approve" | "reject" | "withdraw" | "void" | "undo";

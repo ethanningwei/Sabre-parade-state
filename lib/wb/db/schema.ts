@@ -17,6 +17,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { camp, person, subunit } from "../../db/schema";
 import { WB_ROLES, type WbRole } from "../domain/roles";
+import { WB_SHIFT_KINDS, type WbShiftKind } from "../domain/shifts";
 import { WB_ONENS, WB_RECORD_KINDS, WB_RECORD_STATES, WB_SEEN_BY, type WbRecordKind, type WbRecordState } from "../domain/rules";
 
 // ---------------------------------------------------------------------------
@@ -245,3 +246,70 @@ export const wbConversation = pgTable(
   },
   (t) => [uniqueIndex("wb_conversation_user_chat_uq").on(t.telegramUserId, t.chatId)],
 );
+
+// ---------------------------------------------------------------------------
+// Phase 4: shifts and minimum manning. Nothing here writes v1 camp.on_shift:
+// a HOTO only logs wb_shift_event until projection (Phase 6).
+// ---------------------------------------------------------------------------
+
+export { WB_SHIFT_KINDS, type WbShiftKind };
+export const wbShiftKind = pgEnum("wb_shift_kind", WB_SHIFT_KINDS);
+
+/**
+ * How a team (a v1 camp) takes its turn. CYCLE: on_days then off_days from
+ * anchor_date at hoto_time (pairs: SFT A + SFT B). WEEKLY: the weekday mask
+ * (RG camps, Monday to Friday). ALWAYS: always on.
+ */
+export const wbShiftPattern = pgTable("wb_shift_pattern", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  campId: uuid("camp_id")
+    .notNull()
+    .unique("wb_shift_pattern_camp_uq")
+    .references(() => camp.id, { onDelete: "cascade" }),
+  kind: wbShiftKind("kind").notNull(),
+  onDays: integer("on_days").default(3).notNull(),
+  offDays: integer("off_days").default(3).notNull(),
+  /** CYCLE: a day this team's stint starts, at hoto_time */
+  anchorDate: date("anchor_date"),
+  /** HHMM */
+  hotoTime: text("hoto_time").default("2100").notNull(),
+  /** WEEKLY: bit 0 = Monday … bit 6 = Sunday */
+  weekdayMask: integer("weekday_mask").default(31).notNull(),
+  holidaysOff: boolean("holidays_off").default(true).notNull(),
+  bothOnAllowed: boolean("both_on_allowed").default(false).notNull(),
+  updatedBy: uuid("updated_by").references(() => wbMember.id, { onDelete: "set null" }),
+  updatedAt: tstz("updated_at").defaultNow().notNull(),
+});
+
+/** Every HOTO logged: a team took over (on) or handed over, and whether the pattern agreed. */
+export const wbShiftEvent = pgTable(
+  "wb_shift_event",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    campId: uuid("camp_id")
+      .notNull()
+      .references(() => camp.id, { onDelete: "cascade" }),
+    at: tstz("at").notNull(),
+    on: boolean("on").notNull(),
+    by: uuid("by").references(() => wbMember.id, { onDelete: "set null" }),
+    matched: boolean("matched").notNull(),
+    note: text("note").default("").notNull(),
+    createdAt: tstz("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("wb_shift_event_camp_at_idx").on(t.campId, t.at)],
+);
+
+/** What a guardroom (one team) can't go under: GC:ST CBT:ST SVC, or a bare total (roles null). */
+export const wbMinManning = pgTable("wb_min_manning", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  campId: uuid("camp_id")
+    .notNull()
+    .unique("wb_min_manning_camp_uq")
+    .references(() => camp.id, { onDelete: "cascade" }),
+  total: integer("total").notNull(),
+  gc: integer("gc"),
+  stCbt: integer("st_cbt"),
+  stSvc: integer("st_svc"),
+  updatedBy: uuid("updated_by").references(() => wbMember.id, { onDelete: "set null" }),
+  updatedAt: tstz("updated_at").defaultNow().notNull(),
+});

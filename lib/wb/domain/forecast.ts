@@ -133,6 +133,8 @@ export interface AwayPerson {
   role: string;
   /** "AL", "MC", "OTHERS: RF @ BDK" */
   what: string;
+  /** "05/10–06/10", "from 05/10", or "" when v1 has no dates */
+  dates: string;
   /** the timeline row, when it came from there */
   recordId: string | null;
   pending: boolean;
@@ -154,6 +156,14 @@ export interface CampManning {
 }
 
 const awayWhat = (p: SnapshotPerson) => (p.absence!.type === "OTHERS" ? `OTHERS: ${p.absence!.otherReason}` : p.absence!.type);
+
+/** An absence's days as written, the end at midnight read as the day before. */
+function awayDates(a: SnapshotAbsence): string {
+  if (!a.startDate) return a.endDate ? `until ${dayMonth(a.endDate)}` : "";
+  if (!a.endDate) return `from ${dayMonth(a.startDate)}`;
+  const last = a.endTime === "0000" ? addDays(a.endDate, -1) : a.endDate;
+  return last <= a.startDate ? dayMonth(a.startDate) : `${dayMonth(a.startDate)}–${dayMonth(last)}`;
+}
 
 /** Each camp's manning in a built snapshot, by computeCoy. */
 export function manningOf(built: Built): CampManning[] {
@@ -184,6 +194,7 @@ export function manningOf(built: Built): CampManning[] {
           name: p.name,
           role: p.role,
           what: awayWhat(p),
+          dates: awayDates(p.absence!),
           recordId: built.byRecord.get(p.id)?.id ?? null,
           pending: built.pendingAway.has(p.id),
         })),

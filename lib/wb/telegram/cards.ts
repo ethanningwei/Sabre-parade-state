@@ -6,7 +6,8 @@ import { miniAppLink } from "./links";
 
 // Approval cards and the trooper's DMs, as text. Pure: no I/O, so the wording
 // is tested on its own. Plain text (no parse mode), so names never need escaping.
-// No manning impact yet: Phase 4 adds it.
+// Phase 4: an approval card carries a manning line (worked out in
+// lib/wb/forecast-data.ts manningFor), passed in as text.
 //
 // Medical privacy: a CardRecord has no diagnosis and no photo, so nothing
 // built here can carry them. An MC reads "MC 3 days · 14/10–16/10 · Respiratory".
@@ -98,10 +99,13 @@ export function decisionLine(r: CardRecord): string {
   }
 }
 
-export function cardText(r: CardRecord): string {
+/** The manning line, flagged when it's below minimum. */
+export const manningText = (line: string | null | undefined) => (line ? `${line.includes("BELOW MINIMUM") ? "⚠️" : "👥"} ${line}` : "");
+
+export function cardText(r: CardRecord, manning?: string | null): string {
   const head = HEAD[r.state];
   const foot = decisionLine(r);
-  return [head, recordBody(r), foot].filter(Boolean).join("\n\n");
+  return [head, recordBody(r), manningText(manning), foot].filter(Boolean).join("\n\n");
 }
 
 export function cardKeyboard(r: CardRecord, botUsername: string): InlineKeyboardMarkup {

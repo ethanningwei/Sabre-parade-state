@@ -43,6 +43,13 @@
       "when": 1791783978104,
       "tag": "0005_wb_medical",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791808069789,
+      "tag": "0006_wb_shifts",
+      "breakpoints": true
     }
   ]
 }
