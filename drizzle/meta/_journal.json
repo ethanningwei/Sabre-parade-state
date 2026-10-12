@@ -22,6 +22,13 @@
       "when": 1790751448668,
       "tag": "0002_camp_post_duty_absence",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791775806922,
+      "tag": "0003_wb_foundation",
+      "breakpoints": true
     }
   ]
 }
