@@ -55,11 +55,25 @@ const row = (personId: string, kind: TimelineRow["kind"], start: string, end: st
 const input = (s: CoySnapshot, records: TimelineRow[] = [], patterns = realPatterns(s)): ForecastInput => ({ base: s, now: NOW, patterns, records });
 
 describe("snapshotAt", () => {
-  it("now, with today's real patterns, is exactly v1's parade state", () => {
+  it("today's patterns put the same teams on shift as v1's toggles", () => {
     const s = base();
-    expect(computeCoy(snapshotAt(input(s), NOW).snapshot)).toEqual(computeCoy(s));
-    // and the day holding now, too
-    expect(computeCoy(snapshotFor(input(s), dayRange("2026-09-30")).snapshot)).toEqual(computeCoy(s));
+    const built = snapshotAt(input(s), NOW).snapshot;
+    const on = (x: CoySnapshot) => x.subunits.flatMap((u) => u.camps.map((c) => [c.name, c.onShift]));
+    expect(on(built)).toEqual(on(s));
+  });
+
+  it("never reads the parade state's own absences or Extra/RF/SOL, today or later", () => {
+    const s = base();
+    // the fixture is full of v1 absences (MCs, OL, undated OTHERS) and RF/Extra duties
+    expect(s.subunits.some((u) => u.camps.some((c) => c.people.some((p) => p.absence)))).toBe(true);
+    expect(s.duties.length).toBeGreaterThan(0);
+    for (const t of [NOW, sgtToInstant({ date: "2026-10-05", time: "1200" })]) {
+      const built = snapshotAt(input(s), t).snapshot;
+      expect(built.subunits.every((u) => u.camps.every((c) => c.people.every((p) => p.absence === null)))).toBe(true);
+      expect(built.duties).toEqual([]);
+      const state = computeCoy(built);
+      for (const c of state.subunits.flatMap((u) => u.camps)) expect(c.present).toBe(c.onShift ? c.total : 0);
+    }
   });
 
   it("a camp with no pattern keeps its v1 shift", () => {
@@ -69,16 +83,12 @@ describe("snapshotAt", () => {
     expect(campOf(built.snapshot, "SFT B").onShift).toBe(true);
   });
 
-  it("a later day moves the shifts and reads v1 rows by their dates", () => {
+  it("a later day moves the shifts", () => {
     const s = base();
     const fri = snapshotFor(input(s), dayRange("2026-10-02")).snapshot;
     // A mounted 01/10 2100: on all of 02/10, B off
     expect(campOf(fri, "SFT A").onShift).toBe(true);
     expect(campOf(fri, "SFT B").onShift).toBe(false);
-    // WEI HAO's MC ended 30/09; an undated OTHERS (Clementi) is still open
-    const slr = campOf(fri, "SLR").people;
-    expect(slr.find((p) => p.name === "WEI HAO")!.absence).toBeNull();
-    expect(slr.find((p) => p.name === "IRFAN")!.absence?.type).toBe("OTHERS");
     // a Saturday: RG is off
     expect(campOf(snapshotFor(input(s), dayRange("2026-10-03")).snapshot, "SLR").onShift).toBe(false);
   });
@@ -131,7 +141,6 @@ describe("the grid", () => {
   it("marks short days red, and days only pending requests would make short striped", () => {
     const s = withRoles();
     const slrId = campId(s, "SLR");
-    // SLR present now: 12 of 17 (the five Clementi/MC at the top are away; WEI HAO and CHUN HEI back from 01/10)
     const gc = campOf(s, "SLR").people[5].id;
     const cbt = campOf(s, "SLR").people[6].id;
     const records = [row(gc, "AL", "2026-10-06", "2026-10-06"), row(cbt, "OFF", "2026-10-07", "2026-10-07", "PENDING")];
@@ -164,8 +173,8 @@ describe("worst day and the card line", () => {
     const w = worstDay(input(s, [req, gcAway]), req, min)!;
     expect(w.date).toBe("2026-10-06");
     expect(w.multiDay).toBe(true);
-    expect(w.verdict.label).toBe("0:4:8");
-    expect(manningLine({ name: "SLR", isHq: false }, w, { minimum: min })).toBe("SLR on 06/10 (worst day): 0:4:8 / min 1:5:3 — BELOW MINIMUM");
+    expect(w.verdict.label).toBe("0:4:11");
+    expect(manningLine({ name: "SLR", isHq: false }, w, { minimum: min })).toBe("SLR on 06/10 (worst day): 0:4:11 / min 1:5:3 — BELOW MINIMUM");
   });
 
   it("notes what other pending requests would do", () => {
@@ -175,7 +184,7 @@ describe("worst day and the card line", () => {
     const other = row(slr.people[6].id, "OFF", "2026-10-05", "2026-10-05", "PENDING");
     const w = worstDay(input(s, [req, other]), req, min)!;
     expect(w.pendingCount).toBe(1);
-    expect(manningLine({ name: "SLR", isHq: false }, w, { minimum: min })).toBe("SLR on 05/10: 1:5:7 / min 1:5:3 (+1 pending would make it 1:4:7)");
+    expect(manningLine({ name: "SLR", isHq: false }, w, { minimum: min })).toBe("SLR on 05/10: 1:5:10 / min 1:5:3 (+1 pending would make it 1:4:10)");
   });
 
   it("skips days the camp is off, and says so when it's off throughout", () => {
@@ -194,8 +203,8 @@ describe("worst day and the card line", () => {
     const slr = campOf(s, "SLR");
     const rso = { ...row(slr.people[5].id, "RSO", "2026-10-05", "2026-10-05", "PENDING"), campId: slr.id };
     const w = worstDay(input(s, [rso]), rso, min)!;
-    expect(w.verdict.label).toBe("0:5:8");
-    expect(manningLine({ name: "SLR", isHq: false }, w, { minimum: min, ifMc: true })).toBe("SLR on 05/10 if he's given an MC: 0:5:8 / min 1:5:3 — BELOW MINIMUM");
+    expect(w.verdict.label).toBe("0:5:11");
+    expect(manningLine({ name: "SLR", isHq: false }, w, { minimum: min, ifMc: true })).toBe("SLR on 05/10 if he's given an MC: 0:5:11 / min 1:5:3 — BELOW MINIMUM");
     expect(manningLine({ name: "SLR", isHq: false }, w, { minimum: null })).toBe("No minimum manning set for SLR");
     expect(manningLine({ name: "COY HQ", isHq: true }, w, { minimum: min })).toBe("");
   });

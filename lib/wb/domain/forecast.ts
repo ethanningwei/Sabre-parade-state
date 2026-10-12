@@ -1,5 +1,5 @@
 import { computeCoy, type CampState } from "@/lib/parade/compute";
-import { sgtToInstant, toSgt } from "@/lib/parade/time";
+import { toSgt } from "@/lib/parade/time";
 import type { AbsenceType, CoySnapshot, SnapshotAbsence, SnapshotDuty, SnapshotPerson } from "@/lib/parade/types";
 import { KIND_LABEL } from "./describe";
 import { isAbsentKind, STANDING_STATES, type WbRecordKind, type WbRecordState } from "./rules";
@@ -8,13 +8,14 @@ import { addDays, dayMonth, dayRange, daysTouched, overlaps, type Range } from "
 
 // The forecast: what the parade state would say at another moment, worked out
 // by the unchanged v1 engine (computeCoy) from a snapshot built for that
-// moment. Pure: the caller loads the v1 snapshot, the patterns and the timeline.
+// moment. Pure: the caller loads the roster, the patterns and the timeline.
 //
-// Until projection is on (Phase 6) the parade state's own absences and duties
-// are typed into the web app, and the timeline lives beside them. So a person
-// is away when either says so, the v1 row first. Whatever window holds "now"
-// keeps every open v1 row as it is, which is what v1 itself counts: that's
-// the parity the tests hold it to. A later window reads v1 rows by their dates.
+// It works from what troopers and commanders key into the Mini App (the
+// timeline), never from the parade state's own absences or Extra/RF/SOL: those
+// are typed by hand, often undated, and go stale (decided 2026-10-12). The
+// roster (who is posted where, and their role) is the only thing taken from
+// v1. In the end (Phase 6) the parade state is fed from the timeline, not the
+// other way round. Extra/RF/SOL come back in Phase 5 as wb_assignment.
 
 export interface TimelineRow {
   id: string;
@@ -27,7 +28,7 @@ export interface TimelineRow {
 }
 
 export interface ForecastInput {
-  /** the parade state now, from loadSnapshot */
+  /** the roster: camps and people, from loadSnapshot. Its absences and duties are ignored */
   base: CoySnapshot;
   now: Date;
   /** campId -> pattern; a camp without one keeps its v1 onShift */
@@ -70,18 +71,8 @@ function asAbsence(r: TimelineRow): SnapshotAbsence {
   };
 }
 
-/** A v1 row's dates as a range: a missing start is "already", a missing end "until closed", a date-only end the whole day. */
-function v1Range(x: { startDate: string | null; startTime: string | null; endDate: string | null; endTime: string | null }): Range {
-  const startAt = x.startDate ? sgtToInstant({ date: x.startDate, time: x.startTime ?? "0000" }) : new Date(0);
-  const endAt = x.endDate ? (x.endTime ? sgtToInstant({ date: x.endDate, time: x.endTime }) : dayRange(x.endDate).endAt) : null;
-  return { startAt, endAt: endAt && endAt > startAt ? endAt : endAt ? new Date(startAt.getTime() + 1) : null };
-}
-
-const holdsNow = (w: Range, now: Date) => w.startAt <= now && (!w.endAt || now < w.endAt);
-
-/** The v1 snapshot for a window: shifts from the patterns, absences from v1 and the timeline. */
+/** The v1 snapshot for a window: shifts from the patterns, absences from the timeline only. */
 export function snapshotFor(input: ForecastInput, window: Range, opts: SnapshotOptions = {}): Built {
-  const current = holdsNow(window, input.now);
   const counts = (r: TimelineRow) =>
     r.id === opts.assume ||
     (isAbsentKind(r.kind) && (STANDING_STATES.includes(r.state) || (opts.pending && r.state === "PENDING")));
@@ -96,14 +87,12 @@ export function snapshotFor(input: ForecastInput, window: Range, opts: SnapshotO
   const byRecord = new Map<string, TimelineRow>();
 
   const person = (p: SnapshotPerson): SnapshotPerson => {
-    if (p.absence && (current || overlaps(v1Range(p.absence), window))) return p;
     const r = away.get(p.id);
     if (!r) return { ...p, absence: null };
     byRecord.set(p.id, r);
     if (r.state === "PENDING" && r.id !== opts.assume) pendingAway.add(p.id);
     return { ...p, absence: asAbsence(r) };
   };
-  const duty = (d: SnapshotDuty) => current || overlaps(v1Range(d), window);
 
   const snapshot: CoySnapshot = {
     coy: input.base.coy,
@@ -115,12 +104,13 @@ export function snapshotFor(input: ForecastInput, window: Range, opts: SnapshotO
         return { ...c, onShift: on ?? c.onShift, people: c.people.map(person) };
       }),
     })),
-    duties: input.base.duties.filter(duty),
+    // the parade state's Extra/RF/SOL aren't read; Phase 5's assignments go here
+    duties: [],
   };
   return { snapshot, pendingAway, byRecord };
 }
 
-/** The snapshot at one instant (spec: snapshotAt). With today's patterns, snapshotAt(now) is v1's own. */
+/** The snapshot at one instant (spec: snapshotAt). */
 export const snapshotAt = (input: ForecastInput, t: Date, opts: SnapshotOptions = {}) =>
   snapshotFor(input, { startAt: t, endAt: new Date(t.getTime() + 1) }, opts);
 

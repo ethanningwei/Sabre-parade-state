@@ -67,9 +67,9 @@ beforeAll(async () => {
   ids.srfB = await campId("SRF B");
   const byName = async (name: string) => (await db.select({ id: person.id }).from(person).where(eq(person.name, name)))[0].id;
   chunHei = await byName("CHUN HEI");
-  // SLR gets guardroom roles: the 12 present men are 1 GC, 5 CBT, 6 SVC, and
-  // the five away on 30/09 are SVC. Two of those (MCs to 30/09) are back, so
-  // from 01/10 SLR stands 1:5:8 (three Clementi men have no end date).
+  // SLR gets guardroom roles: 1 GC, 5 CBT, and the other 11 SVC. The forecast
+  // ignores the parade state's own absences, so with nothing on the timeline
+  // SLR stands 1:5:11.
   const slrRows = await db.select({ id: person.id, name: person.name }).from(person).where(eq(person.campId, ids.slr));
   slrPeople = slrRows.filter((p) => p.name.startsWith("SLR PRESENT")).map((p) => p.id);
   for (const p of slrRows) await db.update(person).set({ role: "SVC" }).where(eq(person.id, p.id));
@@ -252,8 +252,8 @@ describe("HOTO (DB)", () => {
 });
 
 describe("manning on cards, the forecast and the digest (DB)", () => {
-  /** SLR on every day, minimum 1:5:8 = exactly what it stands. */
-  async function slr(minimum = "1:5:8") {
+  /** SLR on every day, minimum 1:5:11 = exactly what it stands. */
+  async function slr(minimum = "1:5:11") {
     await member(1, null, [{ role: "ADMIN" }]);
     await as(1);
     expect(await actions.saveShiftPattern(weekly([ids.slr], { [ids.slr]: minimum }))).toMatchObject({ ok: true });
@@ -275,21 +275,21 @@ describe("manning on cards, the forecast and the digest (DB)", () => {
     const gc = slrPeople[0];
     const id = await apply(TROOPER, gc, 3, 4);
     const card = String(sends()[0].payload.text);
-    expect(card).toContain(`⚠️ SLR on ${day(3).slice(8, 10)}/${day(3).slice(5, 7)} (worst day): 0:5:8 / min 1:5:8 — BELOW MINIMUM`);
+    expect(card).toContain(`⚠️ SLR on ${day(3).slice(8, 10)}/${day(3).slice(5, 7)} (worst day): 0:5:11 / min 1:5:11 — BELOW MINIMUM`);
     tg.calls = [];
     await as(PS6);
     expect(await records.decideRecord({ recordId: id, action: "approve" })).toMatchObject({ ok: true });
     const edit = String(tg.calls.find((c) => c.method === "editMessageText")!.payload.text);
-    expect(edit).toMatch(/0:5:8 \/ min 1:5:8 — BELOW MINIMUM\n\n✅ Approved by LCP CHUN HEI$/);
+    expect(edit).toMatch(/0:5:11 \/ min 1:5:11 — BELOW MINIMUM\n\n✅ Approved by LCP CHUN HEI$/);
   });
 
   it("other pending requests are noted; no minimum and HQ wording", async (ctx) => {
     if (!reachable) ctx.skip();
-    await slr("1:4:8");
+    await slr("1:4:11");
     await apply(1101, slrPeople[1], 5, 5);
     tg.calls = [];
     await apply(1102, slrPeople[2], 5, 5);
-    expect(String(sends()[0].payload.text)).toContain(`👥 SLR on ${day(5).slice(8, 10)}/${day(5).slice(5, 7)}: 1:4:8 / min 1:4:8 (+1 pending would make it 1:3:8)`);
+    expect(String(sends()[0].payload.text)).toContain(`👥 SLR on ${day(5).slice(8, 10)}/${day(5).slice(5, 7)}: 1:4:11 / min 1:4:11 (+1 pending would make it 1:3:11)`);
 
     await db.delete(wbMinManning);
     tg.calls = [];
@@ -309,9 +309,9 @@ describe("manning on cards, the forecast and the digest (DB)", () => {
     await records.decideRecord({ recordId: id, action: "approve" });
     const [row] = await data.grid([ids.slr], day(1), 3);
     expect(row.cells.map((c) => [c.date, c.short, c.label])).toEqual([
-      [day(1), false, "1:5:8"],
-      [day(2), true, "0:5:8"],
-      [day(3), false, "1:5:8"],
+      [day(1), false, "1:5:11"],
+      [day(2), true, "0:5:11"],
+      [day(3), false, "1:5:11"],
     ]);
     const [slrDay] = await data.dayView([ids.slr], day(2));
     expect(slrDay.short).toBe(true);
@@ -329,7 +329,7 @@ describe("manning on cards, the forecast and the digest (DB)", () => {
     const summary = await eveningRound(await outbound(), new Date(), { force: true });
     expect(summary.short).toBe(1);
     const digest = sends().find((c) => c.payload.chat_id === -1006);
-    expect(String(digest?.payload.text)).toContain("⚠️ Below minimum tomorrow\n• SLR: 0:5:8 / min 1:5:8");
+    expect(String(digest?.payload.text)).toContain("⚠️ Below minimum tomorrow\n• SLR: 0:5:11 / min 1:5:11");
   });
 });
 
