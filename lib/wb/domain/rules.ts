@@ -16,6 +16,9 @@ export const APPROVAL_KINDS: readonly WbRecordKind[] = ["AL", "OL", "OFF"];
 /** The kinds that cost leave days. */
 export const LEAVE_KINDS: readonly WbRecordKind[] = ["AL", "OL"];
 
+/** A SELF member who isn't on the roster yet: every record needs a roster person. */
+export const NOT_ON_ROSTER = "Ask your PS to add you to the parade state first.";
+
 export const needsApproval = (kind: WbRecordKind) => APPROVAL_KINDS.includes(kind);
 export const costsLeave = (kind: WbRecordKind) => LEAVE_KINDS.includes(kind);
 export const initialState = (kind: WbRecordKind): WbRecordState => (needsApproval(kind) ? "PENDING" : "RECORDED");
