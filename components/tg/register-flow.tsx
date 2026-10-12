@@ -12,6 +12,7 @@ import { place } from "@/lib/wb/format";
 import { RANKS, rolesFor } from "@/lib/wb/domain/roles";
 import type { SubunitWithCamps } from "@/lib/wb/roster";
 import { webApp } from "./webapp";
+import { bigButtonClass, fieldClass, inputClass } from "./ui";
 
 type Details = RegisterInput["details"];
 type Step =
@@ -22,8 +23,7 @@ type Step =
   | { at: "self"; typed: string }
   | { at: "details"; personId?: string; self?: NonNullable<RegisterInput["self"]>; who: string };
 
-const selectClass =
-  "h-11 w-full rounded-lg border border-input bg-transparent px-3 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+const selectClass = inputClass;
 
 const describe = (p: FoundPerson) => `${p.rank} ${p.name}`;
 const where = (p: FoundPerson) => place(p.campName, p.subunitName, p.role);
@@ -89,9 +89,9 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Your name on the parade state"
-            className="h-11 text-base"
+            className={fieldClass}
           />
-          <Button type="submit" size="lg" className="h-11" disabled={pending || name.trim().length < 2}>
+          <Button type="submit" size="lg" className={bigButtonClass} disabled={pending || name.trim().length < 2}>
             {pending && <Loader2 className="animate-spin" />}
             Find me
           </Button>
@@ -105,10 +105,10 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
             Almost everybody is on the parade state, so check the spelling first. Ask your GC or PS if you&apos;re unsure
             of your parade-state name. If you really aren&apos;t on it, I can set you up and your PS will see you on Gaps.
           </p>
-          <Button size="lg" className="h-11" onClick={() => go({ at: "name" })}>
+          <Button size="lg" className={bigButtonClass} onClick={() => go({ at: "name" })}>
             Try my name again
           </Button>
-          <Button size="lg" variant="outline" className="h-11" onClick={() => go({ at: "self", typed: step.typed })}>
+          <Button size="lg" variant="outline" className={bigButtonClass} onClick={() => go({ at: "self", typed: step.typed })}>
             I&apos;m not on it — set me up
           </Button>
         </section>
@@ -117,15 +117,15 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
       {step.at === "confirm" && (
         <section className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground">Found you:</p>
-          <div className="rounded-xl border bg-card p-4">
+          <div className="rounded-2xl bg-card p-4">
             <p className="font-medium">{describe(step.person)}</p>
             <p className="text-sm text-muted-foreground">{where(step.person)}</p>
           </div>
           <p>Is this you?</p>
-          <Button size="lg" className="h-11" onClick={() => choose(step.person)}>
+          <Button size="lg" className={bigButtonClass} onClick={() => choose(step.person)}>
             Yes, that&apos;s me
           </Button>
-          <Button size="lg" variant="outline" className="h-11" onClick={() => go({ at: "name" })}>
+          <Button size="lg" variant="outline" className={bigButtonClass} onClick={() => go({ at: "name" })}>
             Not me
           </Button>
         </section>
@@ -139,13 +139,13 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
               key={p.personId}
               type="button"
               onClick={() => choose(p)}
-              className="flex min-h-14 flex-col items-start justify-center rounded-xl border bg-card px-4 py-2 text-left active:bg-muted"
+              className="flex min-h-14 flex-col items-start justify-center rounded-2xl bg-card px-4 py-2 text-left active:bg-muted"
             >
               <span className="font-medium">{describe(p)}</span>
               <span className="text-xs text-muted-foreground">{where(p)}</span>
             </button>
           ))}
-          <Button size="lg" variant="outline" className="h-11" onClick={() => go({ at: "name" })}>
+          <Button size="lg" variant="outline" className={bigButtonClass} onClick={() => go({ at: "name" })}>
             None of these
           </Button>
         </section>
@@ -212,7 +212,7 @@ function SelfForm({
       }}
     >
       <Field label="Your name, as on the parade state">
-        <Input value={name} onChange={(e) => setName(e.target.value)} autoCapitalize="characters" className="h-11 text-base" />
+        <Input value={name} onChange={(e) => setName(e.target.value)} autoCapitalize="characters" className={fieldClass} />
       </Field>
       <Field label="Which platoon?">
         <select
@@ -266,7 +266,7 @@ function SelfForm({
           ))}
         </select>
       </Field>
-      <Button type="submit" size="lg" className="h-11" disabled={!complete}>
+      <Button type="submit" size="lg" className={bigButtonClass} disabled={!complete}>
         Next
       </Button>
     </form>
@@ -297,18 +297,18 @@ function DetailsForm({
         onSubmit(d);
       }}
     >
-      <div className="rounded-xl border bg-card p-3 text-sm">{who}</div>
+      <div className="rounded-2xl bg-card p-3 text-sm">{who}</div>
       <Field label="Full name, as on your NRIC">
-        <Input value={d.fullName} onChange={set("fullName")} autoCapitalize="characters" className="h-11 text-base" />
+        <Input value={d.fullName} onChange={set("fullName")} autoCapitalize="characters" className={fieldClass} />
       </Field>
       <Field label="Last 4 of your NRIC" hint="3 digits and a letter, e.g. 567A. Only the last 4, never the whole number.">
-        <Input value={d.nric} onChange={set("nric")} autoCapitalize="characters" maxLength={9} className="h-11 font-mono text-base" />
+        <Input value={d.nric} onChange={set("nric")} autoCapitalize="characters" maxLength={9} className={`${fieldClass} font-mono`} />
       </Field>
       <Field label="ORD date (DDMMYY)">
-        <Input value={d.ord} onChange={set("ord")} inputMode="numeric" placeholder="270828" className="h-11 font-mono text-base" />
+        <Input value={d.ord} onChange={set("ord")} inputMode="numeric" placeholder="270828" className={`${fieldClass} font-mono`} />
       </Field>
       <Field label="Days of leave left" hint="Your PS can correct this later.">
-        <Input value={d.leaveLeft} onChange={set("leaveLeft")} inputMode="numeric" className="h-11 text-base" />
+        <Input value={d.leaveLeft} onChange={set("leaveLeft")} inputMode="numeric" className={fieldClass} />
       </Field>
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-sm font-medium">Are you stay-out?</legend>
@@ -319,7 +319,7 @@ function DetailsForm({
             ["TEMP", "Yes, until a date"],
           ] as const
         ).map(([v, label]) => (
-          <label key={v} className="flex min-h-11 items-center gap-3 rounded-lg border bg-card px-3">
+          <label key={v} className="flex min-h-12 items-center gap-3 rounded-xl bg-card px-3.5">
             <input type="radio" name="stayout" checked={d.stayout === v} onChange={() => setD({ ...d, stayout: v })} className="size-4" />
             {label}
           </label>
@@ -327,14 +327,14 @@ function DetailsForm({
       </fieldset>
       {d.stayout === "TEMP" && (
         <Field label="Stay-out until (DDMMYY)">
-          <Input value={d.stayoutUntil ?? ""} onChange={set("stayoutUntil")} inputMode="numeric" className="h-11 font-mono text-base" />
+          <Input value={d.stayoutUntil ?? ""} onChange={set("stayoutUntil")} inputMode="numeric" className={`${fieldClass} font-mono`} />
         </Field>
       )}
-      <Button type="submit" size="lg" className="h-11" disabled={pending}>
+      <Button type="submit" size="lg" className={bigButtonClass} disabled={pending}>
         {pending && <Loader2 className="animate-spin" />}
         Save
       </Button>
-      <Button type="button" variant="ghost" className="h-11" onClick={onBack}>
+      <Button type="button" variant="ghost" className={bigButtonClass} onClick={onBack}>
         Start again
       </Button>
     </form>

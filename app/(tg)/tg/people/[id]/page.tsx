@@ -1,7 +1,9 @@
+import { CalendarCheck, Inbox, SearchX } from "lucide-react";
 import { Header } from "@/components/tg/form-bits";
 import { HistoryToggle } from "@/components/tg/history-toggle";
 import { RecordActions } from "@/components/tg/record-actions";
 import { RecordSummary } from "@/components/tg/record-summary";
+import { EmptyState } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
 import { accessTo, canDecide, isCurrent, liveChildren } from "@/lib/wb/domain/rules";
@@ -16,10 +18,9 @@ export default async function PersonHistoryPage({ params, searchParams }: { para
   const p = /^[0-9a-f-]{36}$/.test(id) ? await personWhere(id) : null;
   if (!p || !canDecide(member.grants, p)) {
     return (
-      <div className="flex flex-col gap-3">
-        <Header title="Not found" />
-        <p className="text-sm text-muted-foreground">That person isn&apos;t in your platoon, or has left the roster.</p>
-      </div>
+      <EmptyState icon={<SearchX />} title="Not found">
+        <p>That person isn&apos;t in your platoon, or has left the roster.</p>
+      </EmptyState>
     );
   }
   const all = (await searchParams).all === "1";
@@ -31,12 +32,14 @@ export default async function PersonHistoryPage({ params, searchParams }: { para
     <div className="flex flex-col gap-4">
       <Header title={`${p.rank} ${p.name}`} hint={`${p.campName} · ${p.subunitName}${all ? " · Full history" : ""}`} />
       {everything.length === 0 ? (
-        <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Nothing on their timeline yet.</p>
+        <EmptyState icon={<Inbox />} title="Nothing on their timeline yet" />
       ) : records.length === 0 ? (
-        <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Nothing current. What&apos;s over is in Full history.</p>
+        <EmptyState icon={<CalendarCheck />} title="Nothing current">
+          <p>What&apos;s over is in Full history.</p>
+        </EmptyState>
       ) : (
-        records.map((r) => (
-          <RecordSummary key={r.id} r={r} href={`/tg/records/${r.id}`}>
+        records.map((r, i) => (
+          <RecordSummary key={r.id} r={r} i={i} href={`/tg/records/${r.id}`}>
             <RecordActions recordId={r.id} can={accessTo(member, r)} />
           </RecordSummary>
         ))

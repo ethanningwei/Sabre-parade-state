@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { reportMa, type Submitted } from "@/lib/wb/actions/records";
 import { BigButton, Done, ErrorBox, Field, Header, hhmm, inputClass, Submit, useAction } from "../form-bits";
+import { fieldClass } from "../ui";
 
 // A medical appointment (ports Sabre Bot's MA). Physio is weekly and the
 // answers never change, so someone who's been before is offered last time's
@@ -20,10 +21,13 @@ export function MaForm({ today, last }: { today: string; last: { maTiming: strin
 
   if (result) {
     return (
-      <div className="flex flex-col gap-4">
-        <Done title="Appointment recorded" delivery={result.delivery} subunitName={result.subunitName} needsApproval={false} />
-        <p className="text-center text-sm text-muted-foreground">If the doctor gives you an MC or status, open My records and tap Update outcome.</p>
-      </div>
+      <Done
+        title="Appointment recorded"
+        delivery={result.delivery}
+        subunitName={result.subunitName}
+        needsApproval={false}
+        note="If the doctor gives you an MC or status, open My records and tap Update outcome."
+      />
     );
   }
 
@@ -38,9 +42,9 @@ export function MaForm({ today, last }: { today: string; last: { maTiming: strin
       <Header title="Medical appointment" hint="You're down as away for that day." />
 
       {again === null && last && (
-        <section className="flex flex-col gap-3">
-          <p className="font-medium">Same as last time?</p>
-          <p className="rounded-lg border bg-card px-3 py-2">
+        <section className="tg-reveal flex flex-col gap-3">
+          <p className="px-1 font-medium">Same as last time?</p>
+          <p className="rounded-xl bg-card px-3 py-2">
             {last.maTiming}H @ {last.location}
           </p>
           <BigButton onClick={() => setAgain(true)}>Yes, same time and place</BigButton>
@@ -52,7 +56,7 @@ export function MaForm({ today, last }: { today: string; last: { maTiming: strin
 
       {again !== null && (
         <form
-          className="flex flex-col gap-4"
+          className="tg-reveal flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
             submit();
@@ -71,7 +75,7 @@ export function MaForm({ today, last }: { today: string; last: { maTiming: strin
                 <input type="time" required className={inputClass} value={time} aria-label="Time" onChange={(e) => setTime(e.target.value)} />
               </Field>
               <Field label="Where?" htmlFor="place">
-                <Input id="place" value={place} onChange={(e) => setPlace(e.target.value)} placeholder="e.g. National Skin Centre" className="h-11 text-base" maxLength={100} />
+                <Input id="place" value={place} onChange={(e) => setPlace(e.target.value)} placeholder="e.g. National Skin Centre" className={fieldClass} maxLength={100} />
               </Field>
             </>
           )}

@@ -60,13 +60,13 @@ export function PhotoPicker({ onToken, keepLabel }: { onToken: (token: string | 
       <input ref={input} type="file" accept="image/*" className="hidden" aria-label="Photo of the document" onChange={(e) => pick(e.target.files?.[0])} />
       {"preview" in state && (
         // eslint-disable-next-line @next/next/no-img-element -- a local object URL, not an optimisable image
-        <img src={state.preview} alt="The document you picked" className="max-h-64 w-full rounded-lg border object-contain" />
+        <img src={state.preview} alt="The document you picked" className="tg-reveal max-h-64 w-full rounded-xl bg-muted object-contain" />
       )}
       <button
         type="button"
         onClick={() => input.current?.click()}
         disabled={state.kind === "uploading"}
-        className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-dashed bg-card px-3 font-medium active:bg-muted disabled:opacity-60"
+        className="tg-press flex min-h-12 items-center justify-center gap-2 rounded-xl border-2 border-dashed border-muted-foreground/30 bg-card px-3 font-medium active:bg-muted disabled:opacity-60"
       >
         {state.kind === "uploading" ? (
           <>

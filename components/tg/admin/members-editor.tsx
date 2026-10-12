@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { linkMember, searchRoster, setMemberActive, unlinkMember } from "@/lib/wb/actions/admin";
 import type { MemberRow } from "@/lib/wb/admin-data";
+import { fieldClass } from "../ui";
 
 type Hit = { personId: string; label: string; where: string; linked: boolean };
 
@@ -21,7 +22,7 @@ export function MembersEditor({ members, myId }: { members: MemberRow[]; myId: s
 
   return (
     <div className="flex flex-col gap-3">
-      <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter" className="h-11 text-base" />
+      <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter" className={fieldClass} />
       <p className="text-xs text-muted-foreground">{shown.length} of {members.length}</p>
       {shown.map((m) => (
         <MemberCard key={m.id} m={m} isMe={m.id === myId} />
@@ -45,7 +46,7 @@ function MemberCard({ m, isMe }: { m: MemberRow; isMe: boolean }) {
     });
 
   return (
-    <div className={`flex flex-col gap-2 rounded-xl border bg-card p-3 ${m.active ? "" : "opacity-60"}`}>
+    <div className={`flex flex-col gap-2 rounded-2xl bg-card p-3 ${m.active ? "" : "opacity-60"}`}>
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="font-medium">{m.label}</p>

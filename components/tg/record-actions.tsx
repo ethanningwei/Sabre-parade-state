@@ -1,5 +1,6 @@
 "use client";
 
+import { Ban, Check, PenLine, Undo2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -7,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { ActionResult } from "@/lib/actions/shared";
 import { decideRecord, giveReason, undoDecision, voidEntry, withdrawRecord } from "@/lib/wb/actions/records";
 import type { RecordAccess } from "@/lib/wb/domain/rules";
-import { BigButton, ErrorBox, useAction } from "./form-bits";
+import { BigButton, ErrorBox, textareaClass, useAction } from "./form-bits";
 
 // The buttons a viewer may use on one record. The server works out `can`
 // (lib/wb/domain/rules accessTo) and the decision core checks it all again.
@@ -32,7 +33,7 @@ export function RecordActions({ recordId, can }: { recordId: string; can: Record
   if (!any) return null;
 
   const note = (label: string, placeholder: string) => (
-    <Textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} aria-label={label} className="min-h-20 text-base" maxLength={300} />
+    <Textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} aria-label={label} className={textareaClass} maxLength={300} />
   );
 
   return (
@@ -40,15 +41,15 @@ export function RecordActions({ recordId, can }: { recordId: string; can: Record
       {can.decide && open === null && (
         <div className="grid grid-cols-2 gap-2">
           <BigButton pending={pending} onClick={() => act(() => decideRecord({ recordId, action: "approve" }), "Approved")}>
-            ✅ Approve
+            <Check aria-hidden /> Approve
           </BigButton>
           <BigButton variant="outline" onClick={() => setOpen("reject")}>
-            ❌ Reject
+            <X aria-hidden /> Reject
           </BigButton>
         </div>
       )}
       {open === "reject" && (
-        <>
+        <div className="tg-reveal flex flex-col gap-2">
           {note("Why not? (optional)", "Why not? Optional: they'll see it.")}
           <div className="grid grid-cols-2 gap-2">
             <BigButton variant="destructive" pending={pending} onClick={() => act(() => decideRecord({ recordId, action: "reject", note: text }), "Rejected")}>
@@ -58,26 +59,26 @@ export function RecordActions({ recordId, can }: { recordId: string; can: Record
               Back
             </BigButton>
           </div>
-        </>
+        </div>
       )}
 
       {can.sayWhy && open === null && (
         <BigButton variant="outline" onClick={() => setOpen("why")}>
-          ✍️ Say why
+          <PenLine aria-hidden /> Say why
         </BigButton>
       )}
       {open === "why" && (
-        <>
+        <div className="tg-reveal flex flex-col gap-2">
           {note("Why not?", "Why not? They'll see it as you wrote it.")}
           <BigButton pending={pending} disabled={!text.trim()} onClick={() => act(() => giveReason({ recordId, note: text }), "Sent")}>
             Send the reason
           </BigButton>
-        </>
+        </div>
       )}
 
       {can.undo && open === null && (
         <BigButton variant="outline" pending={pending} onClick={() => act(() => undoDecision({ recordId }), "Taken back")}>
-          ↩ Undo my decision
+          <Undo2 aria-hidden /> Undo my decision
         </BigButton>
       )}
 
@@ -87,7 +88,7 @@ export function RecordActions({ recordId, can }: { recordId: string; can: Record
         </BigButton>
       )}
       {open === "withdraw" && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="tg-reveal grid grid-cols-2 gap-2">
           <BigButton variant="destructive" pending={pending} onClick={() => act(() => withdrawRecord({ recordId }), "Withdrawn")}>
             Withdraw it
           </BigButton>
@@ -99,11 +100,11 @@ export function RecordActions({ recordId, can }: { recordId: string; can: Record
 
       {can.void && open === null && (
         <BigButton variant="outline" onClick={() => setOpen("void")}>
-          🚫 Void…
+          <Ban aria-hidden /> Void…
         </BigButton>
       )}
       {open === "void" && (
-        <>
+        <div className="tg-reveal flex flex-col gap-2">
           <p className="text-xs text-muted-foreground">It comes off the timeline and they&apos;re told. Approved leave goes back to them.</p>
           {note("Why are you voiding it?", "Why? e.g. entered twice")}
           <div className="grid grid-cols-2 gap-2">
@@ -114,7 +115,7 @@ export function RecordActions({ recordId, can }: { recordId: string; can: Record
               Keep it
             </BigButton>
           </div>
-        </>
+        </div>
       )}
 
       <ErrorBox error={error} />

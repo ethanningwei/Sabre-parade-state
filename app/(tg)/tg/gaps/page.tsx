@@ -1,3 +1,6 @@
+import { ChevronRight } from "lucide-react";
+import { Header } from "@/components/tg/form-bits";
+import { Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { gapsFor } from "@/lib/wb/admin-data";
 import { requireGrantPage } from "@/lib/wb/auth";
@@ -13,10 +16,7 @@ export default async function GapsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Gaps</h1>
-        <p className="text-sm text-muted-foreground">{g.scoped ? "Your platoon only." : "The whole company."}</p>
-      </header>
+      <Header title="Gaps" hint={g.scoped ? "Your platoon only." : "The whole company."} />
 
       <Section title="Not on the roster yet" count={g.selfOnly.length} hint="Registered themselves. Add them in the parade-state app, then link them in Admin › Members.">
         {g.selfOnly.map((m) => (
@@ -30,15 +30,15 @@ export default async function GapsPage() {
         ))}
       </Section>
 
-      <Section title="Not registered" count={g.unregistered.length} hint="On the parade state, but haven't opened Sabre yet.">
+      <Section title="Not registered" rows={false} count={g.unregistered.length} hint="On the parade state, but haven't opened Sabre yet.">
         {[...bySubunit].map(([sub, people]) => (
           // collapsed by platoon: open one at a time
-          <details key={sub} className="group rounded-lg border">
-            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 text-sm font-medium">
+          <details key={sub} className="group overflow-hidden rounded-2xl bg-card">
+            <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-4 text-sm font-medium transition-colors duration-150 active:bg-muted [&::-webkit-details-marker]:hidden">
               {sub} · {people.length}
-              <span className="text-muted-foreground transition-transform group-open:rotate-90">›</span>
+              <ChevronRight className="size-4 text-muted-foreground transition-transform duration-200 group-open:rotate-90 motion-reduce:transition-none" aria-hidden />
             </summary>
-            <div className="flex flex-col gap-1 px-2 pb-2">
+            <div className="tg-rows tg-reveal border-t">
               {people.map((p) => (
                 <Row key={p.personId} title={`${p.rank} ${p.name}`} sub={p.campName} />
               ))}
@@ -50,23 +50,23 @@ export default async function GapsPage() {
   );
 }
 
-function Section({ title, count, hint, children }: { title: string; count: number; hint: string; children: React.ReactNode }) {
+function Section({ title, count, hint, rows = true, children }: { title: string; count: number; hint: string; rows?: boolean; children: React.ReactNode }) {
   return (
-    <section className="flex flex-col gap-2">
-      <div>
-        <h2 className="font-semibold">
-          {title} <span className="text-muted-foreground">· {count}</span>
-        </h2>
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      </div>
-      {count === 0 ? <p className="text-sm text-muted-foreground">None.</p> : children}
-    </section>
+    <Group title={`${title} · ${count}`} hint={hint}>
+      {count === 0 ? (
+        <p className="rounded-2xl bg-card px-4 py-3 text-sm text-muted-foreground">None.</p>
+      ) : rows ? (
+        <div className="tg-rows overflow-hidden rounded-2xl bg-card">{children}</div>
+      ) : (
+        children
+      )}
+    </Group>
   );
 }
 
 function Row({ title, sub }: { title: string; sub?: string | null }) {
   return (
-    <div className="rounded-lg border bg-card px-3 py-2">
+    <div className="px-4 py-2.5">
       <p className="text-sm font-medium">{title}</p>
       {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
     </div>

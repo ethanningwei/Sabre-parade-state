@@ -1,7 +1,9 @@
+import { ClipboardCheck } from "lucide-react";
 import { redirect } from "next/navigation";
 import { Header } from "@/components/tg/form-bits";
 import { RecordActions } from "@/components/tg/record-actions";
 import { RecordSummary } from "@/components/tg/record-summary";
+import { EmptyState } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
 import { accessTo, decidesAnything } from "@/lib/wb/domain/rules";
@@ -19,10 +21,10 @@ export default async function ApprovalsPage() {
     <div className="flex flex-col gap-4">
       <Header title="Approvals" hint={pending.length ? `${pending.length} waiting, oldest first.` : undefined} />
       {pending.length === 0 ? (
-        <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Nothing waiting on you.</p>
+        <EmptyState icon={<ClipboardCheck />} title="Nothing waiting on you." />
       ) : (
-        pending.map((r) => (
-          <RecordSummary key={r.id} r={r} showWho href={`/tg/records/${r.id}`}>
+        pending.map((r, i) => (
+          <RecordSummary key={r.id} r={r} i={i} showWho href={`/tg/records/${r.id}`}>
             <RecordActions recordId={r.id} can={accessTo(member, r)} />
           </RecordSummary>
         ))

@@ -1,6 +1,8 @@
+import { SearchX } from "lucide-react";
 import { Header } from "@/components/tg/form-bits";
 import { RecordActions } from "@/components/tg/record-actions";
 import { RecordSummary } from "@/components/tg/record-summary";
+import { EmptyState } from "@/components/tg/ui";
 import { VisitSection } from "@/components/tg/visit-section";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
@@ -23,10 +25,9 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
 
   if (!r || !can?.view) {
     return (
-      <div className="flex flex-col gap-3">
-        <Header title="Not found" />
-        <p className="text-sm text-muted-foreground">That record doesn&apos;t exist, or it isn&apos;t yours or your platoon&apos;s to see.</p>
-      </div>
+      <EmptyState icon={<SearchX />} title="Not found">
+        <p>That record doesn&apos;t exist, or it isn&apos;t yours or your platoon&apos;s to see.</p>
+      </EmptyState>
     );
   }
 
@@ -60,7 +61,7 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
           own={owner}
         />
       )}
-      <p className="text-xs text-muted-foreground">
+      <p className="px-1 text-xs text-muted-foreground">
         {r.createdVia === "PROXY" ? "Added by a commander" : "Sent"} {when(r.createdAt)}
         {r.decidedAt && ` · decided ${when(r.decidedAt)}`}
       </p>

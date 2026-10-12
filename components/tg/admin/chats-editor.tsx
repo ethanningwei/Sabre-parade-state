@@ -24,7 +24,7 @@ function ChatCard({ c }: { c: Chat }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
+    <div className="flex items-center justify-between gap-3 rounded-2xl bg-card p-3">
       <div>
         <p className="font-medium">{c.subunitName}</p>
         <p className="text-xs text-muted-foreground">

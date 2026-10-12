@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { checkClash, reportEvent, type Submitted } from "@/lib/wb/actions/records";
 import { ClashStep, Done, ErrorBox, Field, Header, hhmm, inputClass, Submit, useAction } from "../form-bits";
+import { fieldClass } from "../ui";
 
 // A course, brief, IPPT or anything else (ports Sabre Bot's _event_questions).
 // The trooper's own form and a commander's "Add for several men" ask the same
@@ -28,10 +29,10 @@ export function EventQuestions({ a, set, today }: { a: EventAnswers; set: (a: Ev
   return (
     <>
       <Field label="What is it?" htmlFor="what">
-        <Input id="what" value={a.what} onChange={(e) => set({ ...a, what: e.target.value })} placeholder="e.g. DV DRIVER COURSE, IPPT" autoCapitalize="characters" className="h-11 text-base" maxLength={100} />
+        <Input id="what" value={a.what} onChange={(e) => set({ ...a, what: e.target.value })} placeholder="e.g. DV DRIVER COURSE, IPPT" autoCapitalize="characters" className={fieldClass} maxLength={100} />
       </Field>
       <Field label="Where is it?" htmlFor="where">
-        <Input id="where" value={a.place} onChange={(e) => set({ ...a, place: e.target.value })} placeholder="e.g. MAJU CAMP, or IN CAMP" autoCapitalize="characters" className="h-11 text-base" maxLength={100} />
+        <Input id="where" value={a.place} onChange={(e) => set({ ...a, place: e.target.value })} placeholder="e.g. MAJU CAMP, or IN CAMP" autoCapitalize="characters" className={fieldClass} maxLength={100} />
       </Field>
       <div className="grid grid-cols-2 gap-2">
         <Field label="From">

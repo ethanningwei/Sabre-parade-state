@@ -1,5 +1,6 @@
 "use client";
 
+import { MapPin } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { applyLeave, applyOff, checkClash, type Submitted } from "@/lib/wb/actions/records";
@@ -7,7 +8,7 @@ import { holidayOn } from "@/lib/wb/domain/holidays";
 import { leaveRefusal } from "@/lib/wb/domain/rules";
 import { AL_PLACES, LEAVE_REASONS } from "@/lib/wb/domain/roles";
 import { checkRange, dayMonth, daysTouched, type RangeInput } from "@/lib/wb/domain/timeline";
-import { BigButton, Choice, ClashStep, Done, ErrorBox, Field, Header, hhmm, inputClass, Submit, useAction } from "../form-bits";
+import { BigButton, Choice, ClashStep, Done, ErrorBox, Field, fieldClass, Header, hhmm, inputClass, StepBar, Submit, useAction } from "../form-bits";
 
 // AL, OL and Off (ports Sabre Bot's _leave_steps and OFF). Off stops after
 // the clash check; leave goes on to what it costs, where, and why.
@@ -16,6 +17,13 @@ type Kind = "AL" | "OL" | "OFF";
 type Step = "dates" | "clash" | "days" | "where" | "reason" | "done";
 
 const TITLE: Record<Kind, string> = { AL: "Annual leave", OL: "Overseas leave", OFF: "Off" };
+/** Leave's screens, for the step bar (the clash check is part of the dates). Off is one screen. */
+const STEPS: { step: Step; label: string; back?: Step }[] = [
+  { step: "dates", label: "Dates" },
+  { step: "days", label: "Days it costs", back: "dates" },
+  { step: "where", label: "Where", back: "days" },
+  { step: "reason", label: "What for", back: "where" },
+];
 const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const weekday = (date: string) => WEEKDAY[new Date(`${date}T00:00:00Z`).getUTCDay()];
 
@@ -94,14 +102,23 @@ export function LeaveForm({ kind, today, leaveLeft }: { kind: Kind; today: strin
 
   const cost = days.length;
   const refusal = leaveRefusal(cost, leaveLeft);
+  const at = STEPS.findIndex((x) => x.step === (step === "clash" ? "dates" : step));
 
   return (
     <div className="flex flex-col gap-5">
       <Header title={TITLE[kind]} hint={kind === "AL" ? "Singapore or Johor Bahru only." : kind === "OL" ? "Anywhere outside Singapore and JB." : undefined} />
+      {kind !== "OFF" && at >= 0 && (
+        <StepBar
+          at={at + 1}
+          of={STEPS.length}
+          label={STEPS[at].label}
+          onBack={STEPS[at].back ? () => setStep(STEPS[at].back!) : undefined}
+        />
+      )}
 
       {step === "dates" && (
         <form
-          className="flex flex-col gap-4"
+          className="tg-reveal flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
             submitDates();
@@ -109,7 +126,7 @@ export function LeaveForm({ kind, today, leaveLeft }: { kind: Kind; today: strin
         >
           <DateTime label="Start" date={dates.startDate} time={dates.startTime} min={today} onDate={(v) => setDates({ ...dates, startDate: v, endDate: v > dates.endDate ? v : dates.endDate })} onTime={(v) => setDates({ ...dates, startTime: v })} />
           <DateTime label="End" date={dates.endDate} time={dates.endTime} min={dates.startDate} onDate={(v) => setDates({ ...dates, endDate: v })} onTime={(v) => setDates({ ...dates, endTime: v })} />
-          <p className="text-xs text-muted-foreground">Times are optional: 0000 to 2359 means whole days.</p>
+          <p className="px-1 text-xs text-muted-foreground">Times are optional: 0000 to 2359 means whole days.</p>
           <Submit pending={pending}>Next</Submit>
         </form>
       )}
@@ -117,24 +134,24 @@ export function LeaveForm({ kind, today, leaveLeft }: { kind: Kind; today: strin
       {step === "clash" && <ClashStep lines={clash} onCarryOn={afterClash} onChange={() => setStep("dates")} />}
 
       {step === "days" && (
-        <section className="flex flex-col gap-3">
-          <div>
+        <section className="tg-reveal flex flex-col gap-3">
+          <div className="px-1">
             <p className="font-medium">Which days does this actually cost you?</p>
             <p className="text-sm text-muted-foreground">Untick any day you&apos;re already off shift, or that&apos;s a public holiday.</p>
           </div>
-          <div className="flex flex-col gap-1.5">
+          <div className="tg-rows overflow-hidden rounded-2xl bg-card">
             {touched.map((d) => {
               const on = days.includes(d);
               const holiday = holidayOn(d);
               return (
-                <label key={d} className="flex min-h-11 items-center gap-3 rounded-lg border bg-card px-3 active:bg-muted">
+                <label key={d} className="flex min-h-12 cursor-pointer items-center gap-3 px-4 transition-colors duration-150 active:bg-muted">
                   <input
                     type="checkbox"
                     className="size-5 accent-primary"
                     checked={on}
                     onChange={() => setDays(on ? days.filter((x) => x !== d) : [...days, d].sort())}
                   />
-                  <span className="flex-1">
+                  <span className="flex-1 tabular-nums">
                     {weekday(d)} {dayMonth(d)}
                   </span>
                   {holiday && <span className="text-xs text-muted-foreground">{holiday}</span>}
@@ -142,10 +159,10 @@ export function LeaveForm({ kind, today, leaveLeft }: { kind: Kind; today: strin
               );
             })}
           </div>
-          <p className={`text-sm ${refusal && cost > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+          <p className={`px-1 text-sm font-medium tabular-nums ${refusal && cost > 0 ? "text-destructive" : "text-muted-foreground"}`}>
             {cost} day{cost === 1 ? "" : "s"} of leave · you have {leaveLeft} left
           </p>
-          {refusal && cost > leaveLeft && <p className="text-xs text-muted-foreground">{refusal}</p>}
+          {refusal && cost > leaveLeft && <p className="px-1 text-xs text-muted-foreground">{refusal}</p>}
           <BigButton onClick={() => setStep("where")} disabled={!!refusal}>
             Next
           </BigButton>
@@ -154,7 +171,7 @@ export function LeaveForm({ kind, today, leaveLeft }: { kind: Kind; today: strin
 
       {step === "where" && (
         <form
-          className="flex flex-col gap-4"
+          className="tg-reveal flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
             setStep("reason");
@@ -165,7 +182,8 @@ export function LeaveForm({ kind, today, leaveLeft }: { kind: Kind; today: strin
               <div className="flex flex-col gap-2">
                 {AL_PLACES.map((p) => (
                   <Choice key={p} on={place === p} onClick={() => setPlace(p)}>
-                    {p === "SINGAPORE" ? "🇸🇬 Staying in Singapore" : "🇲🇾 Johor Bahru"}
+                    <MapPin className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    {p === "SINGAPORE" ? "Staying in Singapore" : "Johor Bahru"}
                   </Choice>
                 ))}
               </div>
@@ -173,10 +191,10 @@ export function LeaveForm({ kind, today, leaveLeft }: { kind: Kind; today: strin
           ) : (
             <>
               <Field label="Which city?" htmlFor="city">
-                <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. BANGKOK" autoCapitalize="characters" className="h-11 text-base" />
+                <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. BANGKOK" autoCapitalize="characters" className={fieldClass} />
               </Field>
               <Field label="Which country?" htmlFor="country">
-                <Input id="country" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="e.g. THAILAND" autoCapitalize="characters" className="h-11 text-base" />
+                <Input id="country" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="e.g. THAILAND" autoCapitalize="characters" className={fieldClass} />
               </Field>
             </>
           )}
@@ -188,7 +206,7 @@ export function LeaveForm({ kind, today, leaveLeft }: { kind: Kind; today: strin
 
       {step === "reason" && (
         <form
-          className="flex flex-col gap-4"
+          className="tg-reveal flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
             submitLeave();
@@ -204,9 +222,11 @@ export function LeaveForm({ kind, today, leaveLeft }: { kind: Kind; today: strin
             </div>
           </Field>
           {reason === "OTHER" && (
-            <Field label="Briefly, what for?" htmlFor="other">
-              <Input id="other" value={reasonOther} onChange={(e) => setReasonOther(e.target.value)} className="h-11 text-base" maxLength={100} />
-            </Field>
+            <div className="tg-reveal">
+              <Field label="Briefly, what for?" htmlFor="other">
+                <Input id="other" value={reasonOther} onChange={(e) => setReasonOther(e.target.value)} className={fieldClass} maxLength={100} />
+              </Field>
+            </div>
           )}
           <Submit pending={pending} disabled={!reason || (reason === "OTHER" && !reasonOther.trim())}>
             Send for approval

@@ -1,14 +1,11 @@
 "use client";
 
-import { CheckCircle2 } from "lucide-react";
-import Link from "next/link";
 import { useState } from "react";
-import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { recordOutcome } from "@/lib/wb/actions/medical";
 import { MC_CATEGORIES, STATUSES } from "@/lib/wb/domain/roles";
 import { asksSeenBy, MAX_STATUSES, type WbSeenBy } from "@/lib/wb/domain/rules";
-import { Choice, ErrorBox, Field, Header, inputClass, Submit, useAction, YesNo } from "../form-bits";
+import { BigLink, Choice, DoneScreen, ErrorBox, Field, fieldClass, Header, inputClass, Step, Submit, useAction, YesNo } from "../form-bits";
 import { PhotoPicker } from "../photo-picker";
 
 // What the doctor gave him (ports Sabre Bot's OUTCOME). Two plain yes/no
@@ -91,6 +88,9 @@ export function OutcomeForm({
     (a.statuses.length > 0 &&
       a.statuses.every((s) => s.permanent !== null && s.type && (s.type !== "OTHER" || s.other.trim()) && s.startDate && (s.permanent || (s.endDate && s.endDate >= s.startDate))));
   const photoOk = nothing || photoToken || (correcting && hasPhoto);
+  // the sections are numbered in the order they open
+  let n = 1;
+  const num = () => ++n;
   const ready = a.gotMc !== null && a.gotStatus !== null && (!nothing || !!anchorId) && mcOk && statusesOk && photoOk && (!onensAsked || a.onensUploaded !== null);
 
   const submit = () =>
@@ -117,72 +117,76 @@ export function OutcomeForm({
         hint={correcting ? "Saving replaces what's recorded now. Your commanders see both." : visitLine}
       />
       <form
-        className="flex flex-col gap-5"
+        className="flex flex-col gap-7"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
-        <YesNo label="Did you get MC or hospitalisation leave?" value={a.gotMc} onChange={(v) => set({ gotMc: v })} />
-        <YesNo
-          label="Did you get any status?"
-          value={a.gotStatus}
-          onChange={(v) => set({ gotStatus: v, statuses: v && !a.statuses.length ? [blankStatus(today)] : a.statuses })}
-        />
+        <Step n={1} title="What you got">
+          <YesNo label="Did you get MC or hospitalisation leave?" value={a.gotMc} onChange={(v) => set({ gotMc: v })} />
+          <YesNo
+            label="Did you get any status?"
+            value={a.gotStatus}
+            onChange={(v) => set({ gotStatus: v, statuses: v && !a.statuses.length ? [blankStatus(today)] : a.statuses })}
+          />
+        </Step>
 
         {a.gotMc && (
-          <section className="flex flex-col gap-4 rounded-xl border bg-card p-4">
-            <Field label="Which did you get?">
-              <div className="grid grid-cols-2 gap-2">
-                <Choice on={a.mcKind === "MC"} onClick={() => set({ mcKind: "MC" })}>
-                  MC
-                </Choice>
-                <Choice on={a.mcKind === "HL"} onClick={() => set({ mcKind: "HL" })}>
-                  Hospitalisation leave
-                </Choice>
-              </div>
-            </Field>
-            <Field label={`What was the ${a.mcKind} for?`} hint="Your commanders see this, never the diagnosis.">
-              <select className={inputClass} value={a.category} aria-label="Category" onChange={(e) => set({ category: e.target.value })}>
-                <option value="" disabled>
-                  Pick one
-                </option>
-                {MC_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-                <option value="OTHER">Other</option>
-              </select>
-            </Field>
-            <Field label="What's the diagnosis?" hint="Copy what the doctor wrote, e.g. ACUTE GASTRITIS. Only you, your PC and PS, and OC, 2IC and CSM can see it." htmlFor="dx">
-              <Input id="dx" value={a.diagnosis} onChange={(e) => set({ diagnosis: e.target.value })} autoCapitalize="characters" className="h-11 text-base" maxLength={200} />
-            </Field>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="First day">
-                <input type="date" required className={inputClass} value={a.mcStart} aria-label="First day" onChange={(e) => set({ mcStart: e.target.value, mcEnd: e.target.value > a.mcEnd ? e.target.value : a.mcEnd })} />
-              </Field>
-              <Field label="Last day">
-                <input type="date" required className={inputClass} value={a.mcEnd} min={a.mcStart} aria-label="Last day" onChange={(e) => set({ mcEnd: e.target.value })} />
-              </Field>
-            </div>
-            {seenAsked && (
-              <Field label="Who did you see?">
+          <Step n={num()} title={a.mcKind === "HL" ? "Hospitalisation leave" : "MC"}>
+            <section className="flex flex-col gap-4 rounded-2xl bg-card p-4">
+              <Field label="Which did you get?">
                 <div className="grid grid-cols-2 gap-2">
-                  <Choice on={a.seenBy === "MO"} onClick={() => set({ seenBy: "MO", onensUploaded: null })}>
-                    The camp MO
+                  <Choice on={a.mcKind === "MC"} onClick={() => set({ mcKind: "MC" })}>
+                    MC
                   </Choice>
-                  <Choice on={a.seenBy === "CIVILIAN"} onClick={() => set({ seenBy: "CIVILIAN" })}>
-                    A civilian doctor
+                  <Choice on={a.mcKind === "HL"} onClick={() => set({ mcKind: "HL" })}>
+                    Hospitalisation leave
                   </Choice>
                 </div>
               </Field>
-            )}
-          </section>
+              <Field label={`What was the ${a.mcKind} for?`} hint="Your commanders see this, never the diagnosis.">
+                <select className={inputClass} value={a.category} aria-label="Category" onChange={(e) => set({ category: e.target.value })}>
+                  <option value="" disabled>
+                    Pick one
+                  </option>
+                  {MC_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                  <option value="OTHER">Other</option>
+                </select>
+              </Field>
+              <Field label="What's the diagnosis?" hint="Copy what the doctor wrote, e.g. ACUTE GASTRITIS. Only you, your PC and PS, and OC, 2IC and CSM can see it." htmlFor="dx">
+                <Input id="dx" value={a.diagnosis} onChange={(e) => set({ diagnosis: e.target.value })} autoCapitalize="characters" className={fieldClass} maxLength={200} />
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="First day">
+                  <input type="date" required className={inputClass} value={a.mcStart} aria-label="First day" onChange={(e) => set({ mcStart: e.target.value, mcEnd: e.target.value > a.mcEnd ? e.target.value : a.mcEnd })} />
+                </Field>
+                <Field label="Last day">
+                  <input type="date" required className={inputClass} value={a.mcEnd} min={a.mcStart} aria-label="Last day" onChange={(e) => set({ mcEnd: e.target.value })} />
+                </Field>
+              </div>
+              {seenAsked && (
+                <Field label="Who did you see?">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Choice on={a.seenBy === "MO"} onClick={() => set({ seenBy: "MO", onensUploaded: null })}>
+                      The camp MO
+                    </Choice>
+                    <Choice on={a.seenBy === "CIVILIAN"} onClick={() => set({ seenBy: "CIVILIAN" })}>
+                      A civilian doctor
+                    </Choice>
+                  </div>
+                </Field>
+              )}
+            </section>
+          </Step>
         )}
 
         {a.gotStatus && (
-          <section className="flex flex-col gap-4">
+          <Step n={num()} title="Statuses">
             <Field label="How many statuses did you get?">
               <div className="grid grid-cols-4 gap-2">
                 {Array.from({ length: MAX_STATUSES }, (_, i) => i + 1).map((n) => (
@@ -198,7 +202,7 @@ export function OutcomeForm({
               <p className="text-xs text-muted-foreground">More than {MAX_STATUSES}? Record these, then the rest as a second entry.</p>
             </Field>
             {a.statuses.map((s, i) => (
-              <div key={i} className="flex flex-col gap-4 rounded-xl border bg-card p-4">
+              <div key={i} className="tg-reveal flex flex-col gap-4 rounded-2xl bg-card p-4">
                 <p className="font-medium">
                   Status {i + 1} of {a.statuses.length}
                 </p>
@@ -223,9 +227,11 @@ export function OutcomeForm({
                   </div>
                 </Field>
                 {s.type === "OTHER" && (
-                  <Field label="As written on the paper" htmlFor={`st${i}`}>
-                    <Input id={`st${i}`} value={s.other} onChange={(e) => setStatus(i, { other: e.target.value })} placeholder="e.g. EXCUSE LOWER LIMB" autoCapitalize="characters" className="h-11 text-base" maxLength={60} />
-                  </Field>
+                  <div className="tg-reveal">
+                    <Field label="As written on the paper" htmlFor={`st${i}`}>
+                      <Input id={`st${i}`} value={s.other} onChange={(e) => setStatus(i, { other: e.target.value })} placeholder="e.g. EXCUSE LOWER LIMB" autoCapitalize="characters" className={fieldClass} maxLength={60} />
+                    </Field>
+                  </div>
                 )}
                 <div className="grid grid-cols-2 gap-2">
                   <Field label="From">
@@ -239,16 +245,22 @@ export function OutcomeForm({
                 </div>
               </div>
             ))}
-          </section>
+          </Step>
         )}
 
         {(a.gotMc || a.gotStatus) && (
-          <Field label="A photo of the document" hint="One photo: the MC and statuses are on the same paper.">
-            <PhotoPicker onToken={setPhotoToken} keepLabel={correcting && hasPhoto ? "Or keep the photo you sent before." : undefined} />
-          </Field>
+          <Step n={num()} title="Photo">
+            <Field label="A photo of the document" hint="One photo: the MC and statuses are on the same paper.">
+              <PhotoPicker onToken={setPhotoToken} keepLabel={correcting && hasPhoto ? "Or keep the photo you sent before." : undefined} />
+            </Field>
+          </Step>
         )}
 
-        {onensAsked && <YesNo label="Have you uploaded it to ONENS?" value={a.onensUploaded} onChange={(v) => set({ onensUploaded: v })} yes="Yes" no="Not yet" />}
+        {onensAsked && (
+          <Step n={num()} title="ONENS">
+            <YesNo label="Have you uploaded it to ONENS?" value={a.onensUploaded} onChange={(v) => set({ onensUploaded: v })} yes="Yes" no="Not yet" />
+          </Step>
+        )}
 
         {a.gotMc !== null && a.gotStatus !== null && (
           <Submit pending={pending} disabled={!ready}>
@@ -263,20 +275,14 @@ export function OutcomeForm({
 
 function Recorded({ anchorId, nothing }: { anchorId: string; nothing: boolean }) {
   return (
-    <section className="flex flex-col items-center gap-3 py-6 text-center">
-      <CheckCircle2 className="size-12 text-emerald-600" />
-      <h2 className="text-xl font-semibold">{nothing ? "Noted: nothing given" : "Recorded"}</h2>
-      <p className="max-w-sm text-sm text-muted-foreground">
-        {nothing ? "Nothing else to do." : "Your commanders can see what you got and for how long. The diagnosis and photo stay private."}
-      </p>
-      <div className="mt-2 flex w-full flex-col gap-2">
-        <Link href={`/tg/records/${anchorId}`} className={buttonVariants({ size: "lg", className: "h-11" })}>
-          See it
-        </Link>
-        <Link href="/tg" className={buttonVariants({ size: "lg", variant: "outline", className: "h-11" })}>
-          Home
-        </Link>
-      </div>
-    </section>
+    <DoneScreen
+      title={nothing ? "Noted: nothing given" : "Recorded"}
+      line={nothing ? "Nothing else to do." : "Your commanders can see what you got and for how long. The diagnosis and photo stay private."}
+    >
+      <BigLink href={`/tg/records/${anchorId}`}>See it</BigLink>
+      <BigLink href="/tg" outline>
+        Home
+      </BigLink>
+    </DoneScreen>
   );
 }

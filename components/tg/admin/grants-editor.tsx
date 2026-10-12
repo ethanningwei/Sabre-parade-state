@@ -11,9 +11,9 @@ import type { GrantRowView } from "@/lib/wb/admin-data";
 import { WB_ROLES, type WbRole } from "@/lib/wb/domain/roles";
 import { ROLE_LABELS } from "@/lib/wb/permissions";
 import type { SubunitWithCamps } from "@/lib/wb/roster";
+import { bigButtonClass, inputClass } from "../ui";
 
-const selectClass =
-  "h-11 w-full rounded-lg border border-input bg-transparent px-3 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+const selectClass = inputClass;
 
 /** The scope a role usually takes, picked first so the common case is one tap. */
 const DEFAULT_SCOPE: Record<WbRole, "company" | "subunit" | "camp"> = {
@@ -53,7 +53,7 @@ export function GrantsEditor({
   return (
     <div className="flex flex-col gap-6">
       <form
-        className="flex flex-col gap-3 rounded-xl border bg-card p-4"
+        className="flex flex-col gap-3 rounded-2xl bg-card p-4"
         onSubmit={(e) => {
           e.preventDefault();
           if (!role) return;
@@ -112,7 +112,7 @@ export function GrantsEditor({
             </optgroup>
           </select>
         </div>
-        <Button type="submit" size="lg" className="h-11" disabled={pending || !memberId || !role || !scope}>
+        <Button type="submit" size="lg" className={bigButtonClass} disabled={pending || !memberId || !role || !scope}>
           {pending && <Loader2 className="animate-spin" />}
           Grant
         </Button>
@@ -121,7 +121,7 @@ export function GrantsEditor({
       <section className="flex flex-col gap-2">
         {byMember.size === 0 && <p className="text-sm text-muted-foreground">No grants yet.</p>}
         {[...byMember.values()].map((gs) => (
-          <div key={gs[0].memberId} className="flex flex-col gap-2 rounded-xl border bg-card p-3">
+          <div key={gs[0].memberId} className="flex flex-col gap-2 rounded-2xl bg-card p-3">
             <p className="font-medium">{gs[0].memberLabel}</p>
             <div className="flex flex-wrap gap-2">
               {gs.map((g) => (

@@ -1,9 +1,10 @@
-import { Lock } from "lucide-react";
+import { CloudCheck, CloudUpload, Lock, Pencil, Pill, Stethoscope } from "lucide-react";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { recordWhat } from "@/lib/wb/domain/describe";
 import type { RecordView } from "@/lib/wb/records";
 import { OnensButton } from "./onens-button";
+import { bigButtonClass } from "./ui";
 
 // What the doctor gave, on a record's page. The diagnosis and photo are passed
 // in only for someone allowed to see them (the page read them through
@@ -34,12 +35,14 @@ export function VisitSection({
   const owed = outcome.find((r) => r.onens === "OWED");
   const done = outcome.find((r) => r.onens === "DONE");
   return (
-    <section className="flex flex-col gap-3 rounded-xl border bg-card p-4">
-      <p className="font-medium">What the doctor gave</p>
+    <section className="tg-enter flex flex-col gap-3 rounded-2xl bg-card p-4" style={{ "--i": 1 } as React.CSSProperties}>
+      <h2 className="flex items-center gap-2 font-semibold">
+        <Stethoscope className="size-4 text-primary" aria-hidden /> What the doctor gave
+      </h2>
       {outcome.length === 0 ? (
         <p className="text-sm text-muted-foreground">{answered ? "Nothing: no MC and no status." : "Not recorded yet."}</p>
       ) : (
-        <ul className="flex flex-col gap-2 text-sm">
+        <ul className="flex flex-col gap-2 border-l-2 border-primary/30 pl-3 text-sm">
           {outcome.map((r) => (
             <li key={r.id} className="flex flex-col">
               <span>{recordWhat(r)}</span>
@@ -57,12 +60,20 @@ export function VisitSection({
           ))}
         </ul>
       )}
-      {owed && <p className="text-sm">☁️ Still to upload to ONENS</p>}
-      {!owed && done && <p className="text-sm text-muted-foreground">☁️ Uploaded to ONENS</p>}
+      {owed && (
+        <p className="flex items-center gap-1.5 text-sm font-medium text-amber-700 dark:text-amber-400">
+          <CloudUpload className="size-4" aria-hidden /> Still to upload to ONENS
+        </p>
+      )}
+      {!owed && done && (
+        <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <CloudCheck className="size-4" aria-hidden /> Uploaded to ONENS
+        </p>
+      )}
       {photoId && (
         <a href={`/api/wb/file/${photoId}`} target="_blank" rel="noreferrer" className="block">
           {/* eslint-disable-next-line @next/next/no-img-element -- streamed from Telegram through an audited, no-store route */}
-          <img src={`/api/wb/file/${photoId}`} alt="The medical document" loading="lazy" className="max-h-80 w-full rounded-lg border object-contain" />
+          <img src={`/api/wb/file/${photoId}`} alt="The medical document" loading="lazy" className="max-h-80 w-full rounded-xl bg-muted object-contain" />
         </a>
       )}
       {(diagnoses?.size || photoId) && (
@@ -73,8 +84,9 @@ export function VisitSection({
       )}
       {owed && canMarkOnens && <OnensButton recordId={owed.id} />}
       {outcomeHref && (
-        <Link href={outcomeHref} className={buttonVariants({ size: "lg", variant: answered ? "outline" : "default", className: "h-11" })}>
-          {answered ? "✏️ Correct the outcome" : "💊 Update outcome"}
+        <Link href={outcomeHref} className={buttonVariants({ size: "lg", variant: answered ? "outline" : "default", className: bigButtonClass })}>
+          {answered ? <Pencil aria-hidden /> : <Pill aria-hidden />}
+          {answered ? "Correct the outcome" : "Update outcome"}
         </Link>
       )}
     </section>
