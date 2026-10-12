@@ -184,13 +184,12 @@
 | 2026-10-12 | `/api/wb/setup` runs on the deployment, authorised by `WB_WEBHOOK_SECRET`, so the bot token never leaves Vercel (same pattern as sabre-ir) |
 | 2026-10-12 | One commanders chat per platoon (`wb_commander_chat.subunit_id` unique). `/here` in a new chat replaces the old one and says so. One chat may serve several platoons (one `/here` per platoon, e.g. one forum with a topic each) |
 | 2026-10-12 | The approved flag-guarded v1 nav link was **not** added: the Mini App only works inside Telegram, so a link from the v1 web app would only show "Open Sabre from the bot". Revisit if there's a reason |
-| 2026-10-12 | Proposed for Phase 2 (confirm when it starts): `wb_record.person_id` is required, so SELF members who aren't on the roster can't apply until their PS adds and links them; proxy events use `member_id` null |
+| 2026-10-12 | Confirmed for Phase 2: `wb_record.person_id` is required, so SELF members who aren't on the roster can't apply until their PS adds and links them; proxy events use `member_id` null |
+| 2026-10-12 | Phase 2 answers: GCs **are** in the platoon commanders' chats (they see cards, but a tap without a grant gets the alert). **One commanders' chat per platoon** (PL 5–8). Approvers are PC/PS of the platoon plus OC/2IC/CSM company-wide; **GCs don't approve**. Gaps defaults to the viewer's own platoon for platoon-scoped grants. Public holidays: hard-code MOM's published dates for 2026–2028 |
 
 ---
 
 ## 6. Open questions
-- *(Phase 2)* Are GCs in the platoon commanders' chats today, or do they get only DMs?
-- *(Phase 2)* Does each platoon have its own commanders' chat, or is it one forum group with a topic per platoon?
 - The cycle lengths and anchor dates for each paired camp (needed in Phase 4).
 - Minimum manning per camp, in `GC:ST CBT:ST SVC` form (needed in Phase 4).
 - S6 position on storing medical data and photos (needed before Phase 3 goes live).
@@ -199,6 +198,3 @@
 - `setChatMenuButton` returns ok but `getChatMenuButton` still reports `commands`; if the ☰ button doesn't open Sabre, set it in BotFather (Bot Settings › Menu Button).
 - Is Vercel's `TELEGRAM_BOT_TOKEN` (production) still the old parade-state bot? Locally it had been set to @sabreopsbot. If production has it too, the v1 Send button posts as @sabreopsbot.
 - **Sheets re-import vs whereabouts.** `npm run import` deletes and recreates every `person`, which would unlink every member and drop platoon/camp-scoped grants. Before whereabouts goes live, either stop re-importing (the STATUS.md cutover plan) or make the import update people in place. Changing the import touches v1, so it needs the user's go-ahead.
-- *(Phase 2)* Should a PS see Gaps for the whole company or only their platoon? Phase 2 plans "own platoon by default" (§3b item 6).
-- *(Phase 2)* Public holiday list for leave days: hard-code MOM's published dates for 2026–2028, or something else?
-- *(Phase 2)* Do GCs approve anything, or only PC/PS? Phase 2 assumes only PC/PS (and OC/2IC/CSM company-wide), as in the plan.
