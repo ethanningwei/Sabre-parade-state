@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Header } from "@/components/tg/form-bits";
+import { HistoryToggle } from "@/components/tg/history-toggle";
 import { NotOnRoster } from "@/components/tg/not-on-roster";
 import { RecordActions } from "@/components/tg/record-actions";
 import { RecordSummary } from "@/components/tg/record-summary";
@@ -7,50 +8,47 @@ import { buttonVariants } from "@/components/ui/button";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
 import { outcomeOrder } from "@/lib/wb/decide";
-import { accessTo, isLive, VISIT_KINDS } from "@/lib/wb/domain/rules";
+import { accessTo, awaitsOutcome, isCurrent, nestOutcomes } from "@/lib/wb/domain/rules";
 import { rosterSelf } from "@/lib/wb/me";
 import { recordsOfPerson } from "@/lib/wb/records";
 
-// My records: everything on my timeline, newest first. Withdraw what's pending.
-// What a doctor gave sits under the visit it came from, so one afternoon reads
-// as one card; a corrected or voided outcome isn't repeated.
-export default async function MyRecordsPage() {
+// My records: what's still current, newest first, with Full history (?all=1)
+// one tap away. Withdraw what's pending. What a doctor gave sits under the
+// visit it came from, so one afternoon reads as one card; a corrected or
+// voided outcome isn't repeated.
+export default async function MyRecordsPage({ searchParams }: { searchParams: Promise<{ all?: string | string[] }> }) {
   await requireFeaturePage();
   const member = await requireRegistered();
   const me = await rosterSelf(member);
   if (!me) return <NotOnRoster />;
-  const all = await recordsOfPerson(me.personId);
-  const ids = new Set(all.map((r) => r.id));
-  const under = new Map<string, typeof all>();
-  for (const r of all) {
-    if (r.parentId && ids.has(r.parentId) && isLive(r.state)) under.set(r.parentId, [...(under.get(r.parentId) ?? []), r]);
-  }
+  const all = (await searchParams).all === "1";
+  const { top, under } = nestOutcomes(await recordsOfPerson(me.personId));
   for (const kids of under.values()) outcomeOrder(kids);
-  // children are shown under their parent; dead outcomes (corrected, voided with their visit) drop out
-  const records = all.filter((r) => !(r.parentId && ids.has(r.parentId)) && !(r.state === "CANCELLED" && r.decisionNote?.startsWith("Corrected by")));
-  const waiting = (r: (typeof all)[number]) =>
-    VISIT_KINDS.includes(r.kind) && (r.kind === "MA" ? r.state === "RECORDED" : r.state === "APPROVED") && !r.outcomeAt && !under.get(r.id)?.length;
+  const now = new Date();
+  const records = all ? top : top.filter((r) => isCurrent(r, under.get(r.id) ?? [], now));
 
   return (
     <div className="flex flex-col gap-4">
-      <Header title="My records" hint={`You have ${member.leaveLeft ?? 0} days of leave left.`} />
+      <Header title={all ? "Full history" : "My records"} hint={`You have ${member.leaveLeft ?? 0} days of leave left.`} />
       <Link href="/tg/apply/outcome" className="rounded-xl border border-dashed px-4 py-3 text-sm active:bg-muted">
         Saw a doctor without reporting sick first? <span className="font-medium underline">Record an MC or status</span>
       </Link>
-      {records.length === 0 ? (
+      {top.length === 0 ? (
         <div className="flex flex-col gap-3 rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
           Nothing yet. Report sick, MCs, leave, off, MAs and courses show up here.
           <Link href="/tg/apply" className={buttonVariants({ size: "lg", className: "h-11" })}>
             Apply or report
           </Link>
         </div>
+      ) : records.length === 0 ? (
+        <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Nothing current. What&apos;s over is in Full history.</p>
       ) : (
         records.map((r) => {
           const can = accessTo(member, r);
           return (
             <RecordSummary key={r.id} r={r} href={`/tg/records/${r.id}`} under={under.get(r.id)}>
               {can.withdraw && <RecordActions recordId={r.id} can={{ ...can, decide: false, undo: false, sayWhy: false, void: false }} />}
-              {waiting(r) && (
+              {awaitsOutcome(r, under.get(r.id) ?? []) && (
                 <Link href={`/tg/records/${r.id}/outcome`} className={buttonVariants({ size: "lg", className: "h-11" })}>
                   💊 Update outcome
                 </Link>
@@ -59,6 +57,7 @@ export default async function MyRecordsPage() {
           );
         })
       )}
+      <HistoryToggle href="/tg/records" all={all} count={top.length} />
     </div>
   );
 }

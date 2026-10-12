@@ -234,3 +234,87 @@ export function accessTo(
     withdraw: owner && nextState(r.state, "withdraw") !== null,
   };
 }
+
+// ------------------------------------------------------------------ what's current
+
+/**
+ * A rejected request stays in the default view of My records and Person
+ * history for this long after the decision, so the trooper sees it and the
+ * reason. After that it's in Full history only.
+ */
+export const REJECTED_SHOWN_MS = 7 * 24 * 60 * 60 * 1000;
+
+export interface CurrentRow {
+  kind: WbRecordKind;
+  state: WbRecordState;
+  /** null = open-ended (a permanent status) */
+  endAt: Date | null;
+  decidedAt: Date | null;
+  outcomeAt: Date | null;
+  onens: WbOnens;
+}
+
+const over = (r: { endAt: Date | null }, now: Date) => r.endAt !== null && r.endAt.getTime() <= now.getTime();
+
+/**
+ * A visit still waiting on the trooper to say what the doctor gave: an
+ * approved report sick or a recorded MA, with no outcome and no "nothing
+ * given" yet (My records' Update outcome button).
+ */
+export function awaitsOutcome(r: CurrentRow, children: readonly CurrentRow[]): boolean {
+  if (!VISIT_KINDS.includes(r.kind) || r.outcomeAt) return false;
+  if (r.state !== (r.kind === "MA" ? "RECORDED" : "APPROVED")) return false;
+  return !children.some((c) => isOutcome(c.kind) && isLive(c.state));
+}
+
+/**
+ * Whether a record belongs in the default (current) view, given its live
+ * children (what a visit produced). Current means: waiting on a decision;
+ * standing and not over yet (open-ended counts); still owing something (an
+ * outcome to record, an MC to upload to ONENS), itself or through a child;
+ * or rejected in the last week, while its dates haven't passed. Withdrawn,
+ * voided, corrected and finished records are history.
+ */
+export function isCurrent(r: CurrentRow, children: readonly CurrentRow[], now: Date): boolean {
+  switch (r.state) {
+    case "PENDING":
+      return true;
+    case "REJECTED":
+      return !!r.decidedAt && now.getTime() - r.decidedAt.getTime() < REJECTED_SHOWN_MS && !over(r, now);
+    case "APPROVED":
+    case "RECORDED":
+      return (
+        !over(r, now) ||
+        r.onens === "OWED" ||
+        awaitsOutcome(r, children) ||
+        children.some((c) => STANDING_STATES.includes(c.state) && isCurrent(c, [], now))
+      );
+    default:
+      return false;
+  }
+}
+
+/**
+ * My records' grouping: what a doctor gave sits under the visit (or standalone
+ * MC) it came from, live rows only, so one afternoon reads as one entry. Rows
+ * whose parent is in the list never show on their own, and a corrected outcome
+ * isn't repeated. Keeps the given order.
+ */
+export function nestOutcomes<R extends { id: string; parentId: string | null; state: WbRecordState; decisionNote: string | null }>(
+  all: readonly R[],
+): { top: R[]; under: Map<string, R[]> } {
+  const ids = new Set(all.map((r) => r.id));
+  const under = new Map<string, R[]>();
+  for (const r of all) {
+    if (r.parentId && ids.has(r.parentId) && isLive(r.state)) under.set(r.parentId, [...(under.get(r.parentId) ?? []), r]);
+  }
+  const top = all.filter((r) => !(r.parentId && ids.has(r.parentId)) && !(r.state === "CANCELLED" && r.decisionNote?.startsWith("Corrected by")));
+  return { top, under };
+}
+
+/** Each record's live children, for a flat list (Person history). */
+export function liveChildren<R extends { id: string; parentId: string | null; state: WbRecordState }>(all: readonly R[]): Map<string, R[]> {
+  const under = new Map<string, R[]>();
+  for (const r of all) if (r.parentId && isLive(r.state)) under.set(r.parentId, [...(under.get(r.parentId) ?? []), r]);
+  return under;
+}

@@ -91,8 +91,8 @@ export async function recordView(id: string, tx: Db = db): Promise<RecordView | 
   return v ? toView(v) : null;
 }
 
-/** A person's records, newest first. */
-export async function recordsOfPerson(personId: string, limit = 50): Promise<RecordView[]> {
+/** A person's records, newest first. The limit is high so a years-old permanent status still makes the current view. */
+export async function recordsOfPerson(personId: string, limit = 500): Promise<RecordView[]> {
   const rows = await views(db, eq(wbRecord.personId, personId)).orderBy(desc(wbRecord.startAt), desc(wbRecord.createdAt)).limit(limit);
   return rows.map(toView);
 }
