@@ -1,8 +1,8 @@
 import "server-only";
 import { and, asc, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { camp, subunit } from "@/lib/db/schema";
-import { getCoy, loadSnapshot } from "@/lib/data/snapshot";
+import { camp, coy, subunit } from "@/lib/db/schema";
+import { loadSnapshot } from "@/lib/data/snapshot";
 import { toSgt } from "@/lib/parade/time";
 import { wbMinManning, wbRecord, wbShiftPattern } from "@/lib/wb/db/schema";
 import {
@@ -122,9 +122,20 @@ async function timelineRows(range: Range, tx: Db = db): Promise<TimelineRow[]> {
     );
 }
 
-/** Everything the forecast needs for a range of days: the v1 parade state now, the patterns, the timeline. */
-export async function forecastInput(range: Range, now: Date = new Date()): Promise<ForecastInput> {
-  const [base, patterns, records] = await Promise.all([getCoy().then(loadSnapshot), loadPatterns(), timelineRows(range)]);
+/** The coy these camps belong to (the forecast works one coy's parade state at a time). */
+async function coyOf(campIds: readonly string[]) {
+  const [row] = await db.select({ c: coy }).from(coy).innerJoin(camp, eq(camp.coyId, coy.id)).where(inArray(camp.id, [...campIds])).limit(1);
+  return row?.c ?? null;
+}
+
+/**
+ * Everything the forecast needs for a range of days: the v1 parade state now
+ * of the coy that owns these camps, the patterns, and the timeline.
+ */
+export async function forecastInput(range: Range, campIds: readonly string[], now: Date = new Date()): Promise<ForecastInput> {
+  const owner = await coyOf(campIds);
+  if (!owner) throw new Error("No coy for those camps");
+  const [base, patterns, records] = await Promise.all([loadSnapshot(owner), loadPatterns(), timelineRows(range)]);
   return { base, now, patterns, records };
 }
 
@@ -145,7 +156,7 @@ export async function manningFor(r: RecordView, now: Date = new Date()): Promise
     if (!sub || sub.isHq) return null;
     const minimum = minimums.get(r.campId) ?? null;
     if (!minimum) return manningLine({ name: r.campName, isHq: false }, null, { minimum });
-    const input = await forecastInput(r, now);
+    const input = await forecastInput(r, [r.campId], now);
     const w = worstDay(input, { ...r, campId: r.campId }, minimum);
     return manningLine({ name: r.campName, isHq: false }, w, { minimum, ifMc: r.kind === "RSI" || r.kind === "RSO" }) || null;
   } catch (e) {
@@ -164,7 +175,7 @@ export function forecastScope(grants: readonly GrantRow[], camps: readonly CampI
 export async function grid(campIds: readonly string[], from = todaySgt(), days = FORECAST_DAYS, now: Date = new Date()): Promise<GridRow[]> {
   const dates = nextDays(from, days);
   const range = { startAt: dayRange(dates[0]).startAt, endAt: dayRange(dates.at(-1)!).endAt };
-  const [input, minimums] = await Promise.all([forecastInput(range, now), loadMinimums()]);
+  const [input, minimums] = await Promise.all([forecastInput(range, campIds, now), loadMinimums()]);
   return forecastGrid(input, campIds, dates, minimums);
 }
 
@@ -185,7 +196,7 @@ export interface DayCamp {
 /** One day for some camps: on shift or not, strength against the minimum, who's away and who's on status. */
 export async function dayView(campIds: readonly string[], date: string, now: Date = new Date()): Promise<DayCamp[]> {
   const range = dayRange(date);
-  const [input, minimums, camps] = await Promise.all([forecastInput(range, now), loadMinimums(), campsInfo()]);
+  const [input, minimums, camps] = await Promise.all([forecastInput(range, campIds, now), loadMinimums(), campsInfo()]);
   const manning = new Map(manningOf(snapshotFor(input, range)).map((m) => [m.campId, m]));
   // the away list includes pending requests (flagged); the strength doesn't
   const withPending = new Map(manningOf(snapshotFor(input, range, { pending: true })).map((m) => [m.campId, m]));
@@ -244,15 +255,20 @@ export async function shortTomorrow(now: Date = new Date()): Promise<Map<string,
   const out = new Map<string, { name: string; lines: string[] }>();
   const minimums = await loadMinimums();
   if (!minimums.size) return out;
-  const input = await forecastInput(dayRange(date), now);
-  for (const m of manningOf(snapshotFor(input, dayRange(date)))) {
-    const minimum = minimums.get(m.campId);
-    if (!minimum || m.isHq) continue;
-    const v = verdict(m, minimum);
-    if (!v.gaps.length) continue;
-    const d = out.get(m.subunitId) ?? { name: m.subunitName, lines: [] };
-    d.lines.push(`• ${m.campName}: ${v.label} / min ${minimumLabel(minimum)}`);
-    out.set(m.subunitId, d);
+  // one coy's parade state at a time
+  const coys = await db.selectDistinct({ id: camp.coyId }).from(camp).where(inArray(camp.id, [...minimums.keys()]));
+  for (const c of coys) {
+    const [first] = await db.select({ id: camp.id }).from(camp).where(eq(camp.coyId, c.id)).limit(1);
+    const input = await forecastInput(dayRange(date), [first.id], now);
+    for (const m of manningOf(snapshotFor(input, dayRange(date)))) {
+      const minimum = minimums.get(m.campId);
+      if (!minimum || m.isHq) continue;
+      const v = verdict(m, minimum);
+      if (!v.gaps.length) continue;
+      const d = out.get(m.subunitId) ?? { name: m.subunitName, lines: [] };
+      d.lines.push(`• ${m.campName}: ${v.label} / min ${minimumLabel(minimum)}`);
+      out.set(m.subunitId, d);
+    }
   }
   return out;
 }

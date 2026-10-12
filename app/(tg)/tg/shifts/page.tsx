@@ -18,20 +18,21 @@ export default async function ShiftsPage() {
   const [camps, patterns, minimums] = await Promise.all([campsInfo(), loadPatterns(), loadMinimums()]);
   const posts = postsOf(camps).filter((p) => canEditShifts(member.grants, p.subunitId));
   const now = new Date();
-  const platoons = [...new Set(posts.map((p) => p.subunitName))];
+  // by id, not name: two coys can both have a PLATOON 5
+  const platoons = [...new Map(posts.map((p) => [p.subunitId, p.subunitName]))];
 
   return (
     <div className="flex flex-col gap-6">
       <Header title="Shifts" hint="Who's on when, and what each guardroom can't go under. The forecast and the approval cards work from this." />
       {posts.length === 0 && <EmptyState icon={<Clock />} title="No camps in your platoon" />}
-      {platoons.map((name) => (
-        <Group key={name} title={name} rows className="tg-enter">
+      {platoons.map(([subunitId, name]) => (
+        <Group key={subunitId} title={name} rows className="tg-enter">
           {posts
-            .filter((p) => p.subunitName === name)
+            .filter((p) => p.subunitId === subunitId)
             .map((p) => {
               const lead = patterns.get(p.teams[0].id);
               return (
-                <Link key={p.post} href={`/tg/shifts/${p.teams[0].id}`} className="flex min-h-14 items-center gap-3 px-4 py-3 transition-colors duration-150 active:bg-muted">
+                <Link key={p.teams[0].id} href={`/tg/shifts/${p.teams[0].id}`} className="flex min-h-14 items-center gap-3 px-4 py-3 transition-colors duration-150 active:bg-muted">
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="font-medium">{p.post}</span>
                     <span className="text-xs leading-snug text-muted-foreground">{patternSummary(lead)}</span>

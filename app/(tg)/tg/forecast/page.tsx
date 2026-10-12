@@ -19,16 +19,16 @@ export default async function ForecastPage() {
   if (!decidesAnything(member.grants)) redirect("/tg");
   const camps = forecastScope(member.grants, await campsInfo()).filter((c) => !c.isHq);
   const rows = camps.length ? await grid(camps.map((c) => c.id)) : [];
-  const platoons = [...new Set(rows.map((r) => r.subunitName))];
+  const platoons = [...new Map(rows.map((r) => [r.subunitId, r.subunitName]))];
 
   return (
     <div className="flex flex-col gap-5">
       <Header title="Forecast" hint={`The next ${FORECAST_DAYS} days. Strength reads GC:ST CBT:ST SVC.`} />
       <Legend />
       {rows.length === 0 && <EmptyState icon={<CalendarRange />} title="No guardrooms in your platoon" />}
-      {platoons.map((name) => (
-        <Group key={name} title={name} className="tg-enter">
-          <Grid rows={rows.filter((r) => r.subunitName === name)} />
+      {platoons.map(([subunitId, name]) => (
+        <Group key={subunitId} title={name} className="tg-enter">
+          <Grid rows={rows.filter((r) => r.subunitId === subunitId)} />
         </Group>
       ))}
     </div>

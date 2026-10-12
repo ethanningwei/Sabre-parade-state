@@ -50,7 +50,10 @@ const calm = () => typeof window !== "undefined" && window.matchMedia("(prefers-
 export function ErrorBox({ error }: { error: string | null }) {
   const ref = useRef<HTMLParagraphElement>(null);
   // on a phone the message is often below the fold, under the keyboard
-  useEffect(() => ref.current?.scrollIntoView({ behavior: calm() ? "auto" : "smooth", block: "center" }), [error]);
+  // braces: newer browsers return a Promise from scrollIntoView, and an effect may only return a cleanup
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: calm() ? "auto" : "smooth", block: "center" });
+  }, [error]);
   if (!error) return null;
   return (
     <p ref={ref} role="alert" className="tg-reveal flex gap-2 rounded-xl bg-destructive/10 px-3 py-2.5 text-sm text-destructive">

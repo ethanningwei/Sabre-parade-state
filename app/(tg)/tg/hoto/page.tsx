@@ -36,7 +36,7 @@ export default async function HotoPage() {
         </EmptyState>
       )}
       {posts.map((p, i) => (
-        <Group key={p.post} title={`${p.post} · ${p.subunitName}`} className="tg-enter">
+        <Group key={p.teams[0].id} title={`${p.post} · ${p.subunitName}`} className="tg-enter">
           <div className="flex flex-col gap-4 rounded-2xl bg-card p-4" style={enter(i)}>
             <ul className="flex flex-col gap-1 text-sm">
               {p.teams.map((t) => (

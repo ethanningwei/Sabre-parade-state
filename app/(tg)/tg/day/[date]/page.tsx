@@ -25,7 +25,7 @@ export default async function DayPage({ params, searchParams }: { params: Promis
 
   const scoped = forecastScope(member.grants, await campsInfo()).filter((c) => !only || c.id === only);
   const days = scoped.length ? await dayView(scoped.map((c) => c.id), date) : [];
-  const platoons = [...new Set(days.map((d) => d.info.subunitName))];
+  const platoons = [...new Map(days.map((d) => [d.info.subunitId, d.info.subunitName]))];
   const q = only ? `?camp=${only}` : "";
   const nav = "tg-press flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-primary active:bg-muted";
 
@@ -51,10 +51,10 @@ export default async function DayPage({ params, searchParams }: { params: Promis
         </Link>
       )}
       {days.length === 0 && <EmptyState icon={<CalendarX />} title="Nothing to show" />}
-      {platoons.map((name) => (
-        <Group key={name} title={name}>
+      {platoons.map(([subunitId, name]) => (
+        <Group key={subunitId} title={name}>
           {days
-            .filter((d) => d.info.subunitName === name)
+            .filter((d) => d.info.subunitId === subunitId)
             .map((d, i) => (
               <CampCard key={d.info.id} d={d} i={i} />
             ))}
@@ -113,7 +113,7 @@ function CampCard({ d, i }: { d: DayCamp; i: number }) {
               return (
                 <li key={a.personId}>
                   {a.recordId ? (
-                    <Link href={`/tg/records/${a.recordId}`} className="block min-h-6 active:opacity-70">
+                    <Link href={`/tg/records/${a.recordId}`} className="-mx-2 -my-1 block min-h-11 rounded-lg px-2 py-2.5 transition-colors duration-150 active:bg-muted">
                       {line}
                     </Link>
                   ) : (
