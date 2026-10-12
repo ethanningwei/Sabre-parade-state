@@ -45,9 +45,18 @@ export async function outcomeBatch(r: RecordView, tx: Db = db): Promise<RecordVi
     .select({ id: wbRecord.id })
     .from(wbRecord)
     .where(and(eq(wbRecord.personId, r.personId), eq(wbRecord.createdAt, r.createdAt), inArray(wbRecord.kind, ["MC", "HL", "STATUS"])));
-  const rows = await recordViews(ids.map((x) => x.id), tx);
-  return rows.sort((a, b) => (a.kind === "STATUS" ? 1 : 0) - (b.kind === "STATUS" ? 1 : 0) || a.startAt.getTime() - b.startAt.getTime());
+  return outcomeOrder(await recordViews(ids.map((x) => x.id), tx));
 }
+
+/** An outcome reads MC/HL first, then its statuses by start. */
+export const outcomeOrder = <R extends { kind: string; startAt: Date; detail: string }>(rows: R[]): R[] =>
+  rows.sort(
+    (a, b) =>
+      (a.kind === "STATUS" ? 1 : 0) - (b.kind === "STATUS" ? 1 : 0) ||
+      a.startAt.getTime() - b.startAt.getTime() ||
+      // same day: by name, so a card reads the same every time it's redrawn
+      a.detail.localeCompare(b.detail),
+  );
 
 /** Edit every copy of a record's card to its current state. An outcome's card shows the whole outcome. */
 export async function refreshCards(out: Outbound | null, r: RecordView): Promise<void> {

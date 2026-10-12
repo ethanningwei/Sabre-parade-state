@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { wbAudit } from "@/lib/wb/audit";
-import { inTx, outcomeBatch, refreshCards, Refusal, tell, type Actor, type Delivery, type Via } from "@/lib/wb/decide";
+import { inTx, outcomeBatch, outcomeOrder, refreshCards, Refusal, tell, type Actor, type Delivery, type Via } from "@/lib/wb/decide";
 import { wbCard, wbCommanderChat, wbRecord } from "@/lib/wb/db/schema";
 import { recordWhat } from "@/lib/wb/domain/describe";
 import { asksSeenBy, canDecide, isLive, isOutcome, kinOf, MAX_STATUSES, onensFor, outcomeParentRefusal, VISIT_KINDS, type WbSeenBy } from "@/lib/wb/domain/rules";
@@ -207,7 +207,7 @@ export async function saveOutcome(out: Outbound | null, actor: Actor, input: Out
 
   const { ids, anchorId, replaced } = res.value;
   const made = await recordViews(ids);
-  const old = await recordViews(replaced);
+  const old = outcomeOrder(await recordViews(replaced));
   for (const o of old) await refreshCards(out, o);
   if (!made.length) {
     return { ok: true, value: { recordIds: [], anchorId, delivery: null, nothing: true } };

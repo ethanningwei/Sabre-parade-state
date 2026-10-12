@@ -343,3 +343,103 @@ describe("bot: approval cards (fake Telegram)", () => {
     });
   });
 });
+
+// ------------------------------------------------------------------ Phase 3: the evening round and ONENS
+
+describe("evening round (fake Telegram)", () => {
+  const TROOPER = 81;
+  const PS = 82;
+  const ADMIN = 83;
+  let irfan: string;
+  let trooperId: string;
+
+  async function people() {
+    [{ id: irfan }] = await db.select({ id: person.id }).from(person).where(eq(person.name, "IRFAN"));
+    const [chunHei] = await db.select({ id: person.id }).from(person).where(eq(person.name, "CHUN HEI"));
+    trooperId = (await member(TROOPER, [], irfan)).id;
+    await member(PS, [{ role: "PS", subunitId: pl6 }], chunHei.id);
+    await db.insert(wbCommanderChat).values({ subunitId: pl6, chatId: GROUP.id, threadId: 7, chatTitle: GROUP.title });
+  }
+  const rec = (over: Partial<typeof wbRecord.$inferInsert>) =>
+    db
+      .insert(wbRecord)
+      .values({ personId: irfan, memberId: trooperId, kind: "MC", absent: true, state: "RECORDED", createdVia: "SELF", ...dateRange(todaySgt(), todaySgt()), ...over })
+      .returning()
+      .then((r) => r[0]);
+  const out = () => ({ api: bot.api, botUsername: "sabrecoybot" });
+
+  it("sends each reminder once, one digest per platoon, and a heartbeat last", async (ctx) => {
+    if (!reachable) ctx.skip();
+    vi.stubEnv("WB_ADMIN_TELEGRAM_IDS", String(ADMIN));
+    await people();
+    const today = todaySgt();
+    await rec({ kind: "MC", ...dateRange(addDays(today, -2), today), mcCategory: "Respiratory", diagnosis: "SECRET DX", onens: "OWED" }); // ends today, owes ONENS
+    await rec({ kind: "STATUS", absent: false, detail: "LIGHT DUTY", ...dateRange(today, addDays(today, 3)) }); // not ending
+    await rec({ kind: "MA", detail: "MA", maTiming: "0930", location: "NSC", ...dateRange(addDays(today, 1), addDays(today, 1)) }); // tomorrow
+    const rso = await rec({ kind: "RSO", state: "APPROVED", decidedAt: new Date(Date.now() - 25 * 3600 * 1000), location: "CLINIC", reason: "Fever" }); // no outcome
+    await rec({ kind: "AL", state: "PENDING", absent: true, createdAt: new Date(Date.now() - 13 * 3600 * 1000), ...dateRange(addDays(today, 9), addDays(today, 9)) }); // stale
+
+    const { eveningRound } = await import("@/lib/wb/evening");
+    calls = [];
+    const s = await eveningRound(out());
+    expect(s).toMatchObject({ skipped: false, ending: 1, tomorrow: 1, onens: 1, chased: 1, digests: 1, heartbeats: 1 });
+
+    const to = (id: number) => calls.filter((c) => c.method === "sendMessage" && c.payload.chat_id === id).map((c) => String(c.payload.text));
+    const mine = to(TROOPER);
+    expect(mine.find((t) => t.startsWith("✅ That ends today"))).toMatch(/MC 3 days · .* · Respiratory/);
+    expect(mine.find((t) => t.startsWith("📅 Tomorrow"))).toMatch(/MA .* 0930H @ NSC/);
+    expect(mine.find((t) => t.startsWith("☁️ Still to do: upload to ONENS"))).toBeDefined();
+    expect(mine.find((t) => t.startsWith("💊 What did the doctor give you?"))).toMatch(/RSO .* @ CLINIC/);
+    const onensMsg = calls.find((c) => String(c.payload.text).startsWith("☁️ Still to do"))!;
+    const mcId = (await db.select().from(wbRecord).where(eq(wbRecord.kind, "MC")))[0].id;
+    expect(onensMsg.payload.reply_markup).toEqual({ inline_keyboard: [[{ text: "☁️ Uploaded", callback_data: `o:${mcId}` }]] });
+    const chase = calls.find((c) => String(c.payload.text).startsWith("💊"))!;
+    expect(chase.payload.reply_markup).toEqual({ inline_keyboard: [[{ text: "💊 Update outcome", url: `https://t.me/sabrecoybot/app?startapp=records__${rso.id}__outcome` }]] });
+
+    const digest = calls.find((c) => c.payload.chat_id === GROUP.id)!;
+    expect(digest.payload).toMatchObject({ message_thread_id: 7 });
+    expect(String(digest.payload.text)).toMatch(/^🌙 Tonight · PLATOON 6\n\n✅ 1 man back to full duty tomorrow\n• PTE IRFAN \(SLR\): MC 3 days .* Respiratory\n\n⏳ 1 request waiting more than 12 hours$/);
+    expect(calls.at(-1)!.payload).toMatchObject({ chat_id: ADMIN, text: expect.stringMatching(/^💓 Still here/) });
+    for (const c of calls) expect(String(c.payload.text)).not.toContain("SECRET DX");
+
+    // once a day: a second trigger sends nothing; a forced run by hand does
+    calls = [];
+    expect(await eveningRound(out())).toMatchObject({ skipped: true });
+    expect(calls).toEqual([]);
+    expect((await eveningRound(out(), new Date(), { force: true })).skipped).toBe(false);
+    expect(calls.length).toBeGreaterThan(0);
+    vi.unstubAllEnvs();
+    vi.stubEnv("WB_APP_URL", "https://sabre.example");
+  });
+
+  it("a recorded outcome stops the chase; the ONENS button marks it uploaded, for him only", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await people();
+    const rso = await rec({ kind: "RSO", state: "APPROVED", decidedAt: new Date(Date.now() - 25 * 3600 * 1000), outcomeAt: new Date() });
+    const mc = await rec({ kind: "MC", parentId: rso.id, onens: "OWED", mcCategory: "Dental", ...dateRange(addDays(todaySgt(), -5), addDays(todaySgt(), -4)) });
+    const { eveningRound } = await import("@/lib/wb/evening");
+    const s = await eveningRound(out());
+    expect(s).toMatchObject({ chased: 0, onens: 1 });
+
+    // someone else tapping it (it's his DM, but the callback could be replayed)
+    await member(84, [{ role: "GC" }]);
+    expect(answerOf(await send(tap(`o:${mc.id}`, { from: 84, messageId: 5, chat: { id: 84, type: "private" } as never })))).toMatchObject({ text: "That isn't yours.", show_alert: true });
+    const c = await send(tap(`o:${mc.id}`, { from: TROOPER, messageId: 5, chat: { id: TROOPER, type: "private" } as never }));
+    expect(answerOf(c)).toMatchObject({ text: "Marked as uploaded" });
+    expect((await db.select().from(wbRecord).where(eq(wbRecord.id, mc.id)))[0].onens).toBe("DONE");
+    expect(c.find((x) => x.method === "editMessageReplyMarkup")).toBeDefined();
+    const [a] = await db.select().from(wbAudit).where(eq(wbAudit.action, "onens-done"));
+    expect(a.via).toBe("BOT");
+  });
+
+  it("/sick offers report sick and a standalone MC", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const c = await send(command("/sick", { from: 70 }));
+    expect(c[0].payload.reply_markup).toEqual({
+      inline_keyboard: [
+        [{ text: "🤒 Report sick", web_app: { url: "https://sabre.example/tg/apply/sick" } }],
+        [{ text: "💊 Record an MC or status", web_app: { url: "https://sabre.example/tg/apply/outcome" } }],
+      ],
+    });
+  });
+});

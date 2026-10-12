@@ -4,6 +4,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { POST as auth } from "@/app/api/wb/auth/route";
+import { GET as evening } from "@/app/api/wb/cron/evening/route";
+import { GET as file } from "@/app/api/wb/file/[recordId]/route";
+import { POST as photo } from "@/app/api/wb/photo/route";
 import { POST as setup } from "@/app/api/wb/setup/route";
 import { POST as telegram } from "@/app/api/wb/telegram/route";
 import { featureOff, isEnabled, requireFeature } from "@/lib/flags";
@@ -37,10 +40,14 @@ describe("feature flags", () => {
     vi.stubEnv("FEATURE_WHEREABOUTS", "");
     vi.stubEnv("WB_WEBHOOK_SECRET", "s3cret");
     vi.stubEnv("WB_BOT_TOKEN", "123:abc");
+    vi.stubEnv("CRON_SECRET", "s3cret");
     for (const res of [
       await auth(post("/api/wb/auth")),
       await telegram(post("/api/wb/telegram", { "x-telegram-bot-api-secret-token": "s3cret" })),
       await setup(post("/api/wb/setup?action=status", { authorization: "Bearer s3cret" })),
+      await photo(post("/api/wb/photo")),
+      await file(new Request("http://localhost/api/wb/file/x"), { params: Promise.resolve({ recordId: "x" }) }),
+      await evening(new Request("http://localhost/api/wb/cron/evening", { headers: { authorization: "Bearer s3cret" } })),
     ]) {
       expect(res.status).toBe(404);
     }
@@ -54,6 +61,16 @@ describe("feature flags", () => {
     expect((await setup(post("/api/wb/setup", { authorization: "Bearer nope" }))).status).toBe(403);
     vi.stubEnv("WB_WEBHOOK_SECRET", "");
     expect((await telegram(post("/api/wb/telegram", { "x-telegram-bot-api-secret-token": "" }))).status).toBe(401);
+  });
+
+  it("when on, the evening round refuses a missing or wrong CRON_SECRET", async () => {
+    vi.stubEnv("FEATURE_WHEREABOUTS", "1");
+    const get = (h: Record<string, string>) => evening(new Request("http://localhost/api/wb/cron/evening", { headers: h }));
+    vi.stubEnv("CRON_SECRET", "");
+    expect((await get({ authorization: "Bearer " })).status).toBe(401);
+    vi.stubEnv("CRON_SECRET", "s3cret");
+    expect((await get({ authorization: "Bearer nope!" })).status).toBe(401);
+    expect((await get({})).status).toBe(401);
   });
 
   it("when on, auth refuses initData that isn't Telegram's", async () => {
