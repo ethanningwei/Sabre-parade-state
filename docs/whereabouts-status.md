@@ -49,11 +49,11 @@
 
 **Prerequisites from the user** (tick off as they arrive):
 - [x] A bot made with @BotFather: **@sabreopsbot** (confirmed by the user 2026-10-12).
-- [ ] `WB_BOT_TOKEN` in `.env.local`. The user puts it there; it's never pasted into chat. @sabreopsbot's token was in `.env.local` under `TELEGRAM_BOT_TOKEN`; rename that line to `WB_BOT_TOKEN`, and put the **old parade-state bot's** token back as `TELEGRAM_BOT_TOKEN` (the v1 Send button uses it).
-- [ ] `WB_WEBHOOK_SECRET` (`openssl rand -hex 32`), `WB_ADMIN_TELEGRAM_IDS` (your id from `/whoami`) and `WB_APP_URL`, in `.env.local` and on the Vercel preview. See `.env.example`.
+- [x] `WB_BOT_TOKEN` in `.env.local` and on Vercel Preview (branch `whereabouts`), 2026-10-12. The user puts it there; it's never pasted into chat. @sabreopsbot's token was in `.env.local` under `TELEGRAM_BOT_TOKEN`; rename that line to `WB_BOT_TOKEN`, and put the **old parade-state bot's** token back as `TELEGRAM_BOT_TOKEN` (the v1 Send button uses it).
+- [x] `WB_WEBHOOK_SECRET` (`openssl rand -hex 32`), `WB_ADMIN_TELEGRAM_IDS` (your id from `/whoami`) and `WB_APP_URL`, in `.env.local` and on the Vercel preview. See `.env.example`.
 - [ ] In @BotFather: `/newapp` for @sabreopsbot, title **Sabre**, short name **`app`** (the code builds `t.me/sabreopsbot/app`), URL `<WB_APP_URL>/tg`, a 640×360 photo. Privacy mode stays **on** (the default).
 - [ ] A test Telegram group with the user in it. Approval cards go there during development.
-- [ ] A Neon branch database for previews (free). **As of 2026-10-12 Vercel's Preview environment shares Production's `DATABASE_URL`** (same variables for both) and has no `AUTH_SECRET`/`APP_PASSWORD`, and preview deployments sit behind Vercel Authentication. Give the `whereabouts` branch its own Preview `DATABASE_URL` and `AUTH_SECRET`, and turn preview protection off, before testing with Telegram. Local development uses `sabre_dev`/`sabre_test` as for v1. Apply migration `0003_wb_foundation` to it (`DATABASE_URL=<branch url> npx drizzle-kit migrate`).
+- [x] A Neon branch database for previews (free): branch `whereabouts`, migrated to 0003, set as the Preview `DATABASE_URL` for branch `whereabouts` with its own `AUTH_SECRET`; preview protection off; webhook set (2026-10-12). Old note: **As of 2026-10-12 Vercel's Preview environment shares Production's `DATABASE_URL`** (same variables for both) and has no `AUTH_SECRET`/`APP_PASSWORD`, and preview deployments sit behind Vercel Authentication. Give the `whereabouts` branch its own Preview `DATABASE_URL` and `AUTH_SECRET`, and turn preview protection off, before testing with Telegram. Local development uses `sabre_dev`/`sabre_test` as for v1. Apply migration `0003_wb_foundation` to it (`DATABASE_URL=<branch url> npx drizzle-kit migrate`).
 
 ---
 
@@ -188,6 +188,8 @@
 - Minimum manning per camp, in `GC:ST CBT:ST SVC` form (needed in Phase 4).
 - S6 position on storing medical data and photos (needed before Phase 3 goes live).
 - Sabre Bot's token is in plaintext in `sabre-bot/temp.txt`. Rotate it or delete the file. Don't reuse it.
+- The preview branch's `neondb_owner` password is the same as production's and was pasted into a chat on 2026-10-12: reset it on both branches when convenient (production needs its Vercel `DATABASE_URL`/`POSTGRES_*` updated).
+- `setChatMenuButton` returns ok but `getChatMenuButton` still reports `commands`; if the ☰ button doesn't open Sabre, set it in BotFather (Bot Settings › Menu Button).
 - Is Vercel's `TELEGRAM_BOT_TOKEN` (production) still the old parade-state bot? Locally it had been set to @sabreopsbot. If production has it too, the v1 Send button posts as @sabreopsbot.
 - **Sheets re-import vs whereabouts.** `npm run import` deletes and recreates every `person`, which would unlink every member and drop platoon/camp-scoped grants. Before whereabouts goes live, either stop re-importing (the STATUS.md cutover plan) or make the import update people in place. Changing the import touches v1, so it needs the user's go-ahead.
 - Should a PS see Gaps for the whole company or only their platoon? Phase 2 plans "own platoon by default" (§3b item 6).
