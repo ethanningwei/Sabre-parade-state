@@ -170,7 +170,10 @@ export async function grid(campIds: readonly string[], from = todaySgt(), days =
 
 export interface DayCamp {
   info: CampInfo;
+  /** on approved records */
   manning: CampManning;
+  /** who's away, pending requests included and flagged */
+  away: CampManning["away"];
   minimum: Minimum | null;
   label: string;
   short: boolean;
@@ -183,8 +186,9 @@ export interface DayCamp {
 export async function dayView(campIds: readonly string[], date: string, now: Date = new Date()): Promise<DayCamp[]> {
   const range = dayRange(date);
   const [input, minimums, camps] = await Promise.all([forecastInput(range, now), loadMinimums(), campsInfo()]);
-  const built = snapshotFor(input, range);
-  const manning = new Map(manningOf(built).map((m) => [m.campId, m]));
+  const manning = new Map(manningOf(snapshotFor(input, range)).map((m) => [m.campId, m]));
+  // the away list includes pending requests (flagged); the strength doesn't
+  const withPending = new Map(manningOf(snapshotFor(input, range, { pending: true })).map((m) => [m.campId, m]));
   const people = new Map(input.base.subunits.flatMap((s) => s.camps.flatMap((c) => c.people.map((p) => [p.id, { ...p, campId: c.id }] as const))));
   // statuses (light duty) keep a man present, so they're listed apart
   const statusRows = input.records.filter((r) => r.kind === "STATUS" && r.state === "RECORDED");
@@ -200,6 +204,7 @@ export async function dayView(campIds: readonly string[], date: string, now: Dat
     out.push({
       info,
       manning: m,
+      away: withPending.get(id)?.away ?? m.away,
       minimum,
       label: v.label,
       short: v.gaps.length > 0,
@@ -227,9 +232,8 @@ export function shiftNote(p: ShiftPattern | undefined, t: Date): string {
 
 export function patternSummary(p: ShiftPattern | undefined): string {
   if (!p || !usable(p)) return "No pattern set";
-  if (p.kind === "ALWAYS") return "Always on";
-  if (p.kind === "WEEKLY") return shiftNote(p, new Date());
-  return `${p.onDays} in ${p.offDays} out · flips ${p.hotoTime} · on from ${dayMonth(p.anchorDate!)}/${p.anchorDate!.slice(2, 4)}`;
+  if (p.kind !== "CYCLE") return shiftNote(p, new Date());
+  return `${p.onDays} in ${p.offDays} out · HOTO ${p.hotoTime}${p.bothOnAllowed ? " · both teams may stand" : ""}`;
 }
 
 // ------------------------------------------------------------------ the evening digest

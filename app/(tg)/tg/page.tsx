@@ -1,4 +1,4 @@
-import { CalendarPlus, ClipboardCheck, ClipboardList, CloudUpload, History, ListChecks, Settings, UserPen, UsersRound } from "lucide-react";
+import { ArrowLeftRight, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock, CloudUpload, History, ListChecks, Settings, UserPen, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { StateChip } from "@/components/tg/record-summary";
@@ -7,7 +7,8 @@ import { Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { getMember, hasGrant } from "@/lib/wb/auth";
 import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
-import { decidesAnything, proxiesAnything } from "@/lib/wb/domain/rules";
+import { decidesAnything, editsShiftsAnything, hotosAnything, proxiesAnything } from "@/lib/wb/domain/rules";
+import { todaySgt } from "@/lib/wb/domain/timeline";
 import { place } from "@/lib/wb/format";
 import { rosterSelf } from "@/lib/wb/me";
 import { profileOf } from "@/lib/wb/members";
@@ -25,7 +26,9 @@ export default async function TgHome() {
   const decides = decidesAnything(member.grants);
   const [waiting, owed] = decides ? await Promise.all([pendingFor(member.grants).then((p) => p.length), onensOwedFor(member.grants).then((o) => o.length)]) : [0, 0];
 
-  const commands = decides || proxiesAnything(member.grants) || hasGrant(member.grants, GAPS_ROLES, "any");
+  const hoto = hotosAnything(member.grants);
+  const shifts = editsShiftsAnything(member.grants);
+  const commands = decides || hoto || shifts || proxiesAnything(member.grants) || hasGrant(member.grants, GAPS_ROLES, "any");
 
   return (
     <div className="flex flex-col gap-6">
@@ -60,12 +63,16 @@ export default async function TgHome() {
           <Group title="Commander" rows>
             {decides && <Tile href="/tg/approvals" icon={<ClipboardCheck />} title="Approvals" badge={waiting} hint="Requests waiting on you" />}
             {decides && <Tile href="/tg/onens" icon={<CloudUpload />} title="ONENS owed" badge={owed} hint="Civilian MCs not uploaded yet" />}
+            {decides && <Tile href={`/tg/day/${todaySgt()}`} icon={<CalendarDays />} title="Today" hint="Who's on shift, who's away, who's on status" />}
+            {decides && <Tile href="/tg/forecast" icon={<CalendarRange />} title="Forecast" hint="The next 14 days against minimum manning" />}
+            {hoto && <Tile href="/tg/hoto" icon={<ArrowLeftRight />} title="HOTO" hint="Log a handover" />}
             {decides && <Tile href="/tg/people" icon={<History />} title="Person history" hint="Anyone's records; void a mistake" />}
             {proxiesAnything(member.grants) && <Tile href="/tg/add" icon={<UsersRound />} title="Add for several men" hint="A course or duty they've been detailed for" />}
             {hasGrant(member.grants, GAPS_ROLES, "any") && <Tile href="/tg/gaps" icon={<ClipboardList />} title="Gaps" hint="Who isn't registered or isn't on the roster" />}
           </Group>
         )}
         <Group title="Settings" rows>
+          {shifts && <Tile href="/tg/shifts" icon={<Clock />} title="Shifts" hint="Cycles and minimum manning" />}
           {hasGrant(member.grants, ADMIN_ROLES, "any") && <Tile href="/tg/admin" icon={<Settings />} title="Admin" hint="Members, grants, commanders' chats" />}
           <Tile href="/tg/register" icon={<UserPen />} title="My details" hint="Redo your registration" />
         </Group>

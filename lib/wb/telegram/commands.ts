@@ -9,6 +9,7 @@ export const PRIVATE_COMMANDS = [
   { command: "ma", description: "Report a medical appointment" },
   { command: "event", description: "Report a course, brief, IPPT or anything else" },
   { command: "me", description: "My records" },
+  { command: "hoto", description: "Log a handover (GC, PC, PS)" },
   { command: "whoami", description: "Your Telegram id" },
 ];
 
@@ -32,6 +33,7 @@ export const QUICK_COMMANDS: Record<string, { text: string; buttons: { label: st
   ma: { text: "Report a medical appointment:", buttons: [{ label: "🏥 Appointment", route: "apply/ma" }] },
   event: { text: "Report a course, brief, IPPT or anything else:", buttons: [{ label: "📚 Event", route: "apply/event" }] },
   me: { text: "Everything you've applied for and reported:", buttons: [{ label: "📋 My records", route: "records" }] },
+  hoto: { text: "Log the handover when it happens:", buttons: [{ label: "🔄 HOTO", route: "hoto" }] },
 };
 export const GROUP_COMMANDS = [
   { command: "here", description: "Link this chat to a platoon, e.g. /here PLATOON 6" },

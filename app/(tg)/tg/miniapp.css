@@ -31,6 +31,23 @@
   box-shadow: inset 0 1px 0 color-mix(in oklab, var(--border) 80%, transparent);
 }
 
+/* ---------------------------------------------------------------- forecast grid (Phase 4) */
+/* a cell short only because of pending requests: amber stripes, readable in light and dark */
+.tg-app .tg-stripes {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklab, oklch(0.77 0.16 70) 28%, transparent) 0 5px,
+    transparent 5px 10px
+  );
+}
+/* the camp names stay put while the days scroll */
+.tg-app .tg-grid-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--card);
+}
+
 /* ---------------------------------------------------------------- motion */
 /* Everything below is opt-in and switched off for reduced motion. Only
    opacity and transform move, so nothing reflows. */
