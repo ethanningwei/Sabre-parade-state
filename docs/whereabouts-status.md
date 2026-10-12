@@ -42,6 +42,7 @@
 | 1 | Foundation: flags, schema, Mini App shell + auth, registration, grants, `/here`, Gaps | ✅ Done 2026-10-12 (6e961be…9ecdbd2, pushed). Verified on the user's phone with @sabreopsbot on the Vercel preview: registration worked and `/here` linked the test group |
 | 2 | Self-service timeline: AL/OL/OFF/MA/EVENT, approvals, leave balance, My records, void | ✅ Done 2026-10-12 (3c4b478…89bb596, pushed). Verified on the user's phone with @sabreopsbot on the preview: the full checklist (apply, card in the topic, approve/undo, reject/Say why, withdraw, MA/event, Approvals, void, Add for several men, Gaps, Open from a card) |
 | 3 | Medical: RSI/RSO → MC/HL/status outcomes, ONENS, evening round | 🧪 Built and pushed 2026-10-12 (958b4a4…), migration 0005 on the preview branch. **Waiting for the user's phone check** (checklist in §3a). Medical data cleared for real use (no S6 involved) |
+| 3½ | UI/UX pass on the Mini App (not a phase): current-only records + Full history, restyle, motion, skeletons | 🧪 Built 2026-10-12 (aa3949f…), not pushed yet. **Waiting for the user's phone check** (checklist in §3a). No migration, no bot change |
 | 4 | Shifts + forecast: patterns, HOTO, min manning, forecast grid, impact on cards | ⏳ Next. Spec in §3b |
 | 5 | RF requests + deploy | — |
 | 6 | Projection into the parade state (shadow diff first) | — |
@@ -90,6 +91,9 @@
 | Bot | `lib/wb/telegram/bot.ts`: `/start`, `/whoami`, `/here`, quick commands `/sick /leave /off /ma /event /me`, `onOnens` (the evening reminder's Uploaded button: owner or decider, removes just that button) (`QUICK_COMMANDS` in `commands.ts`), card taps (`onCard`), Say why (selective `force_reply` with a `text_mention` of the decider; `wb_conversation` flow `SAY_WHY`, 10 minutes; `onReply`) |
 | Actions | Phase 3: `records.ts` `reportSick`; `lib/wb/actions/medical.ts` `recordOutcome` (verifies the photo token), `markUploaded`. `lib/wb/actions/records.ts`: `checkClash`, `applyLeave`, `applyOff`, `reportMa`, `reportEvent`, `addEventFor` (≤ 40), `decideRecord`, `undoDecision`, `withdrawRecord`, `voidEntry`, `giveReason`. Phase 1: `register.ts`, `admin.ts` |
 | Mini App | Phase 3: `apply/sick` (`sick-form.tsx`), `apply/outcome` (standalone) and `records/[id]/outcome` (Update or Correct; `outcome-form.tsx`, `photo-picker.tsx`), the record page's **What the doctor gave** (`visit-section.tsx`: diagnosis with a lock and the photo for those allowed, Uploaded to ONENS, Update/Correct), My records nests an outcome under its visit, `onens` (commanders' owed list, `onens-button.tsx`), Home tile "ONENS owed · n", Apply tiles. `Choice`/`YesNo` now live in `form-bits.tsx`. Phase 1–2: `app/(tg)/tg/…` + `components/tg/…`. Home (Now/Next + tiles), Apply hub, `apply/al`, `apply/ol`, `apply/off` (`leave-form.tsx`), `apply/ma`, `apply/event`, `records`, `records/[id]` (the card's Open), `approvals`, `people`, `people/[id]`, `add`, Gaps, Register, Admin. Shared: `form-bits.tsx`, `record-summary.tsx`, `record-actions.tsx`, `people-list.tsx` |
+| Current vs history (UI pass) | `lib/wb/domain/rules.ts`: `isCurrent(record, liveChildren, now)` (pending; standing and not over, open-ended included; still owing an outcome (`awaitsOutcome`) or ONENS, itself or through a child; rejected within `REJECTED_SHOWN_MS` = 7 days and not over), `nestOutcomes` (My records' grouping, moved out of the page), `liveChildren` (Person history, flat). My records and Person history show current by default; `?all=1` (server-rendered, so Back works) is Full history, dead records greyed. `HistoryToggle` (`components/tg/history-toggle.tsx`) is the "Full history (n)" / "Current only" link. `recordsOfPerson` now reads up to 500 so an old permanent status isn't cut off. Tests: `tests/wb/current.test.ts` |
+| Look and motion (UI pass) | `app/(tg)/tg/miniapp.css`, scoped under `.tg-app` (TgShell): the page is Telegram's secondary background, cards the section background (`--tg-page`; plain-browser fallbacks for light/dark); `.tg-rows` hairlines; focus rings; motion classes `tg-enter` (stagger via `--i`, capped), `tg-reveal`, `tg-pop`, `tg-press`, `tg-skeleton`, all inside `prefers-reduced-motion: no-preference`, transform/opacity only, 120–260 ms ease-out. TgShell sets Telegram's header/background colour to `secondary_bg_color` (6.1+). `components/tg/ui.tsx` (server-safe): `Group` (titled group, `rows`), `EmptyState`, `Bone`/`CardBone`/`PageBone`, `enter(i)`, and the class strings `inputClass`/`fieldClass`/`textareaClass`/`bigButtonClass` (48 px). `form-bits.tsx` adds `StepBar` (Step n of m + Back, leave and Add for several men), `Step` (numbered section: report sick, outcome form), `DoneScreen`/`BigLink` (one Done screen; `Done` takes a `note`); `Choice` ticks `HapticFeedback.selectionChanged` when the answer changes. State chips have an icon each; the Mini App uses lucide icons, no emoji (the bot's cards keep theirs) |
+| Skeletons (UI pass) | `loading.tsx` in `/tg` (Home and anything without its own), `records`, `records/[id]`, `approvals`, `onens`, `people`, `people/[id]`, `gaps`. Static, and each returns `null` unless `isEnabled("WHEREABOUTS")`: Next serialises a loading fallback into the RSC payload even when the layout 404s. `flags.test.ts` checks both |
 | Tests | Phase 3: `medical-rules.test.ts` (approval/absence, outcome parents, ONENS, void cascade, `canSeeMedical` matrix, card lines); `records.db.test.ts` "medical (DB)" (RSO → card with symptoms → approve → outcome with MC + 2 statuses + photo; diagnosis never in any Telegram payload; who sees the diagnosis/photo and the audit rows; standalone + correction keeping the photo; refusals incl. a borrowed token; nothing given; void cascade; ONENS); `bot.db.test.ts` (evening round once a day, digest, heartbeat, the ONENS tap, `/sick`); `flags.test.ts` covers the three new routes and `CRON_SECRET`. The fake Telegram now answers `sendPhoto` and `getFile`. Phases 1–2: `tests/wb/`: unit (auth, registration, links, commands, migrations, `timeline`, `rules` incl. clash/describe/holidays/accessTo), DB (`*.db.test.ts` on `sabre_test`, with `next/headers` mocked by a cookie jar): `records.db.test.ts` (full lifecycle, races, void, withdraw, proxy, scope, checks) and `bot.db.test.ts` (fake Telegram: cards, alerts, undo window, Say why, quick commands), and `flags.test.ts` (the guard test) |
 
 **Verified 2026-10-12 (Phase 2):**
@@ -111,6 +115,22 @@
 7. Optional: void the RSO from Person history → its MC and status go with it.
 8. Optional, if you can borrow a second account with only a GC grant: Open from the card says it isn't theirs.
 
+**Verified 2026-10-12 (UI pass), not yet on a phone:**
+- 318 tests, typecheck, lint and `next build` green at each commit. The diff since a382f5c touches only `app/(tg)`, `components/tg`, `lib/wb` and `tests/wb`: no v1 file, no `components/ui`, no `globals.css`, no migration, nothing in `lib/parade/`.
+- Flag off (`next start` of the build, no `FEATURE_WHEREABOUTS`): `/tg`, `/tg/records`, `?all=1`, Approvals and Person history are 404 with no skeleton anywhere in the response; v1 `/login` is 200.
+- Locally (flag on, throwaway token, `sabre_dev`) with 15 seeded records (pending, approved-and-current, ended, withdrawn, voided, rejected 3 and 20 days ago, a corrected outcome, ONENS owed, an MA with no outcome, a permanent status): My records shows 8 of 13, Full history all 13, Back returns to current; Person history 11 of 18 (flat). Answering "nothing given" on the old MA drops it from current.
+- A script swept every /tg screen at 375 px (Telegram light and dark via the `#tgWebAppThemeParams` hash, and a plain browser light/dark): no tap target under 44 px, no input under 16 px, no horizontal scroll, no page errors; it also walked AL's four steps with Back, the Reject panel, Add for several men's second step and the outcome form's Done. With reduced motion on, `.tg-enter` has no animation.
+
+**Test on the phone (UI pass), on the preview after push:**
+1. Home in Telegram light, then switch Telegram to dark: the page is the grey/black Telegram background with white/grey cards, and Telegram's own header matches it.
+2. My records shows only what's current; scroll to the bottom → **Full history (n)** → everything, dead records greyed and struck through → Telegram's Back → current again.
+3. Apply → Annual leave: the step bar reads Step 1 of 4 and fills; on step 3 tap **Back**, your answers are kept; send it → the Done screen's tick.
+4. Report sick: three numbered steps; the next ones appear as you answer. Tapping a choice gives a light haptic tick.
+5. An approved report sick → Update outcome: numbered sections open as you answer Yes/No.
+6. Approvals → Reject: the reason box slides in; Approve/Reject show a spinner while saving.
+7. Tap between screens quickly: a grey skeleton shows at once, not a blank page.
+8. iPhone Settings › Accessibility › Motion › Reduce Motion on: nothing slides or fades, everything still works.
+
 **Gotchas (Phases 1–3):**
 - Never add `diagnosis` or `evidence_file_id` to a select that feeds a `RecordView`, a card or a DM. Read them only through `lib/wb/medical.ts`.
 - An outcome's rows are tied by one `created_at` (set in JS, inserted in one statement). Don't insert outcome rows one at a time.
@@ -123,6 +143,9 @@
 - The Sheets re-import (`npm run import`) deletes and recreates every `person`. That unlinks every member, drops camp/platoon grants and now **deletes every `wb_record`** (cascade). See §6.
 - In tests, `vi.mock` factories are hoisted: shared state goes through `vi.hoisted`, and grammY's `Api` is built inside the factory (see `records.db.test.ts`).
 - A `force_reply` is only "selective" for users mentioned in the text, so the Say why prompt carries a `text_mention` entity for the decider.
+- Class strings shared by server and client components live in `components/tg/ui.tsx`, not `form-bits.tsx`: anything a `"use client"` file exports reaches a server component as a client reference, not a string.
+- A `loading.tsx` under `/tg` must return `null` with the flag off and import only `components/tg/ui` and `lib/flags` (the guard test checks it).
+- New Mini App styles go in `miniapp.css` under `.tg-app`, and any motion inside the `prefers-reduced-motion: no-preference` block.
 
 ### 3b. Next phase: Phase 4 (Shifts and forecast: patterns, HOTO, minimum manning, forecast grid, manning on cards)
 **Before building, settle with the user** the §6 questions marked *(Phase 4)*: each paired camp's cycle and anchor, the minimum manning per camp, and the rest. Also confirm Phase 3 was checked on the phone (§3a checklist).
@@ -217,6 +240,10 @@
 | 2026-10-12 | The photo upload is a **route handler**, not a server action: actions are capped at 1 MB and raising that means editing v1's `next.config.ts` |
 | 2026-10-12 | Undo is refused once an outcome hangs off the approval; the commander voids instead (the void takes the outcome with it) |
 | 2026-10-12 | The evening round's outcome chase stops 14 days after approval; "nothing given" counts as an answer |
+| 2026-10-12 | UI pass: **My records and Person history show what's current by default**, with **Full history (n)** (`?all=1`) at the bottom. Current = pending; approved/recorded and not over (open-ended counts); still owing an outcome or ONENS, itself or through a child. Withdrawn, voided, corrected and finished records are history. This replaces "withdrawn requests stay visible in My records" above: they're still there, greyed, in Full history |
+| 2026-10-12 | **A rejected request stays in the current view for 7 days after the decision** (the user's answer), so the trooper sees it and the reason; earlier if its dates have already passed |
+| 2026-10-12 | A report sick or MA with no outcome stays current until he answers (Update outcome, or "nothing given"), with no time limit, even after the evening round's chase gives up at 14 days |
+| 2026-10-12 | Mini App look: Telegram's grouped-list style (secondary background page, section-colour cards), lucide icons instead of emoji in the Mini App (the bot's cards keep their emoji), CSS-only motion with tw-animate-css available and no animation library, all switched off for reduced motion |
 
 ---
 
