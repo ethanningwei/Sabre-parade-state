@@ -14,7 +14,7 @@
    - `FEATURE_PROJECTION` (timeline → v1 `absence`/`duty`) stays off until Phase 6.
    - `FEATURE_CLAIMS` gates Phase 7.
    - Production has all flags **off** until the user turns them on.
-2. **The database is additive only.** New tables are prefixed `wb_` and live in `lib/wb/db/schema.ts`. **Never ALTER or DROP a v1 table.** `scripts/check-migrations.ts` enforces this once it exists (Phase 1).
+2. **The database is additive only.** New tables are prefixed `wb_` and live in `lib/wb/db/schema.ts`. **Never ALTER or DROP a v1 table.** `scripts/check-migrations.ts` enforces this inside `npm test`.
 3. **Never edit `lib/parade/`.** The golden parity tests must stay green (`npm test`).
 4. **Keep v1 edits minimal:**
    - Already approved: the `drizzle.config.ts` schema array and a flag-guarded nav link.
@@ -38,9 +38,9 @@
 ## 2. Progress
 | Phase | Scope | State |
 |---|---|---|
-| 0 | Freeze v1, branch, plan | ✅ Done 2026-10-12: `v1.0` tag, `whereabouts` branch, plan committed. **Not yet pushed** |
-| 1 | Foundation: flags, schema, Mini App shell + auth, registration, grants, `/here`, Gaps | ⏳ Next. Spec in §3 |
-| 2 | Self-service timeline: AL/OL/OFF/MA/EVENT, approvals, leave balance, My records, void | — |
+| 0 | Freeze v1, branch, plan | ✅ Done 2026-10-12: `v1.0` tag (pushed), `whereabouts` branch, plan committed |
+| 1 | Foundation: flags, schema, Mini App shell + auth, registration, grants, `/here`, Gaps | ✅ Built 2026-10-12 (commits 6e961be…9ecdbd2). Tests, typecheck, lint and `next build` green. **Not yet pushed** (`origin/whereabouts` is at 4bb5cda); not yet tried with the real bot (§3a) |
+| 2 | Self-service timeline: AL/OL/OFF/MA/EVENT, approvals, leave balance, My records, void | ⏳ Next. Spec in §3b |
 | 3 | Medical: RSI/RSO → MC/HL/status outcomes, ONENS, evening round. **S6 sign-off before live** | — |
 | 4 | Shifts + forecast: patterns, HOTO, min manning, forecast grid, impact on cards | — |
 | 5 | RF requests + deploy | — |
@@ -49,65 +49,98 @@
 
 **Prerequisites from the user** (tick off as they arrive):
 - [ ] A bot made with @BotFather. Suggested: display name **Sabre Coy**, username **@sabrecoybot**; no "8SIR" in the username, because usernames are public. Make it from an account that stays with the appointment.
-- [ ] `WB_BOT_TOKEN` in `.env.local`. The user puts it there; it's never pasted into chat.
+- [ ] `WB_BOT_TOKEN` in `.env.local`. The user puts it there; it's never pasted into chat. **As of 2026-10-12 it isn't there:** `.env.local` has only `TELEGRAM_BOT_TOKEN`, which belongs to **@sabreopsbot** (checked with `getMe`, username only). If @sabreopsbot is the new whereabouts bot, move its token to `WB_BOT_TOKEN` and put the old parade-state bot's token back in `TELEGRAM_BOT_TOKEN`. If it's the old parade-state bot, leave it alone and add the new bot's token as `WB_BOT_TOKEN`.
+- [ ] `WB_WEBHOOK_SECRET` (`openssl rand -hex 32`), `WB_ADMIN_TELEGRAM_IDS` (your id from `/whoami`) and `WB_APP_URL`, in `.env.local` and on the Vercel preview. See `.env.example`.
+- [ ] In @BotFather: `/newapp` for the bot, short name **`app`**, URL `<WB_APP_URL>/tg`. Group links (`t.me/<bot>/app`) need it. Privacy mode stays **on** (the default).
 - [ ] A test Telegram group with the user in it. Approval cards go there during development.
-- [ ] A Neon branch database for previews (free). Local development uses `sabre_dev`/`sabre_test` as for v1.
+- [ ] A Neon branch database for previews (free). Local development uses `sabre_dev`/`sabre_test` as for v1. Apply migration `0003_wb_foundation` to it (`DATABASE_URL=<branch url> npx drizzle-kit migrate`).
 
 ---
 
-## 3. Next phase: Phase 1 (Foundation)
-**Goal:** a trooper can open @sabrecoybot, launch the Mini App, register against the roster, and see a placeholder Home. An admin can grant roles and link commanders' chats. Nothing is recorded yet.
+## 3. Handover
+
+### 3a. Phase 1: what exists now
+**Try it with the real bot** (the last "Done when" item, which needs the user):
+1. Fill in the prerequisites in §2 (`WB_BOT_TOKEN`, `WB_WEBHOOK_SECRET`, `WB_ADMIN_TELEGRAM_IDS`, `WB_APP_URL`, BotFather `/newapp`).
+2. Put `FEATURE_WHEREABOUTS=1` on the **preview** environment only (or run `next dev` behind a tunnel such as `cloudflared tunnel --url http://localhost:3000` and set `WB_APP_URL` to it).
+3. `npm run wb:setup -- webhook`, then `-- menu` and `-- commands`. `npm run wb:setup -- status` shows the bot, privacy mode, the webhook and its last error.
+4. On your phone: open the bot, `/start`, **Open Sabre**, register. You're ADMIN because of `WB_ADMIN_TELEGRAM_IDS`. In Admin › Grants, grant yourself PS of a platoon. Add the bot to the test group and send `/here PLATOON 6` (use the command menu, so it's sent as `/here@<bot>`).
+
+**Where things are:**
+| | |
+|---|---|
+| Flags | `lib/flags.ts`: `isEnabled`, `requireFeature()` (server actions, sync), `requireFeaturePage()` (layouts/pages; awaits `connection()` so a build with the flag off doesn't bake in a static 404), `featureOff()` (route handlers return a 404 `Response`) |
+| Schema | `lib/wb/db/schema.ts`: `wb_member`, `wb_grant`, `wb_commander_chat`, `wb_audit`; migration `drizzle/0003_wb_foundation.sql` |
+| Migration guard | `scripts/check-migrations.ts` (run inside `npm test`): after `V1_MIGRATIONS`, every CREATE/ALTER/DROP/TRUNCATE/data change must be on a `wb_` object. A v1 migration merged from `main` must be added to `V1_MIGRATIONS` on purpose |
+| Auth | `lib/wb/auth.ts`: `verifyInitData`, `signSession`/`verifySession` (`wb_session`, HMAC keyed off `AUTH_SECRET`), `signIn`, `getMember`, `requireMember`/`requireRegistered`/`requireGrantPage` (pages, redirect) and `requireGrant`/`actionMember` (actions, throw). `grantCovers` is the scope rule |
+| Mini App | `app/(tg)/tg/…` + `components/tg/…`. `TgShell` loads `telegram-web-app.js`, adds `.tg-themed` (mapping in `app/(tg)/tg/telegram-theme.css`), drives the BackButton and posts `initData` to `/api/wb/auth`. Screens: Home, Register, Admin (Members, Grants, Commanders' chats), Gaps |
+| Registration | Pure rules in `lib/wb/domain/registration.ts` (matching, NRIC, DDMMYY, leave days) and `roles.ts` (`RANKS`, `ROLE_ALIASES`, `WB_ROLES`); actions in `lib/wb/actions/register.ts` |
+| Bot | `lib/wb/telegram/bot.ts` (`createBot`, `getBot`), `commands.ts` (`matchSubunit`, command lists), `links.ts` (deep links: `admin/grants` ⇄ `startapp=admin__grants`). Webhook `app/api/wb/telegram/route.ts`; setup `app/api/wb/setup/route.ts` driven by `scripts/wb-setup.ts` |
+| Tests | `tests/wb/`: unit (auth, registration, links, commands, migrations), DB (`*.db.test.ts` on `sabre_test`, with `next/headers` mocked by a cookie jar), the bot on a fake Telegram (`bot.api.config.use` captures calls), and `flags.test.ts`, which also fails if any `/tg` page, `/api/wb` route or `wb` action skips its feature guard |
+
+**Verified 2026-10-12:**
+- 132 tests, typecheck, lint and `next build` green. `git diff v1.0` touches no v1 app code; `lib/parade/` is unchanged.
+- Locally with flags off: every `/tg/*` page and `/api/wb/*` route returns 404; v1 redirects to `/login` as before.
+- Locally with flags on, using test `initData` signed with a throwaway token: sign-in → Register (too-many, one match, bad ORD rejected, full NRIC stored as its last 4) → Home → Admin › Grants (PS · PLATOON 6) → Gaps → Members. The Telegram theme applies.
+- **Not yet verified:** a real phone inside Telegram, Telegram Web's iframe (the partitioned cookie), and `/here` against the real Bot API.
+
+**Phase 1 gotchas for later phases:**
+- `notFound()` inside `run()` is swallowed into "Something went wrong", so server actions call `requireFeature()` **before** `return run(…)`. The guard test checks this pattern.
+- `"use server"` files may export only async functions: constants such as `TAKEN_MESSAGE` live in `lib/wb/domain/*`.
+- Client components must not import `lib/wb/db/schema.ts` (it pulls Drizzle into the bundle). Shared vocabularies go in `lib/wb/domain/*`.
+- Don't use `PageProps`/`LayoutProps` for `/tg` routes: `tsc` only knows routes after `next typegen`.
+- The Sheets re-import (`npm run import`) deletes and recreates every `person`. After whereabouts is live, a re-import would unlink every member (`person_id` → null) and drop camp/platoon grants. See §6.
+
+### 3b. Next phase: Phase 2 (Self-service timeline, shadow mode)
+**Goal:** a registered trooper applies for AL, OL and OFF in the Mini App and reports MA and events; his PC or PS approves or rejects from a card in the platoon's commanders chat (Undo for 10 minutes, Say why after a reject); leave is deducted on approval. He sees everything in My records and can withdraw what's pending; a commander can void. A commander can add an event for several men at once. **Nothing reaches the parade state** (`FEATURE_PROJECTION` stays off), so v1 is unaffected.
 
 **Build:**
-1. **`lib/flags.ts`:** `isEnabled('WHEREABOUTS' | 'PROJECTION' | 'CLAIMS')` reads `FEATURE_*` (`"1"` means on). Also `requireFeature()`, which calls `notFound()`. Use it in every `(tg)` layout and page and in every `api/wb` route.
-2. **Schema** (`lib/wb/db/schema.ts`, Phase 1 tables only; later phases add theirs in their own migrations):
-   - `wb_member`: `telegram_user_id` unique, `person_id` (nullable, FK to v1 `person`), `full_name`, `nric4`, `ord_date`, `leave_left`, `stayout` (`NONE`/`PERM`/`TEMP`), `stayout_until`, `source` (`ROSTER`/`SELF`). For SELF sign-ups also `self_rank`, `self_role` and `self_camp_id`. Plus `registered_at`, `active`.
-   - `wb_grant`
-   - `wb_commander_chat`
-   - `wb_audit`
-
-   Add the schema to `drizzle.config.ts` as an array (`["./lib/db/schema.ts", "./lib/wb/db/schema.ts"]`). Generate the migration, then run `scripts/check-migrations.ts` (fails if any migration after `v1.0` ALTERs or DROPs a non-`wb_` table) inside `npm test`.
-3. **Auth** (`lib/wb/auth.ts`):
-   - Verify `initData` with HMAC-SHA256 (secret = HMAC("WebAppData", `WB_BOT_TOKEN`)), rejecting anything older than 24 hours.
-   - Issue a stateless signed cookie (`wb_session`; HMAC with `AUTH_SECRET`; `SameSite=None; Secure; Partitioned`; 7 days).
-   - Provide `requireMember()` and `requireGrant(role, scope)`.
-   - Bootstrap admins from `WB_ADMIN_TELEGRAM_IDS` (comma-separated). They're granted `ADMIN` on first login.
-4. **Mini App shell** (`app/(tg)/tg/layout.tsx`):
-   - Load the `telegram-web-app.js` script. Map `--tg-theme-*` onto the shadcn tokens. Wire up the BackButton.
-   - An auth bootstrap client component posts `initData` to `/api/wb/auth` and sets the cookie.
-   - Must not depend on the v1 password session.
-5. **Registration** (port of Sabre Bot `flows.py` `REGISTER` and `engine.py` `_after_match_name`/`_after_pick_man`/`_after_confirm_match`):
-   1. Type a name and match it against active v1 `person` rows, case-insensitive and partial. More than 6 matches: type more. 2–6: pick from a list. 1: "That's me?".
-   2. Already linked to another member: refuse and tell them to ask their PS.
-   3. Fill in full name, NRIC last 4 (truncate a full NRIC), ORD (DDMMYY), leave left, and stay-out (none, permanent, or until a date).
-   4. No match: retry, or "I'm not on it", which asks platoon, camp, role and rank and saves as `SELF`.
-6. **Admin screens** (ADMIN only): Members (link or unlink a person, deactivate) · Grants (role + platoon/camp scope) · Commanders' chats (list or remove).
-7. **Gaps screen** (PS, PC, OC, 2IC, CSM, ASA, ADMIN): roster people with no member, SELF members not yet on the roster, and members whose person has left (inactive).
-8. **Bot** (`lib/wb/telegram/`, grammY):
-   - Webhook route `app/api/wb/telegram/route.ts`, which checks `X-Telegram-Bot-Api-Secret-Token` against `WB_WEBHOOK_SECRET`.
-   - Commands:
-     - `/start` replies with an **Open Sabre** `web_app` button. In groups it uses a `t.me/<bot>/app` link instead.
-     - `/whoami` gives the chat id, thread id and your Telegram id.
-     - `/here PLATOON 6` links this chat or topic. It needs PC/PS for that platoon, or ADMIN, and replies with what it displaced.
-   - Keep privacy mode **on**.
-9. **Setup script** `scripts/wb-setup.ts` (`npm run wb:setup -- status|webhook|menu|commands`). Same pattern as `~/Developer/sabre-ir` `api/setup.ts`. It sets the webhook with the secret, the chat menu button to the Mini App URL, and per-scope command lists. The token is never printed.
-10. **`.env.example`:** add `FEATURE_WHEREABOUTS`, `FEATURE_PROJECTION`, `FEATURE_CLAIMS`, `WB_BOT_TOKEN`, `WB_WEBHOOK_SECRET`, `WB_ADMIN_TELEGRAM_IDS` and `WB_APP_URL`, each with a comment.
+1. **Schema** (new migration, `wb_` only; check-migrations must stay green):
+   - `wb_record`: `id`, `person_id` (FK v1 `person`, not null), `member_id` (FK `wb_member`, null for proxy entries), `kind` (`wb_record_kind`: `RSI`, `RSO`, `MC`, `HL`, `STATUS`, `MA`, `AL`, `OL`, `OFF`, `EVENT`; the enum is complete now, Phase 3 uses the medical ones), `parent_id` (self-FK), `start_at`/`end_at` (timestamptz, half-open `[start, end)`), `absent` (bool), `state` (`wb_record_state`: `PENDING`, `APPROVED`, `REJECTED`, `RECORDED`, `CANCELLED`, `WITHDRAWN`), `decided_by` (member), `decided_at`, `decision_note`, `leave_days` (int, null unless AL/OL), `detail` (e.g. "AL @ JOHOR BAHRU"; "DV DRIVER COURSE"), `location`, `reason` (from `LEAVE_REASONS` or free text), `ma_timing` (HHMM), `created_by` (member), `created_via` (`SELF`/`PROXY`/`IMPORT`), `created_at`, `updated_at`. Index (`person_id`, `start_at`, `end_at`) and (`state`). Medical columns (`mc_category`, `diagnosis`, `evidence_file_id`, `onens`) are added in Phase 3's own migration.
+   - `wb_card`: `id`, `record_id` (FK), `chat_id`, `thread_id`, `message_id`, `sent_at`. One row per card sent, so a decision can edit every copy.
+   - `wb_conversation`: `id`, `telegram_user_id`, `chat_id`, `flow` (e.g. `SAY_WHY`), `step`, `answers` (jsonb), `ctx` (jsonb, e.g. `{recordId, promptMessageId}`), `updated_at`; unique on (`telegram_user_id`, `chat_id`). Only "Say why" uses it in Phase 2.
+2. **Pure domain** (`lib/wb/domain/`, fully unit-tested, ports of `store.py`/`flows.py`):
+   - `timeline.ts`: date range ⇄ instants in SGT (a date range `D1..D2` is `[D1 00:00 SGT, D2+1 00:00 SGT)`; a datetime range uses the times as given), `overlaps`, `touchesDay`, `daysBetween` (capped at 31 days), `activeAt`. Use `lib/parade/time.ts` (`sgtToInstant`, `toSgt`) rather than new SGT maths.
+   - `rules.ts`: who approves what (AL/OL/OFF need PC or PS of the trooper's platoon; MA/EVENT are `RECORDED` straight away); the leave check (`leave_days` ≤ `leave_left`); the state machine (`PENDING` → `APPROVED`/`REJECTED`/`WITHDRAWN`; `APPROVED`/`RECORDED` → `CANCELLED` by void; `APPROVED`/`REJECTED` → `PENDING` by Undo within 10 minutes); refunds (approve deducts, undo-of-approve and void refund).
+   - `clash.ts`: a trooper's live records (absent, not `REJECTED`/`CANCELLED`/`WITHDRAWN`) and open v1 `duty` rows for him (read-only) that overlap the new range, as readable lines ("AL 27/08–29/08 · approved"). It's never a refusal: the form shows **Carry on** / **Change dates**.
+   - `holidays.ts`: Singapore public holidays for 2026–2028 as a constant list (see §6 for the source), used only to pre-untick leave days.
+   - `LEAVE_REASONS` (`Holiday`, `Family`, `Wedding`, `Religious`, `Medical`) into `roles.ts`.
+3. **Mini App screens** (`app/(tg)/tg/…`, all `requireRegistered()`; a SELF member who isn't on the roster sees "Ask your PS to add you to the parade state first" instead of the forms, because `wb_record.person_id` is required):
+   - **Apply** hub with AL, OL, OFF, MA, Event.
+   - **AL/OL** (ports `_leave_steps`): start and end (date + optional time, default 0000 and 2359; neither in the past; end not before start) → clash check → **days it costs** (every day ticked; weekends that are off-shift can't be known until Phase 4, so only public holidays are pre-unticked; balance shown, and over-balance is refused) → where (AL: Singapore or Johor Bahru; OL: city + country) → reason. Saves `PENDING` with `detail` "AL @ JOHOR BAHRU".
+   - **OFF**: start, end → clash check. `PENDING`.
+   - **MA** (ports `MA`): "Same as last time?" (offers the last MA's timing and location) → date (not in the past), time (HHMM), place. `RECORDED`, absent for that day. The photo is Phase 3.
+   - **Event** (ports `_event_questions`): what, where, from/until dates, start and end time each day (default whole day). `RECORDED`, absent.
+   - **My records**: one card per record, newest first, with state chips. Withdraw a `PENDING` one. Shows the decision note after a reject.
+   - **Approvals** (PS/PC of the platoon; OC/2IC/CSM company-wide): pending records in scope, with the same Approve/Reject as the card. Needed when a platoon has no linked chat.
+   - **Person history** (same roles, same scope): one person's records, with **Void** on `APPROVED`/`RECORDED` ones (reason required → `decision_note`).
+   - **Add for several men** (PS/PC/OC/2IC/CSM/GC of the camp): pick people from the roster in scope (multi-select with search, cap 40), then the Event questions. One `RECORDED` `EVENT` row per person, `created_via='PROXY'`, `member_id` null. No clash step (as in Sabre Bot).
+   - Home: replace the placeholder with "Now" (the active absent record, or "Present") and "Next" (the next one starting), plus the Apply tile.
+4. **Cards and decisions** (`lib/wb/telegram/cards.ts`, `lib/wb/actions/records.ts`, `lib/wb/decide.ts`):
+   - Submitting a `PENDING` record sends a card to the trooper's platoon's `wb_commander_chat` (subunit of the person's camp), in its topic if set, and saves a `wb_card`. No chat linked: the record still saves, and the trooper is told "Saved, but your platoon has no commanders chat yet. Ask your PC to send /here in it." (port `_no_chat`). Approvals in the Mini App still work.
+   - Card text: kind, rank and name, camp, dates, leave days and balance after, where, reason. **No manning impact yet** (Phase 4 adds it). Buttons: **Approve**, **Reject**, **Open** (a `t.me/<bot>/app?startapp=records__<id>` link).
+   - Callback data is short and opaque: `d:<recordId>:a|r|u|w` (approve, reject, undo, why). The webhook now handles `callback_query` (already in `ALLOWED_UPDATES`).
+   - **Approving needs a `wb_grant`** (PC/PS covering the platoon, or OC/2IC/CSM company-wide). Anyone else who taps gets an alert "Only PLATOON 6's PC or PS can decide this". Being in the chat isn't enough.
+   - **Decide once** in the database: `UPDATE wb_record SET state=… WHERE id=… AND state='PENDING' RETURNING *`; zero rows means someone else got there first, and the card is refreshed to show who. Leave is deducted in the same transaction.
+   - After a decision every `wb_card` copy is edited: "✅ Approved by 2SG TAN 1432", with **Undo** (decider only, 10 minutes, checked lazily on tap against `decided_at`; no cron) and, after a reject, **Say why**. Say why sends a `force_reply` prompt and stores a `wb_conversation`; the reply becomes `decision_note`, and the trooper is told.
+   - The trooper gets a DM for approve, reject (with the note when given), undo and void. If the DM fails (he blocked the bot), log it and carry on.
+   - Every decision, withdraw and void is written to `wb_audit` (`via` `BOT` or `MINIAPP`).
+5. **Bot quick commands** (DM): `/leave`, `/off`, `/ma`, `/event`, `/me` reply with a `web_app` button straight to that screen. Add them to `PRIVATE_COMMANDS`.
+6. **Gaps**: default to the viewer's own platoon when their grants are platoon-scoped (company-wide roles still see everything); collapse "Not registered" by platoon. This was too long to scroll with 213 people.
 
 **Tests (Vitest):**
-- `initData` verify: valid, tampered, expired.
-- Cookie sign and verify.
-- Name matching: exact, partial, ambiguous, already linked.
-- NRIC truncation.
-- Grant scope checks.
-- Flags off: the route handlers return 404 (call the handlers directly).
-- `check-migrations`.
-- DB round trip for registration on `sabre_test`.
-- **All existing v1 tests stay green.**
+- Timeline: overlaps and touches across midnight and SGT boundaries, half-open ends, the 31-day cap; ported `checks.py` cases where they apply.
+- Rules: approval matrix, state transitions (including illegal ones), leave deduct/refund on approve, undo and void, over-balance refused.
+- Clash: finds overlapping records and duties, ignores rejected/cancelled/withdrawn.
+- DB: apply AL → card row → approve (balance down) → undo (balance back) → reject → Say why stores the note; two approvers racing: only one wins; void refunds; withdraw only while pending; proxy add for 3 men creates 3 rows.
+- Bot on the fake Telegram: card sent to the right chat and topic; a tap from someone without a grant gets the alert and changes nothing; the card is edited after the decision; Undo after 10 minutes is refused; the DM to the trooper is sent.
+- Flags off: all new routes and actions 404 (the guard test covers new files automatically).
+- **Still: all v1 tests green, `lib/parade/` untouched, no v1 table altered.**
 
 **Done when:**
-- `npm test`, `npm run typecheck` and `npm run lint` are green.
+- `npm test`, `npm run typecheck`, `npm run lint` and `next build` are green.
 - With flags off, the app behaves exactly like `v1.0`.
-- With flags on locally (exposed with a tunnel, or on a Vercel preview with the test bot), the user can register from their phone, grant themselves PS of a platoon, and `/here` the test group.
+- On the preview with the test bot: the user applies for AL from their phone, the card appears in the test group's topic, they approve it there, Undo works, a reject with Say why reaches the trooper's DM, and My records and the leave balance match.
 
 ---
 
@@ -134,6 +167,16 @@
 | 2026-10-12 | Must be free: Vercel Hobby, Neon free, Telegram; daily crons only |
 | 2026-10-12 | Separate bot (suggested @sabrecoybot), with explicit grants for approvals, and privacy mode on |
 | 2026-10-12 | One phase per session; this file is the handover |
+| 2026-10-12 | Phase 1: `/tg` pages decide the flag **per request** (`requireFeaturePage` awaits `connection()`), so a build made with the flag off doesn't bake in a static 404 |
+| 2026-10-12 | `WB_ADMIN_TELEGRAM_IDS` is checked on **every** sign-in, not just the first: the env list is the break-glass. To take ADMIN from someone on it, remove them from the env as well |
+| 2026-10-12 | ADMIN is a role like any other, not a wildcard: a check lists ADMIN explicitly where admins should pass (`/here`, Gaps). The last active ADMIN can't be removed, and an admin can't deactivate themselves |
+| 2026-10-12 | Grant scope: company-wide (no platoon/camp) covers everything; a platoon grant covers its camps; a camp grant covers that camp only |
+| 2026-10-12 | Registration matches **all** active roster names, including ones already linked, so a trooper is told "already registered to another account, ask your PS" instead of "not on the roster". Up to 6 matches are offered as a list (Sabre Bot used 8) |
+| 2026-10-12 | Session cookie `wb_session` is stateless (HMAC with a key derived from `AUTH_SECRET`), but `getMember()` re-reads the member each request, so deactivation and grant changes apply at once. Deactivating doesn't need a session table |
+| 2026-10-12 | `/api/wb/setup` runs on the deployment, authorised by `WB_WEBHOOK_SECRET`, so the bot token never leaves Vercel (same pattern as sabre-ir) |
+| 2026-10-12 | One commanders chat per platoon (`wb_commander_chat.subunit_id` unique). `/here` in a new chat replaces the old one and says so. One chat may serve several platoons (one `/here` per platoon, e.g. one forum with a topic each) |
+| 2026-10-12 | The approved flag-guarded v1 nav link was **not** added: the Mini App only works inside Telegram, so a link from the v1 web app would only show "Open Sabre from the bot". Revisit if there's a reason |
+| 2026-10-12 | Proposed for Phase 2 (confirm when it starts): `wb_record.person_id` is required, so SELF members who aren't on the roster can't apply until their PS adds and links them; proxy events use `member_id` null |
 
 ---
 
@@ -145,3 +188,8 @@
 - Minimum manning per camp, in `GC:ST CBT:ST SVC` form (needed in Phase 4).
 - S6 position on storing medical data and photos (needed before Phase 3 goes live).
 - Sabre Bot's token is in plaintext in `sabre-bot/temp.txt`. Rotate it or delete the file. Don't reuse it.
+- **Which bot is @sabreopsbot?** It's the token in `.env.local` as `TELEGRAM_BOT_TOKEN`. The whereabouts code only reads `WB_BOT_TOKEN`; never set a webhook on the parade-state bot's token (§1 rule 6).
+- **Sheets re-import vs whereabouts.** `npm run import` deletes and recreates every `person`, which would unlink every member and drop platoon/camp-scoped grants. Before whereabouts goes live, either stop re-importing (the STATUS.md cutover plan) or make the import update people in place. Changing the import touches v1, so it needs the user's go-ahead.
+- Should a PS see Gaps for the whole company or only their platoon? Phase 2 plans "own platoon by default" (§3b item 6).
+- Public holiday list for leave days (Phase 2): hard-code MOM's published dates for 2026–2028, or something else?
+- Do GCs approve anything, or only PC/PS? Phase 2 assumes only PC/PS (and OC/2IC/CSM company-wide), as in the plan.
