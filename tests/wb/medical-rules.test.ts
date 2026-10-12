@@ -28,7 +28,7 @@ describe("report sick", () => {
 
   it.each<[WbRecordKind, boolean]>([
     ["RSI", false],
-    ["RSO", true],
+    ["RSO", false],
     ["MC", true],
     ["HL", true],
     ["STATUS", false],

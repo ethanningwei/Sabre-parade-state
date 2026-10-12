@@ -167,7 +167,7 @@ const sickInput = z.object({
 /**
  * Report sick (ports Sabre Bot's SICK): in camp (RSI) or outside (RSO), the
  * day, the clinic for an RSO, and his symptoms for his commander. Waits for
- * his PC or PS like leave. An RSO is away for the day; an RSI isn't.
+ * his PC or PS like leave. Neither is an absence: only an MC or HL is.
  */
 export async function reportSick(input: z.input<typeof sickInput>) {
   requireFeature();

@@ -104,13 +104,13 @@ Where a trooper is on any day comes from:
 - minus `wb_record` rows that are `absent` and `APPROVED` or `RECORDED` and cover that time;
 - plus or minus `wb_assignment` rows, using Sabre Bot's single rule for Extra, RF and SOL (`servingCampId` in `lib/parade/compute.ts`).
 
-A `STATUS` row, such as light duty, is tracked but never makes anyone absent. `RSI` is never absent either. `RSO` is absent for the day.
+A `STATUS` row, such as light duty, is tracked but never makes anyone absent. Reporting sick (`RSI` or `RSO`) is never absent either: only the MC or HL that comes out of it is.
 
 ### 4c. The lifecycle of a record
 | Kind | Who enters it | Approval | Absent? |
 |---|---|---|---|
 | AL / OL / OFF | Trooper | PC or PS of the platoon | yes |
-| RSI / RSO | Trooper | PC or PS | RSI no, RSO yes |
+| RSI / RSO | Trooper | PC or PS | no (the MC is) |
 | MC / HL / STATUS | Trooper, as the outcome of an RSI, RSO or MA, or standalone | none (`RECORDED`) | MC/HL yes, STATUS no |
 | MA | Trooper ("Same as last time?" shortcut) | none | yes, for the timing |
 | EVENT (course, IPPT) | Trooper, or a commander for several men at once | none | yes |
@@ -156,7 +156,7 @@ Decide-once is enforced in the database (`UPDATE … WHERE state='PENDING'`). Th
 - For each trooper, it finds the active absent record and maps it to a v1 absence type:
   - MC → MC, HL → HL, AL → AL, OL → OL, OFF → OFF;
   - MA → MA, with timing and location;
-  - RSO and EVENT → OTHERS, with the detail as the reason.
+  - EVENT → OTHERS, with the detail as the reason. RSI/RSO are never projected: they aren't absences.
 - **Priority** when several overlap: HL > MC > OL > AL > OFF > OTHERS > MA. This is needed because v1 allows one open absence per person.
 - It opens or updates the v1 `absence` row through the extracted `setStatus` core and records ownership in `wb_projection`.
 - **It never overwrites an absence a GC entered by hand.** It flags the conflict in the Mini App instead.
@@ -240,7 +240,7 @@ app/api/wb/file/[id]/route.ts      photo proxy, grant-checked, audited
 0. **Freeze v1:** tag `v1.0`, roll out the parade state. Set up the branch, a Neon branch database, a test bot and a test group.
 1. **Foundation:** flags, `wb_` schema and migrations, Mini App shell and `initData` auth, registration, grants, `/here`, Gaps.
 2. **Self-service timeline (shadow mode):** AL/OL/OFF/MA/EVENT, clash check, leave balance, cards with approve/undo/say-why, My records, void/withdraw, Add for several men.
-3. **Medical:** RSI/RSO → outcome chain, diagnosis and photo with restricted visibility, ONENS, evening round. **Gate:** S6 sign-off before this goes live with real data.
+3. **Medical:** RSI/RSO → outcome chain, diagnosis and photo with restricted visibility, ONENS, evening round. Storing medical data was cleared by the user on 2026-10-12.
 4. **Shifts and forecast:** patterns, HOTO, per-role minimum manning, `snapshotAt`, forecast grid, manning impact on cards, Today/Day/Camp check.
 5. **RF requests and deploy:** requests, board, deploy, assignments.
 6. **Projection:** extract the v1 cores (no behaviour change, v1 tests green), then build `syncProjection`. Run in shadow for 1–2 weeks: a nightly diff report of projected vs GC-entered absences goes to the admin. Turn `FEATURE_PROJECTION` on once the diff is clean.

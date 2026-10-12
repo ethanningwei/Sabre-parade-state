@@ -44,12 +44,13 @@ export const OUTCOME_KINDS: readonly WbRecordKind[] = ["MC", "HL", "STATUS"];
 export const isOutcome = (kind: WbRecordKind) => OUTCOME_KINDS.includes(kind);
 
 /**
- * Whether a kind takes him off the parade state. RSI never does: he walks to
- * the medical centre and back. RSO does, for the day. A STATUS (light duty)
- * keeps him present; an MC or HL doesn't.
+ * Whether a kind takes him off the parade state. Reporting sick never does,
+ * in camp or out: he goes to the doctor and comes back. What the doctor gives
+ * him (an MC or HL) is what takes him off, as its own row with its own dates.
+ * A STATUS (light duty) keeps him present.
  */
 export function isAbsentKind(kind: WbRecordKind): boolean {
-  return !(kind === "RSI" || kind === "STATUS");
+  return !(kind === "RSI" || kind === "RSO" || kind === "STATUS");
 }
 
 export interface VisitRow {

@@ -411,7 +411,7 @@ describe("medical (DB)", () => {
     expect(res).toMatchObject({ ok: true, data: { delivery: "sent" } });
     const id = res.ok ? res.data.recordId : "";
     const [rec] = await db.select().from(wbRecord).where(eq(wbRecord.id, id));
-    expect(rec).toMatchObject({ kind: "RSO", state: "PENDING", absent: true, location: "RAFFLES MEDICAL", reason: "Fever and sore throat" });
+    expect(rec).toMatchObject({ kind: "RSO", state: "PENDING", absent: false, location: "RAFFLES MEDICAL", reason: "Fever and sore throat" });
     expect(String(sends()[0].payload.text)).toContain("Report sick (outside) · PTE IRFAN\nSLR · PLATOON 6\nRSO ");
     expect(String(sends()[0].payload.text)).toContain("@ RAFFLES MEDICAL\nSymptoms: Fever and sore throat");
 
