@@ -35,18 +35,18 @@ export function EventQuestions({ a, set, today }: { a: EventAnswers; set: (a: Ev
       </Field>
       <div className="grid grid-cols-2 gap-2">
         <Field label="From">
-          <input type="date" required className={inputClass} value={a.startDate} min={today} onChange={(e) => set({ ...a, startDate: e.target.value, endDate: e.target.value > a.endDate ? e.target.value : a.endDate })} />
+          <input type="date" required className={inputClass} value={a.startDate} min={today} aria-label="From" onChange={(e) => set({ ...a, startDate: e.target.value, endDate: e.target.value > a.endDate ? e.target.value : a.endDate })} />
         </Field>
         <Field label="Until">
-          <input type="date" required className={inputClass} value={a.endDate} min={a.startDate} onChange={(e) => set({ ...a, endDate: e.target.value })} />
+          <input type="date" required className={inputClass} value={a.endDate} min={a.startDate} aria-label="Until" onChange={(e) => set({ ...a, endDate: e.target.value })} />
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <Field label={oneDay ? "Starts at" : "Starts each day at"}>
-          <input type="time" required className={inputClass} value={a.timeStart} onChange={(e) => set({ ...a, timeStart: e.target.value })} />
+          <input type="time" required className={inputClass} value={a.timeStart} aria-label="Start time" onChange={(e) => set({ ...a, timeStart: e.target.value })} />
         </Field>
         <Field label={oneDay ? "Ends at" : "Ends each day at"}>
-          <input type="time" required className={inputClass} value={a.timeEnd} onChange={(e) => set({ ...a, timeEnd: e.target.value })} />
+          <input type="time" required className={inputClass} value={a.timeEnd} aria-label="End time" onChange={(e) => set({ ...a, timeEnd: e.target.value })} />
         </Field>
       </div>
       <p className="-mt-2 text-xs text-muted-foreground">0000 to 2359 means the whole day.</p>

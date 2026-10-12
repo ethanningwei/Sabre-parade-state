@@ -102,6 +102,15 @@ export function rangeLabel(r: Range, fmt: (date: string) => string = dayMonth): 
   return `${from}–${fmt(endDate)}${endTime ? ` ${endTime}` : ""}`;
 }
 
+/** Just the days: "20/10" or "20/10–22/10". For events, whose hours are in their detail. */
+export function datesLabel(r: Range, fmt: (date: string) => string = dayMonth): string {
+  const days = daysTouched(r, 1);
+  const first = days[0];
+  if (!r.endAt) return `from ${fmt(first)}`;
+  const last = toSgt(new Date(r.endAt.getTime() - 1)).date;
+  return last === first ? fmt(first) : `${fmt(first)}–${fmt(last)}`;
+}
+
 // ------------------------------------------------------------------ form checks
 
 export interface RangeInput {

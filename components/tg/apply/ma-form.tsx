@@ -52,7 +52,7 @@ export function MaForm({ today, last }: { today: string; last: { maTiming: strin
           }}
         >
           <Field label="Which day?">
-            <input type="date" required className={inputClass} value={date} min={today} onChange={(e) => setDate(e.target.value)} />
+            <input type="date" required className={inputClass} value={date} min={today} aria-label="Day" onChange={(e) => setDate(e.target.value)} />
           </Field>
           {again ? (
             <p className="text-sm text-muted-foreground">
@@ -61,7 +61,7 @@ export function MaForm({ today, last }: { today: string; last: { maTiming: strin
           ) : (
             <>
               <Field label="What time?">
-                <input type="time" required className={inputClass} value={time} onChange={(e) => setTime(e.target.value)} />
+                <input type="time" required className={inputClass} value={time} aria-label="Time" onChange={(e) => setTime(e.target.value)} />
               </Field>
               <Field label="Where?" htmlFor="place">
                 <Input id="place" value={place} onChange={(e) => setPlace(e.target.value)} placeholder="e.g. National Skin Centre" className="h-11 text-base" maxLength={100} />

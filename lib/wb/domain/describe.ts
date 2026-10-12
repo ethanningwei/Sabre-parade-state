@@ -1,5 +1,5 @@
 import { toSgt } from "@/lib/parade/time";
-import { dayMonth, rangeLabel, type Range } from "./timeline";
+import { datesLabel, dayMonth, rangeLabel, type Range } from "./timeline";
 import type { WbRecordKind, WbRecordState } from "./rules";
 
 // How a record reads, everywhere one is shown: cards, My records, the clash
@@ -46,7 +46,7 @@ export interface Describable extends Range {
 /** "AL 27/08–29/08", "MA 27/08 1530H @ NSC", "DV DRIVER COURSE @ MAJU CAMP 27/08–29/08". */
 export function recordWhat(r: Describable): string {
   if (r.kind === "MA") return `MA ${dayMonth(toSgt(r.startAt).date)} ${r.maTiming}H @ ${r.location}`;
-  if (r.kind === "EVENT") return `${r.detail} ${rangeLabel(r)}`;
+  if (r.kind === "EVENT") return `${r.detail} ${datesLabel(r)}`;
   return `${r.kind} ${rangeLabel(r)}`;
 }
 

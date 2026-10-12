@@ -151,6 +151,10 @@ describe("describe", () => {
     expect(recordLine({ ...base, kind: "EVENT", state: "RECORDED", detail: "IPPT @ MAJU CAMP", ...dateRange("2026-08-27", "2026-08-27") })).toBe(
       "IPPT @ MAJU CAMP 27/08 · recorded",
     );
+    // an event's hours are in its detail, so its line shows just the days
+    expect(recordWhat({ ...base, kind: "EVENT", detail: "IPPT @ MAJU 0800-1200H", ...stampRange("2026-08-27", "0800", "2026-08-29", "1200") })).toBe(
+      "IPPT @ MAJU 0800-1200H 27/08–29/08",
+    );
   });
 
   it("event details read the same whoever enters them", () => {

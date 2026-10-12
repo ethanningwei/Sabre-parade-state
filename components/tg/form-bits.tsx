@@ -134,7 +134,7 @@ export function Done({ title, delivery, subunitName, needsApproval }: { title: s
   return (
     <section className="flex flex-col items-center gap-3 py-6 text-center">
       <CheckCircle2 className="size-12 text-emerald-600" />
-      <h2 className="text-xl font-semibold">{title}</h2>
+      <h2 className="text-xl font-semibold">{delivery === "no-chat" || delivery === "failed" ? "Saved" : title}</h2>
       <p className="max-w-sm text-sm text-muted-foreground">{line}</p>
       <div className="mt-2 flex w-full flex-col gap-2">
         <Link href="/tg/records" className={buttonVariants({ size: "lg", className: "h-11" })}>
