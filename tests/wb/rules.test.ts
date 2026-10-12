@@ -4,6 +4,7 @@ import { eventDetail, overseasWhere, recordLine, recordWhat } from "@/lib/wb/dom
 import type { GrantRow } from "@/lib/wb/domain/grants";
 import { holidayOn } from "@/lib/wb/domain/holidays";
 import {
+  accessTo,
   canDecide,
   canProxy,
   decidesAnything,
@@ -164,5 +165,26 @@ describe("describe", () => {
     expect(holidayOn("2026-08-10")).toBe("National Day (in lieu)");
     expect(holidayOn("2027-02-08")).toBe("Chinese New Year (in lieu)");
     expect(holidayOn("2026-08-11")).toBeNull();
+  });
+});
+
+describe("rules: accessTo", () => {
+  const now = new Date("2026-08-27T10:00:00Z");
+  const rec = { subunitId: "pl6", campId: "sft-a", personId: "p1", state: "PENDING" as const, decidedBy: null, decidedAt: null, decisionNote: null };
+  const trooper = { id: "m1", personId: "p1", grants: [] };
+  const ps = { id: "m2", personId: "p2", grants: [g("PS", { subunitId: "pl6" })] };
+  const stranger = { id: "m3", personId: "p3", grants: [g("GC", { campId: "sft-a" })] };
+
+  it("the trooper sees and withdraws his own pending request; the PS decides it; others see nothing", () => {
+    expect(accessTo(trooper, rec, now)).toEqual({ view: true, decide: false, undo: false, sayWhy: false, void: false, withdraw: true });
+    expect(accessTo(ps, rec, now)).toEqual({ view: true, decide: true, undo: false, sayWhy: false, void: false, withdraw: false });
+    expect(accessTo(stranger, rec, now).view).toBe(false);
+  });
+
+  it("after a rejection the decider may undo and say why, once", () => {
+    const rejected = { ...rec, state: "REJECTED" as const, decidedBy: "m2", decidedAt: new Date(now.getTime() - 1000) };
+    expect(accessTo(ps, rejected, now)).toMatchObject({ undo: true, sayWhy: true, void: false, decide: false });
+    expect(accessTo(ps, { ...rejected, decisionNote: "short" }, now).sayWhy).toBe(false);
+    expect(accessTo(ps, { ...rejected, state: "APPROVED" }, now)).toMatchObject({ undo: true, void: true });
   });
 });

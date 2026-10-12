@@ -124,3 +124,32 @@ export function leaveRefusal(days: number, left: number): string | null {
   }
   return null;
 }
+
+// ------------------------------------------------------------------ what a viewer may do
+
+export interface RecordAccess {
+  view: boolean;
+  decide: boolean;
+  undo: boolean;
+  sayWhy: boolean;
+  void: boolean;
+  withdraw: boolean;
+}
+
+/** What this member may do with this record, for the Mini App's buttons. The decision core re-checks all of it. */
+export function accessTo(
+  viewer: { id: string; personId: string | null; grants: readonly GrantRow[] },
+  r: Where & Decided & { personId: string; decisionNote: string | null },
+  now: Date = new Date(),
+): RecordAccess {
+  const owner = !!viewer.personId && viewer.personId === r.personId;
+  const decider = canDecide(viewer.grants, r);
+  return {
+    view: owner || decider,
+    decide: decider && r.state === "PENDING",
+    undo: decider && undoRefusal(r, viewer.id, "", now) === null,
+    sayWhy: r.state === "REJECTED" && r.decidedBy === viewer.id && !r.decisionNote,
+    void: decider && nextState(r.state, "void") !== null,
+    withdraw: owner && nextState(r.state, "withdraw") !== null,
+  };
+}

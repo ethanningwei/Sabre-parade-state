@@ -19,7 +19,7 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 const { signIn } = await import("@/lib/wb/auth");
 const { addGrant, removeGrant, linkMember, setMemberActive } = await import("@/lib/wb/actions/admin");
-const { gaps } = await import("@/lib/wb/admin-data");
+const { gaps, gapsFor } = await import("@/lib/wb/admin-data");
 
 let reachable = true;
 let pl6: string;
@@ -127,5 +127,25 @@ describe("admin (DB)", () => {
     g = await gaps();
     expect(g.left.map((m) => m.label)).toEqual(["PTE TFT PRESENT 1"]);
     vi.stubEnv("WB_ADMIN_TELEGRAM_IDS", "");
+  });
+
+  it("Gaps is the viewer's own platoon unless their grant is company-wide", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const [pl5] = await db.select().from(subunit).where(eq(subunit.name, "PLATOON 5"));
+    const [tft] = await db.select().from(camp).where(eq(camp.name, "TFT"));
+    const [slr] = await db.select().from(camp).where(eq(camp.name, "SLR"));
+    await registered(6, { source: "SELF", selfName: "PL5 GUY", selfRank: "PTE", selfCampId: tft.id });
+    await registered(7, { source: "SELF", selfName: "PL6 GUY", selfRank: "PTE", selfCampId: slr.id });
+    await registered(8, { source: "SELF", selfName: "NOWHERE", selfRank: "PTE" });
+
+    const ps5 = await gapsFor([{ role: "PS", subunitId: pl5.id, campId: null }]);
+    expect(ps5.scoped).toBe(true);
+    expect(new Set(ps5.unregistered.map((p) => p.subunitName))).toEqual(new Set(["PLATOON 5"]));
+    expect(ps5.selfOnly.map((m) => m.label)).toEqual(["PTE PL5 GUY"]);
+
+    const oc = await gapsFor([{ role: "OC", subunitId: null, campId: null }]);
+    expect(oc.scoped).toBe(false);
+    expect(oc.selfOnly.map((m) => m.label).sort()).toEqual(["PTE NOWHERE", "PTE PL5 GUY", "PTE PL6 GUY"]);
+    expect(oc.unregistered.length).toBe((await gaps()).unregistered.length);
   });
 });

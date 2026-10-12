@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { place } from "@/lib/wb/format";
 import { camp, person, subunit } from "@/lib/db/schema";
 import { wbCommanderChat, wbGrant, wbMember, type WbRole } from "@/lib/wb/db/schema";
+import type { GrantRow } from "@/lib/wb/domain/grants";
+import { GAPS_ROLES } from "@/lib/wb/permissions";
 
 // Read models for the Mini App's Admin and Gaps screens.
 
@@ -22,6 +24,9 @@ export interface MemberRow {
   /** "3SG ETHAN TEO" from the roster, or what a SELF sign-up typed */
   label: string;
   where: string;
+  /** their platoon and camp, from the roster or what they told us; for scoping Gaps */
+  subunitId: string | null;
+  campId: string | null;
   personId: string | null;
   personActive: boolean | null;
 }
@@ -34,9 +39,13 @@ export async function listMembers(): Promise<MemberRow[]> {
       pName: person.name,
       pActive: person.active,
       pCamp: camp.name,
+      pCampId: camp.id,
       pSub: subunit.name,
+      pSubId: subunit.id,
       sCamp: selfCamp.name,
+      sCampId: selfCamp.id,
       sSub: selfSubunit.name,
+      sSubId: selfSubunit.id,
     })
     .from(wbMember)
     .leftJoin(person, eq(person.id, wbMember.personId))
@@ -55,6 +64,8 @@ export async function listMembers(): Promise<MemberRow[]> {
     source: m.source,
     label: r.pName ? `${r.pRank} ${r.pName}` : [m.selfRank, m.selfName].filter(Boolean).join(" ") || m.tgName,
     where: place(r.pCamp ?? r.sCamp, r.pSub ?? r.sSub),
+    subunitId: r.pSubId ?? r.sSubId,
+    campId: r.pCampId ?? r.sCampId,
     personId: m.personId,
     personActive: r.pActive,
   }));
@@ -124,17 +135,44 @@ export async function listCommanderChats(): Promise<ChatRow[]> {
 
 export interface Gaps {
   /** on the roster, but nobody has registered as them */
-  unregistered: { personId: string; rank: string; name: string; campName: string; subunitName: string }[];
+  unregistered: { personId: string; rank: string; name: string; campId: string; campName: string; subunitId: string; subunitName: string }[];
   /** registered themselves (SELF) and not on the roster yet */
   selfOnly: MemberRow[];
   /** registered against a roster person who has since left (inactive) */
   left: MemberRow[];
 }
 
+/**
+ * Gaps for someone with these grants. A company-wide grant sees the company;
+ * a platoon- or camp-scoped one sees only that platoon or camp (213 people
+ * was too long to scroll). Unplaced SELF sign-ups are company-wide only.
+ */
+export async function gapsFor(grants: readonly GrantRow[]): Promise<Gaps & { scoped: boolean }> {
+  const g = await gaps();
+  const mine = grants.filter((x) => GAPS_ROLES.includes(x.role));
+  if (mine.some((x) => !x.subunitId && !x.campId)) return { ...g, scoped: false };
+  const inScope = (p: { subunitId: string | null; campId: string | null }) =>
+    mine.some((x) => (x.subunitId ? x.subunitId === p.subunitId : x.campId === p.campId && !!p.campId));
+  return {
+    unregistered: g.unregistered.filter(inScope),
+    selfOnly: g.selfOnly.filter(inScope),
+    left: g.left.filter(inScope),
+    scoped: true,
+  };
+}
+
 export async function gaps(): Promise<Gaps> {
   const [unregistered, members] = await Promise.all([
     db
-      .select({ personId: person.id, rank: person.rank, name: person.name, campName: camp.name, subunitName: subunit.name })
+      .select({
+        personId: person.id,
+        rank: person.rank,
+        name: person.name,
+        campId: camp.id,
+        campName: camp.name,
+        subunitId: subunit.id,
+        subunitName: subunit.name,
+      })
       .from(person)
       .innerJoin(camp, eq(camp.id, person.campId))
       .innerJoin(subunit, eq(subunit.id, camp.subunitId))

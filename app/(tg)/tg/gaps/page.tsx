@@ -1,19 +1,22 @@
 import { requireFeaturePage } from "@/lib/flags";
-import { gaps } from "@/lib/wb/admin-data";
+import { gapsFor } from "@/lib/wb/admin-data";
 import { requireGrantPage } from "@/lib/wb/auth";
 import { GAPS_ROLES } from "@/lib/wb/permissions";
 
 // Who the system doesn't know about yet, for PS/PC/HQ to chase.
 export default async function GapsPage() {
   await requireFeaturePage();
-  await requireGrantPage(GAPS_ROLES);
-  const g = await gaps();
+  const member = await requireGrantPage(GAPS_ROLES);
+  const g = await gapsFor(member.grants);
   const bySubunit = new Map<string, typeof g.unregistered>();
   for (const p of g.unregistered) bySubunit.set(p.subunitName, [...(bySubunit.get(p.subunitName) ?? []), p]);
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Gaps</h1>
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Gaps</h1>
+        <p className="text-sm text-muted-foreground">{g.scoped ? "Your platoon only." : "The whole company."}</p>
+      </header>
 
       <Section title="Not on the roster yet" count={g.selfOnly.length} hint="Registered themselves. Add them in the parade-state app, then link them in Admin › Members.">
         {g.selfOnly.map((m) => (
@@ -29,14 +32,18 @@ export default async function GapsPage() {
 
       <Section title="Not registered" count={g.unregistered.length} hint="On the parade state, but haven't opened Sabre yet.">
         {[...bySubunit].map(([sub, people]) => (
-          <div key={sub} className="flex flex-col gap-1">
-            <p className="mt-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          // collapsed by platoon: open one at a time
+          <details key={sub} className="group rounded-lg border">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 text-sm font-medium">
               {sub} · {people.length}
-            </p>
-            {people.map((p) => (
-              <Row key={p.personId} title={`${p.rank} ${p.name}`} sub={p.campName} />
-            ))}
-          </div>
+              <span className="text-muted-foreground transition-transform group-open:rotate-90">›</span>
+            </summary>
+            <div className="flex flex-col gap-1 px-2 pb-2">
+              {people.map((p) => (
+                <Row key={p.personId} title={`${p.rank} ${p.name}`} sub={p.campName} />
+              ))}
+            </div>
+          </details>
         ))}
       </Section>
     </div>
