@@ -1,11 +1,11 @@
 import { KeyRound, MessagesSquare, Users } from "lucide-react";
 import { Tile } from "@/components/tg/tile";
-import { requireFeature } from "@/lib/flags";
+import { requireFeaturePage } from "@/lib/flags";
 import { requireGrantPage } from "@/lib/wb/auth";
 import { ADMIN_ROLES } from "@/lib/wb/permissions";
 
 export default async function AdminHome() {
-  requireFeature();
+  await requireFeaturePage();
   await requireGrantPage(ADMIN_ROLES);
   return (
     <div className="flex flex-col gap-4">

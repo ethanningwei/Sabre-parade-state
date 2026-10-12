@@ -2,12 +2,13 @@
 
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { findMe, register, type FoundPerson, type RegisterInput } from "@/lib/wb/actions/register";
 import { TAKEN_MESSAGE } from "@/lib/wb/domain/registration";
+import { place } from "@/lib/wb/format";
 import { RANKS, rolesFor } from "@/lib/wb/domain/roles";
 import type { SubunitWithCamps } from "@/lib/wb/roster";
 import { webApp } from "./webapp";
@@ -25,7 +26,7 @@ const selectClass =
   "h-11 w-full rounded-lg border border-input bg-transparent px-3 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 const describe = (p: FoundPerson) => `${p.rank} ${p.name}`;
-const where = (p: FoundPerson) => [p.campName, p.subunitName, p.role].filter(Boolean).join(" · ");
+const where = (p: FoundPerson) => place(p.campName, p.subunitName, p.role);
 
 export function RegisterFlow({ structure, initial }: { structure: SubunitWithCamps[]; initial: Details }) {
   const router = useRouter();
@@ -33,6 +34,9 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  // on a phone the message is often below the fold, under the keyboard
+  useEffect(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), [error]);
 
   const fail = (msg: string) => {
     setError(msg);
@@ -167,7 +171,11 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
         />
       )}
 
-      {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+      {error && (
+        <p ref={errorRef} role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -199,7 +207,7 @@ function SelfForm({
         const campName = sub.camps.find((c) => c.id === campId)?.name ?? "";
         onDone(
           { name, campId, role, rank: rank as (typeof RANKS)[number] },
-          `${rank} ${name.toUpperCase()} · ${campName} · ${sub.name} · ${role}`,
+          `${rank} ${name.toUpperCase()} · ${place(campName, sub.name, role)}`,
         );
       }}
     >
@@ -333,11 +341,14 @@ function DetailsForm({
   );
 }
 
+/** A labelled control: the <label> wraps it, so tapping the label focuses it. */
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
-      {children}
+      <label className="flex flex-col gap-1.5">
+        <span className="text-sm leading-none font-medium">{label}</span>
+        {children}
+      </label>
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );

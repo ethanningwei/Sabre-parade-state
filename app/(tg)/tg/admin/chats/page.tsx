@@ -1,11 +1,11 @@
 import { ChatsEditor } from "@/components/tg/admin/chats-editor";
-import { requireFeature } from "@/lib/flags";
+import { requireFeaturePage } from "@/lib/flags";
 import { listCommanderChats } from "@/lib/wb/admin-data";
 import { requireGrantPage } from "@/lib/wb/auth";
 import { ADMIN_ROLES } from "@/lib/wb/permissions";
 
 export default async function ChatsPage() {
-  requireFeature();
+  await requireFeaturePage();
   await requireGrantPage(ADMIN_ROLES);
   const chats = await listCommanderChats();
   return (

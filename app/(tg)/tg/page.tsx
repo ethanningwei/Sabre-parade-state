@@ -1,15 +1,16 @@
 import { ClipboardList, Settings, UserPen } from "lucide-react";
 import { redirect } from "next/navigation";
 import { Tile } from "@/components/tg/tile";
-import { requireFeature } from "@/lib/flags";
+import { requireFeaturePage } from "@/lib/flags";
 import { getMember, hasGrant } from "@/lib/wb/auth";
+import { place } from "@/lib/wb/format";
 import { profileOf } from "@/lib/wb/members";
 import { ADMIN_ROLES, GAPS_ROLES } from "@/lib/wb/permissions";
 
 // Home. Phase 1: who you are and the screens you can reach. Where you are and
 // what's next arrive with the timeline (Phase 2).
 export default async function TgHome() {
-  requireFeature();
+  await requireFeaturePage();
   const member = await getMember();
   if (!member) return null; // the layout is signing them in
   if (!member.registeredAt) redirect("/tg/register");
@@ -23,7 +24,7 @@ export default async function TgHome() {
           {me.rank} {me.name}
         </h1>
         <p className="text-sm text-muted-foreground">
-          {[me.campName, me.subunitName].filter(Boolean).join(" · ") || "No camp yet"}
+          {place(me.campName, me.subunitName) || "No camp yet"}
         </p>
         {!me.onRoster && (
           <p className="mt-2 rounded-lg bg-muted px-3 py-2 text-sm">

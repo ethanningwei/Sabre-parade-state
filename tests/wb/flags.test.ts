@@ -1,5 +1,7 @@
 // With FEATURE_* off the app must be exactly v1: every whereabouts entry point
 // is a 404. Route handlers are called directly, as Next would call them.
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { POST as auth } from "@/app/api/wb/auth/route";
 import { POST as setup } from "@/app/api/wb/setup/route";
@@ -59,5 +61,28 @@ describe("feature flags", () => {
     vi.stubEnv("WB_BOT_TOKEN", "123:abc");
     const res = await auth(new Request("http://localhost/api/wb/auth", { method: "POST", body: JSON.stringify({ initData: "user=x&hash=00" }) }));
     expect(res.status).toBe(401);
+  });
+});
+
+// A new page or route that forgets the guard would be reachable with the flags off.
+describe("every whereabouts entry point is guarded", () => {
+  const files = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)]));
+  const root = join(__dirname, "../..");
+
+  it.each(files(join(root, "app/(tg)")).filter((f) => /\/(page|layout)\.tsx$/.test(f)))("%s awaits requireFeaturePage()", (f) => {
+    expect(readFileSync(f, "utf8")).toMatch(/await requireFeaturePage\(/);
+  });
+
+  it.each(files(join(root, "app/api/wb")).filter((f) => f.endsWith("route.ts")))("%s checks featureOff()", (f) => {
+    expect(readFileSync(f, "utf8")).toMatch(/featureOff\(/);
+  });
+
+  it.each(files(join(root, "lib/wb/actions")))("every action in %s calls requireFeature()", (f) => {
+    const src = readFileSync(f, "utf8");
+    const actions = src.match(/^export async function \w+/gm) ?? [];
+    const guarded = src.match(/^export async function \w+\([^)]*\)[^{]*\{\n\s+requireFeature\(\);/gm) ?? [];
+    expect(actions.length).toBeGreaterThan(0);
+    expect(guarded.length).toBe(actions.length);
   });
 });

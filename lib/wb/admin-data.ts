@@ -2,6 +2,7 @@ import "server-only";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
+import { place } from "@/lib/wb/format";
 import { camp, person, subunit } from "@/lib/db/schema";
 import { wbCommanderChat, wbGrant, wbMember, type WbRole } from "@/lib/wb/db/schema";
 
@@ -53,7 +54,7 @@ export async function listMembers(): Promise<MemberRow[]> {
     active: m.active,
     source: m.source,
     label: r.pName ? `${r.pRank} ${r.pName}` : [m.selfRank, m.selfName].filter(Boolean).join(" ") || m.tgName,
-    where: [r.pCamp ?? r.sCamp, r.pSub ?? r.sSub].filter(Boolean).join(" · "),
+    where: place(r.pCamp ?? r.sCamp, r.pSub ?? r.sSub),
     personId: m.personId,
     personActive: r.pActive,
   }));

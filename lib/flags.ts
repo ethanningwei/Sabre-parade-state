@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 
 // Kill switches for everything built on top of the v1 parade-state app.
 // All default to off: with no FEATURE_* set, the app is exactly v1.0.
 //   WHEREABOUTS  the bot webhook, the Mini App (/tg/*), /api/wb/*, crons
 //   PROJECTION   whether the timeline writes into v1 absence/duty (Phase 6)
 //   CLAIMS       transport claims (Phase 7)
-// Only plain Node APIs besides next/navigation, so scripts can import it too.
+// Next-only (notFound, connection): pages, actions and route handlers use it.
 
 export type Feature = "WHEREABOUTS" | "PROJECTION" | "CLAIMS";
 
@@ -13,9 +14,18 @@ export function isEnabled(feature: Feature): boolean {
   return process.env[`FEATURE_${feature}`] === "1";
 }
 
-/** For layouts, pages and server actions: a 404 unless the feature is on. */
+/** For server actions: a 404 unless the feature is on. */
 export function requireFeature(feature: Feature = "WHEREABOUTS"): void {
   if (!isEnabled(feature)) notFound();
+}
+
+/**
+ * For layouts and pages. Waits for the request first, so the check happens at
+ * request time: otherwise a build with the flag off prerenders a static 404.
+ */
+export async function requireFeaturePage(feature: Feature = "WHEREABOUTS"): Promise<void> {
+  await connection();
+  requireFeature(feature);
 }
 
 /**

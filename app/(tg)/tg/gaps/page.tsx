@@ -1,11 +1,11 @@
-import { requireFeature } from "@/lib/flags";
+import { requireFeaturePage } from "@/lib/flags";
 import { gaps } from "@/lib/wb/admin-data";
 import { requireGrantPage } from "@/lib/wb/auth";
 import { GAPS_ROLES } from "@/lib/wb/permissions";
 
 // Who the system doesn't know about yet, for PS/PC/HQ to chase.
 export default async function GapsPage() {
-  requireFeature();
+  await requireFeaturePage();
   await requireGrantPage(GAPS_ROLES);
   const g = await gaps();
   const bySubunit = new Map<string, typeof g.unregistered>();

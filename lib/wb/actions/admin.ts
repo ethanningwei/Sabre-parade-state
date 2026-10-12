@@ -8,6 +8,7 @@ import { camp, subunit } from "@/lib/db/schema";
 import { requireFeature } from "@/lib/flags";
 import { wbAudit } from "@/lib/wb/audit";
 import { requireGrant } from "@/lib/wb/auth";
+import { place } from "@/lib/wb/format";
 import { WB_ROLES, wbCommanderChat, wbGrant, wbMember } from "@/lib/wb/db/schema";
 import { linkedToSomeoneElse, TAKEN_MESSAGE } from "@/lib/wb/domain/registration";
 import { ADMIN_ROLES } from "@/lib/wb/permissions";
@@ -43,7 +44,7 @@ export async function searchRoster(query: string) {
     return rows.slice(0, 20).map((p) => ({
       personId: p.personId,
       label: `${p.rank} ${p.name}`,
-      where: `${p.campName} · ${p.subunitName}`,
+      where: place(p.campName, p.subunitName),
       linked: p.linkedMemberId !== null,
     }));
   });

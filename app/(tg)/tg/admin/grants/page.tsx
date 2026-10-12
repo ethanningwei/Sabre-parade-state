@@ -1,12 +1,12 @@
 import { GrantsEditor } from "@/components/tg/admin/grants-editor";
-import { requireFeature } from "@/lib/flags";
+import { requireFeaturePage } from "@/lib/flags";
 import { listGrants, registeredMembers } from "@/lib/wb/admin-data";
 import { requireGrantPage } from "@/lib/wb/auth";
 import { ADMIN_ROLES } from "@/lib/wb/permissions";
 import { structure } from "@/lib/wb/roster";
 
 export default async function GrantsPage() {
-  requireFeature();
+  await requireFeaturePage();
   await requireGrantPage(ADMIN_ROLES);
   const [grants, members, subunits] = await Promise.all([listGrants(), registeredMembers(), structure()]);
   return (

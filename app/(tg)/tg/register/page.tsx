@@ -1,12 +1,12 @@
 import { RegisterFlow } from "@/components/tg/register-flow";
 import { ddmmyy } from "@/lib/parade/time";
-import { requireFeature } from "@/lib/flags";
+import { requireFeaturePage } from "@/lib/flags";
 import { requireMember } from "@/lib/wb/auth";
 import { structure } from "@/lib/wb/roster";
 
 // Registration, and redoing it. Confirm, not fill: rank, camp and platoon come from the roster.
 export default async function RegisterPage() {
-  requireFeature();
+  await requireFeaturePage();
   const [member, subunits] = await Promise.all([requireMember(), structure()]);
   return (
     <RegisterFlow
