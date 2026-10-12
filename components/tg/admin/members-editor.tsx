@@ -62,17 +62,18 @@ function MemberCard({ m, isMe }: { m: MemberRow; isMe: boolean }) {
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" disabled={pending} onClick={() => setLinking((v) => !v)}>
+        <Button size="lg" className="tg-press h-11 px-3.5" variant="outline" disabled={pending} onClick={() => setLinking((v) => !v)}>
           {m.personId ? "Re-link" : "Link to roster"}
         </Button>
         {m.personId && (
-          <Button size="sm" variant="outline" disabled={pending} onClick={() => act(() => unlinkMember(m.id), "Unlinked")}>
+          <Button size="lg" className="tg-press h-11 px-3.5" variant="outline" disabled={pending} onClick={() => act(() => unlinkMember(m.id), "Unlinked")}>
             Unlink
           </Button>
         )}
         {!isMe && (
           <Button
-            size="sm"
+            size="lg"
+            className="tg-press h-11 px-3.5"
             variant={m.active ? "destructive" : "outline"}
             disabled={pending}
             onClick={() => act(() => setMemberActive(m.id, !m.active), m.active ? "Deactivated" : "Reactivated")}
@@ -105,8 +106,8 @@ function LinkSearch({ onPick }: { onPick: (personId: string) => void }) {
           });
         }}
       >
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Roster name" autoCapitalize="characters" className="h-10 text-base" />
-        <Button type="submit" size="icon-lg" variant="outline" disabled={pending || q.trim().length < 2} aria-label="Search">
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Roster name" autoCapitalize="characters" className={fieldClass} />
+        <Button type="submit" size="icon-lg" variant="outline" className="tg-press size-12 rounded-xl" disabled={pending || q.trim().length < 2} aria-label="Search">
           {pending ? <Loader2 className="animate-spin" /> : <Search />}
         </Button>
       </form>

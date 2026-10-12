@@ -139,13 +139,13 @@ function GrantChip({ g }: { g: GrantRowView }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border bg-muted py-1 pr-1 pl-3 text-sm">
+    <span className="inline-flex items-center gap-0.5 rounded-full border bg-muted pl-3 text-sm">
       {g.role} · {g.scope}
       <button
         type="button"
         aria-label={`Remove ${g.role} ${g.scope}`}
         disabled={pending}
-        className="flex size-7 items-center justify-center rounded-full active:bg-background"
+        className="flex size-11 items-center justify-center rounded-full transition-colors duration-150 active:bg-background"
         onClick={() =>
           start(async () => {
             const res = await removeGrant(g.id);

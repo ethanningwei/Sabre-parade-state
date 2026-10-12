@@ -33,7 +33,8 @@ function ChatCard({ c }: { c: Chat }) {
         </p>
       </div>
       <Button
-        size="sm"
+        size="lg"
+        className="tg-press h-11 px-3.5"
         variant="destructive"
         disabled={pending}
         onClick={() =>

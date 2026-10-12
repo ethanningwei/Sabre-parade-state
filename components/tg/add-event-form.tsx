@@ -59,12 +59,14 @@ export function AddEventForm({ people, today }: { people: PersonItem[]; today: s
             call(() => addEventFor({ ...eventInput(a), personIds: [...picked] }), (r) => setDone(r.count));
           }}
         >
-          <p className="rounded-xl bg-card px-3.5 py-2.5 text-sm">
-            For {names.length}: {names.join(", ")}{" "}
-            <button type="button" className="underline" onClick={() => setStep("who")}>
+          <div className="flex items-center gap-2 rounded-xl bg-card py-1 pr-1 pl-3.5 text-sm">
+            <p className="flex-1 py-1.5">
+              For {names.length}: {names.join(", ")}
+            </p>
+            <button type="button" className="tg-press min-h-11 shrink-0 rounded-lg px-3 font-medium text-primary active:bg-muted" onClick={() => setStep("who")}>
               Change
             </button>
-          </p>
+          </div>
           <EventQuestions a={a} set={setA} today={today} />
           <Submit pending={pending} disabled={!eventComplete(a)}>
             Record for {picked.size}
