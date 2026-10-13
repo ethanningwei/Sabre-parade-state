@@ -270,3 +270,16 @@ export function rankCandidates<C extends Candidate>(want: RfRole, all: readonly 
     return `${a.campName} ${a.name}`.localeCompare(`${b.campName} ${b.name}`);
   });
 }
+
+/**
+ * One platoon's message for an Assign: the men, what and when, anything
+ * they're already down for, and (Extra/RF) what it does to each camp they leave.
+ */
+export function assignedText(opts: { type: WbAssignmentType; men: readonly (Man & { away: readonly string[] })[]; range: Range; at: string | null; by: string; manning: readonly string[] }): string {
+  const what = opts.type === "SOL" ? `SOL ${rangeLabel(opts.range)}` : `${ASSIGNMENT_LABEL[opts.type]} @ ${opts.at} ${rangeLabel(opts.range)}`;
+  const men = opts.men.map((m) => `• ${m.rank} ${m.name} (${m.campName})${m.away.length ? `\n  ⚠️ already down as away: ${m.away.join("; ")}` : ""}`).join("\n");
+  const foot = opts.type === "SOL" ? "Leave stopped. They stand with their own camp." : `Absent from their own camp, counted at ${opts.at}.`;
+  const parts = [`📌 ${what}\nby ${opts.by}`, men, foot];
+  if (opts.manning.length) parts.push(opts.manning.map((l) => `${l.includes("BELOW MINIMUM") ? "⚠️" : "👥"} ${l}`).join("\n"));
+  return parts.join("\n\n");
+}

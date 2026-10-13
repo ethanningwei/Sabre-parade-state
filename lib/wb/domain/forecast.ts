@@ -382,3 +382,45 @@ export function manningLine(
   const pendingNote = w.pendingCount && w.withPending.label !== w.verdict.label ? ` (+${w.pendingCount} pending would make it ${w.withPending.label})` : "";
   return `${when}: ${w.verdict.label} / min ${minimumLabel(opts.minimum)}${below}${pendingNote}`;
 }
+
+// ------------------------------------------------------------------ sending a man away
+
+export interface SendCost {
+  /** "SLR on 14/10 (worst day) without him: 0:3:3 / min 1:4:3 — BELOW MINIMUM", or null when there's nothing to say */
+  line: string | null;
+  /** his camp falls below minimum without him */
+  short: boolean;
+  /** his camp is off shift for all of it: sending him costs it nothing */
+  free: boolean;
+}
+
+/** A strength with one man of this role taken off. */
+export function minusOne(s: Strength, role: string): Strength {
+  const r = role as keyof Strength["byRole"];
+  const byRole = { ...s.byRole };
+  let unknown = s.unknown;
+  if (r in byRole) byRole[r] = Math.max(0, byRole[r] - 1);
+  else unknown = Math.max(0, unknown - 1);
+  return { present: Math.max(0, s.present - 1), byRole, unknown };
+}
+
+/**
+ * What sending one man away does to his own camp over some days: its worst
+ * day with him gone (most short, then fewest heads). Days the camp is off,
+ * and days he's already away anyway, cost nothing. `role` is roleOf his roster role.
+ */
+export function costOfSending(camp: { name: string; isHq: boolean }, days: readonly { date: string; manning: CampManning }[], personId: string, role: string, minimum: Minimum | null): SendCost {
+  const on = days.filter((d) => d.manning.on);
+  if (!on.length) return { line: camp.isHq ? null : `${camp.name} is off shift for all of it`, short: false, free: true };
+  if (camp.isHq || !minimum) return { line: null, short: false, free: false };
+  let worst: { date: string; strength: Strength; gaps: Gap[] } | null = null;
+  for (const d of on) {
+    const there = !d.manning.away.some((a) => a.personId === personId);
+    const strength = there ? minusOne(d.manning.strength, role) : d.manning.strength;
+    const g = gaps(minimum, strength);
+    if (!worst || shortfall(g) > shortfall(worst.gaps) || (shortfall(g) === shortfall(worst.gaps) && strength.present < worst.strength.present)) worst = { date: d.date, strength, gaps: g };
+  }
+  const w = worst!;
+  const when = `${camp.name} on ${dayMonth(w.date)}${on.length > 1 ? " (worst day)" : ""} without him`;
+  return { line: `${when}: ${strengthLabel(w.strength, minimum)} / min ${minimumLabel(minimum)}${w.gaps.length ? " — BELOW MINIMUM" : ""}`, short: w.gaps.length > 0, free: false };
+}

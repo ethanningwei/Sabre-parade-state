@@ -11,6 +11,9 @@ import { recordWhat } from "@/lib/wb/domain/describe";
 import { isLive } from "@/lib/wb/domain/rules";
 import { addDays, dayRange, todaySgt } from "@/lib/wb/domain/timeline";
 import { shortTomorrow } from "@/lib/wb/forecast-data";
+import { rangeLabel } from "@/lib/wb/domain/timeline";
+import { shortBy } from "@/lib/wb/domain/rf";
+import { openRequests } from "@/lib/wb/rf-data";
 import { findViews } from "@/lib/wb/records";
 import { noticeText, onensData } from "@/lib/wb/telegram/cards";
 import { miniAppLink } from "@/lib/wb/telegram/links";
@@ -41,6 +44,8 @@ export interface RoundSummary {
   heartbeats: number;
   /** camps below minimum tomorrow (Phase 4) */
   short: number;
+  /** RF requests still open */
+  rf: number;
 }
 
 const groupBy = <T, K>(rows: readonly T[], key: (r: T) => K) => {
@@ -69,17 +74,17 @@ async function claim(date: string, force: boolean): Promise<boolean> {
 
 export async function eveningRound(out: Outbound, now: Date = new Date(), { force = false } = {}): Promise<RoundSummary> {
   const today = todaySgt(now);
-  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0 };
+  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0 };
   if (!(await claim(today, force))) return { ...summary, skipped: true };
 
   const todayStart = dayRange(today).startAt;
   const tomorrow = dayRange(addDays(today, 1));
   /** one message per platoon, not five: subunitId -> parts */
-  const digest = new Map<string, { name: string; parts: string[]; approvals: boolean }>();
-  const addPart = (r: { subunitId: string; subunitName: string }, part: string, approvals = false) => {
-    const d = digest.get(r.subunitId) ?? { name: r.subunitName, parts: [], approvals: false };
+  const digest = new Map<string, { name: string; parts: string[]; approvals: boolean; rf: boolean }>();
+  const addPart = (r: { subunitId: string; subunitName: string }, part: string, button: "approvals" | "rf" | null = null) => {
+    const d = digest.get(r.subunitId) ?? { name: r.subunitName, parts: [], approvals: false, rf: false };
     d.parts.push(part);
-    d.approvals ||= approvals;
+    if (button) d[button] = true;
     digest.set(r.subunitId, d);
   };
 
@@ -133,7 +138,7 @@ export async function eveningRound(out: Outbound, now: Date = new Date(), { forc
   // ---------------------------------------------------------------- requests waiting more than 12 hours
   const stale = await findViews(and(eq(wbRecord.state, "PENDING"), lt(wbRecord.createdAt, new Date(now.getTime() - STALE_MS)))!);
   for (const rows of groupBy(stale, (r) => r.subunitId).values()) {
-    addPart(rows[0], `⏳ ${plural(rows.length, "request")} waiting more than 12 hours`, true);
+    addPart(rows[0], `⏳ ${plural(rows.length, "request")} waiting more than 12 hours`, "approvals");
   }
 
   // ---------------------------------------------------------------- camps below minimum tomorrow (Phase 4)
@@ -147,6 +152,21 @@ export async function eveningRound(out: Outbound, now: Date = new Date(), { forc
     console.error("wb evening manning:", e);
   }
 
+  // ---------------------------------------------------------------- RF requests still open (Phase 5)
+  // each platoon hears about its own camps' requests; COY HQ about all of them
+  try {
+    const open = await openRequests(now);
+    summary.rf = open.length;
+    const line = (r: (typeof open)[number]) => `• ${r.campName} ${rangeLabel(r)}: short ${shortBy(r)} of ${r.need}`;
+    const [hq] = open.length ? await db.select({ id: subunit.id, name: subunit.name }).from(subunit).where(eq(subunit.isHq, true)) : [];
+    for (const rows of groupBy(open.filter((r) => r.subunitId !== hq?.id), (r) => r.subunitId).values()) {
+      addPart(rows[0], [`🚌 ${plural(rows.length, "RF request")} still open`, ...rows.map(line)].join("\n"), "rf");
+    }
+    if (hq) addPart({ subunitId: hq.id, subunitName: hq.name }, [`🚌 ${plural(open.length, "RF request")} still open, company-wide`, ...open.map((r) => `${line(r)} (${r.subunitName})`)].join("\n"), "rf");
+  } catch (e) {
+    console.error("wb evening rf:", e);
+  }
+
   // ---------------------------------------------------------------- one digest per commanders chat
   if (digest.size) {
     const chats = await db.select().from(wbCommanderChat).where(inArray(wbCommanderChat.subunitId, [...digest.keys()]));
@@ -155,7 +175,15 @@ export async function eveningRound(out: Outbound, now: Date = new Date(), { forc
       try {
         await out.api.sendMessage(chat.chatId, `🌙 Tonight · ${d.name}\n\n${d.parts.join("\n\n")}`, {
           message_thread_id: chat.threadId ?? undefined,
-          reply_markup: d.approvals ? { inline_keyboard: [[{ text: "Open Approvals", url: miniAppLink(out.botUsername, "approvals") }]] } : undefined,
+          reply_markup:
+            d.approvals || d.rf
+              ? {
+                  inline_keyboard: [
+                    ...(d.approvals ? [[{ text: "Open Approvals", url: miniAppLink(out.botUsername, "approvals") }]] : []),
+                    ...(d.rf ? [[{ text: "Open the RF board", url: miniAppLink(out.botUsername, "rf") }]] : []),
+                  ],
+                }
+              : undefined,
         });
         summary.digests++;
       } catch (e) {
@@ -190,7 +218,7 @@ async function heartbeat(out: Outbound, now: Date, s: RoundSummary): Promise<num
     `${roster.n} on the roster · ${registered.n} registered\n` +
     `${pending.n} waiting on a decision · ${today.n} recorded today\n` +
     `${linked.n} commanders chats linked (${platoons.n} platoons)\n` +
-    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.digests} digests\n\n` +
+    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.digests} digests\n\n` +
     "Sent every evening. If an evening goes by without one, the bot isn't running.";
   let sent = 0;
   for (const id of ids) {

@@ -10,6 +10,8 @@ import { decide, sayWhy, undo, type Actor } from "@/lib/wb/decide";
 import { wbCommanderChat, wbConversation, wbGrant, wbMember } from "@/lib/wb/db/schema";
 import { memberLabel, recordView } from "@/lib/wb/records";
 import { markOnens } from "@/lib/wb/outcome";
+import { RF_CALLBACK } from "@/lib/wb/domain/rf";
+import { closeRf } from "@/lib/wb/rf";
 import { CARD_CALLBACK, ONENS_CALLBACK } from "./cards";
 import { matchSubunit, QUICK_COMMANDS } from "./commands";
 import { miniAppLink, miniAppUrl } from "./links";
@@ -189,6 +191,15 @@ async function onOnens(ctx: Context) {
   }
 }
 
+/** "❌ Close" on an RF card: f:<requestId>:x. Every copy is redrawn by closeRf. */
+async function onRfClose(ctx: Context) {
+  const [, requestId] = ctx.match as RegExpMatchArray;
+  const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
+  if (!member?.registeredAt) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
+  const res = await closeRf(outboundOf(ctx), actorOf(member), requestId, "BOT");
+  await ctx.answerCallbackQuery(res.ok ? { text: "Closed" } : { text: res.error, show_alert: true });
+}
+
 /** A reply to a "Say why" prompt. Anything else passes through untouched. */
 async function onReply(ctx: Context, next: NextFunction) {
   const replyTo = ctx.msg?.reply_to_message;
@@ -221,6 +232,7 @@ export function createBot(token: string, botInfo?: UserFromGetMe): Bot {
   safe.command(Object.keys(QUICK_COMMANDS), quick);
   safe.callbackQuery(CARD_CALLBACK, onCard);
   safe.callbackQuery(ONENS_CALLBACK, onOnens);
+  safe.callbackQuery(RF_CALLBACK, onRfClose);
   safe.on("message:text", onReply);
   // an old or unknown button: at least stop the spinner
   safe.on("callback_query:data", (ctx) => ctx.answerCallbackQuery());

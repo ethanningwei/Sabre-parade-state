@@ -3,9 +3,10 @@ import { computeCoy } from "@/lib/parade/compute";
 import { sgtToInstant } from "@/lib/parade/time";
 import type { CoySnapshot, SnapshotDuty } from "@/lib/parade/types";
 import { clashLines } from "@/lib/wb/domain/clash";
-import { manningOf, snapshotFor, worstDayOf, type AssignmentRow, type ForecastInput, type TimelineRow } from "@/lib/wb/domain/forecast";
+import { costOfSending, manningOf, snapshotFor, worstDayOf, type AssignmentRow, type CampManning, type ForecastInput, type TimelineRow } from "@/lib/wb/domain/forecast";
 import type { GrantRow } from "@/lib/wb/domain/grants";
 import {
+  assignedText,
   assignRefusal,
   canDeployRf,
   canRaiseRf,
@@ -28,7 +29,7 @@ import {
   type Man,
   type RfRequestView,
 } from "@/lib/wb/domain/rf";
-import { parseMinimum } from "@/lib/wb/domain/shifts";
+import { parseMinimum, strengthOf } from "@/lib/wb/domain/shifts";
 import { dateRange, dayRange, stampRange } from "@/lib/wb/domain/timeline";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
 
@@ -374,5 +375,53 @@ describe("assignments in the forecast", () => {
     const w = worstDayOf(input(s, [a]), bdk.id, dateRange("2026-09-29", "2026-09-30"), min)!;
     expect(w.date).toBe("2026-09-30");
     expect(w.verdict.gaps).toEqual([{ role: "ST CBT", short: 1 }]);
+  });
+});
+
+describe("what sending a man costs his camp", () => {
+  const m = (on: boolean, roles: string[], away: string[] = []): CampManning => ({
+    campId: "c",
+    campName: "BDK",
+    post: "BDK",
+    subunitId: "pl7",
+    subunitName: "PLATOON 7",
+    isHq: false,
+    on,
+    strength: strengthOf(roles),
+    total: roles.length + away.length,
+    away: away.map((personId) => ({ personId, rank: "PTE", name: "X", role: "", what: "AL", dates: "", recordId: null, assignmentId: null, pending: false })),
+    duties: [],
+  });
+  const full = ["GC", "ST CBT", "ST CBT", "ST CBT", "ST CBT", "ST SVC", "ST SVC", "ST SVC"];
+  const min = parseMinimum("1:4:3")!;
+  const camp = { name: "BDK", isHq: false };
+
+  it("his camp's worst day without him", () => {
+    const c = costOfSending(camp, [{ date: "2026-10-01", manning: m(true, full) }, { date: "2026-10-02", manning: m(true, [...full, "ST CBT"]) }], "p1", "ST CBT", min);
+    expect(c).toEqual({ line: "BDK on 01/10 (worst day) without him: 1:3:3 / min 1:4:3 — BELOW MINIMUM", short: true, free: false });
+  });
+
+  it("free when his camp is off for all of it; nothing lost on a day he's away anyway", () => {
+    expect(costOfSending(camp, [{ date: "2026-10-01", manning: m(false, []) }], "p1", "ST CBT", min)).toEqual({ line: "BDK is off shift for all of it", short: false, free: true });
+    expect(costOfSending(camp, [{ date: "2026-10-01", manning: m(true, full, ["p1"]) }], "p1", "ST CBT", min)).toEqual({ line: "BDK on 01/10 without him: 1:4:3 / min 1:4:3", short: false, free: false });
+  });
+
+  it("nothing to say without a minimum or for COY HQ", () => {
+    expect(costOfSending(camp, [{ date: "2026-10-01", manning: m(true, full) }], "p1", "ST CBT", null)).toEqual({ line: null, short: false, free: false });
+    expect(costOfSending({ name: "COY HQ", isHq: true }, [{ date: "2026-10-01", manning: m(false, []) }], "p1", "PS", min)).toEqual({ line: null, short: false, free: true });
+  });
+
+  it("Assign: one message per platoon with the men, any warning, and each camp's line", () => {
+    const text = assignedText({
+      type: "EXTRA",
+      men: [{ ...man(), away: [] }, { ...man({ name: "ONG", personId: "p2" }), away: ["MC 01/10"] }],
+      range: dateRange("2026-10-01", "2026-10-01"),
+      at: "SLR",
+      by: "2SG KOH",
+      manning: ["BDK on 01/10: 1:2:3 / min 1:4:3 — BELOW MINIMUM"],
+    });
+    expect(text).toBe(
+      "📌 Extra @ SLR 01/10\nby 2SG KOH\n\n• PTE LIM (BDK)\n• PTE ONG (BDK)\n  ⚠️ already down as away: MC 01/10\n\nAbsent from their own camp, counted at SLR.\n\n⚠️ BDK on 01/10: 1:2:3 / min 1:4:3 — BELOW MINIMUM",
+    );
   });
 });
