@@ -4,6 +4,7 @@
 //
 //   npm run import                      # sabre-export.json
 //   npm run import -- other-export.json
+//   npm run import -- --dry-run         # what an in-place import would do to the roster; writes nothing
 //
 // Re-runnable until cutover: structure is upserted, people/absences/duties are
 // replaced. Users, platoon assignments and history are kept.
@@ -14,7 +15,9 @@ import { readFileSync } from "node:fs";
 config({ path: ".env.local" });
 
 async function main() {
-  const path = process.argv[2] ?? "sabre-export.json";
+  const args = process.argv.slice(2);
+  const dryRun = args.includes("--dry-run");
+  const path = args.find((a) => !a.startsWith("--")) ?? "sabre-export.json";
   const { parseExport, parseCaaLine } = await import("@/lib/data/parse-export");
   const data = JSON.parse(readFileSync(path, "utf8"));
 
@@ -26,6 +29,19 @@ async function main() {
   }
 
   const { db } = await import("@/lib/db");
+
+  if (dryRun) {
+    const { planRoster, sheetRows, sheetCamps, formatRosterPlan } = await import("@/lib/data/roster-plan");
+    const { loadRoster, rosterStakes } = await import("@/lib/data/roster-db");
+    const current = await loadRoster(db, input.coy.key);
+    const plan = planRoster(current.people, sheetRows(input), { current: current.camps, sheet: sheetCamps(input) });
+    const atRisk = [...plan.removed, ...plan.ambiguous.flatMap((a) => a.current)].map((r) => r.id);
+    const stakes = await rosterStakes(db, atRisk);
+    console.log(formatRosterPlan(plan, stakes, `${input.coy.displayName} (${new URL(process.env.DATABASE_URL!).host})`));
+    await db.$client.end();
+    process.exit(0);
+  }
+
   const { writeCoy } = await import("@/lib/data/write-coy");
   const { loadSnapshot, getCoyByKey } = await import("@/lib/data/snapshot");
   const { renderParadeState } = await import("@/lib/parade");
