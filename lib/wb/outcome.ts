@@ -1,17 +1,14 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
-import { db } from "@/lib/db";
 import { wbAudit } from "@/lib/wb/audit";
 import { inTx, Refusal, type Actor, type Delivery, type Via } from "@/lib/wb/core";
-import { refreshCards, tell } from "@/lib/wb/decide";
-import { wbCard, wbCommanderChat, wbRecord } from "@/lib/wb/db/schema";
+import { wbRecord } from "@/lib/wb/db/schema";
 import { outcomeOrder, recordWhat } from "@/lib/wb/domain/describe";
 import { asksSeenBy, canDecide, isLive, isOutcome, kinOf, MAX_STATUSES, onensFor, outcomeParentRefusal, VISIT_KINDS, type WbSeenBy } from "@/lib/wb/domain/rules";
 import { addDays, dateRange, dayCount, todaySgt } from "@/lib/wb/domain/timeline";
-import { memberLabel, outcomeBatch, recordView, recordViews, type RecordView } from "@/lib/wb/records";
-import { outcomeCardText, outcomeKeyboard } from "@/lib/wb/telegram/cards";
-import type { Outbound } from "@/lib/wb/telegram/outbound";
+import { memberLabel, recordView, recordViews, type RecordView } from "@/lib/wb/records";
+import type { Courier } from "@/lib/wb/telegram/courier";
 
 // What the doctor gave him (ports Sabre Bot's _commit_outcome). One visit to
 // a doctor becomes the rows it produced: an MC or HL, and any statuses on the
@@ -78,7 +75,7 @@ function checkDates(what: string, start: string, end: string | null, maxDays: nu
  * Then the card goes to the commanders (no diagnosis, no photo) and the
  * trooper gets his summary.
  */
-export async function saveOutcome(out: Outbound | null, actor: Actor, input: OutcomeInput, via: Via): Promise<{ ok: true; value: Recorded } | { ok: false; error: string }> {
+export async function saveOutcome(courier: Courier, actor: Actor, input: OutcomeInput, via: Via): Promise<{ ok: true; value: Recorded } | { ok: false; error: string }> {
   const personId = actor.personId;
   if (!personId) return { ok: false, error: "Ask your PS to add you to the parade state first." };
   if (input.statuses.length > MAX_STATUSES) return { ok: false, error: `${MAX_STATUSES} statuses at a time. Record the rest as a second entry.` };
@@ -209,32 +206,15 @@ export async function saveOutcome(out: Outbound | null, actor: Actor, input: Out
   const { ids, anchorId, replaced } = res.value;
   const made = await recordViews(ids);
   const old = outcomeOrder(await recordViews(replaced));
-  for (const o of old) await refreshCards(out, o);
+  for (const o of old) await courier.redraw({ record: o });
   if (!made.length) {
     return { ok: true, value: { recordIds: [], anchorId, delivery: null, nothing: true } };
   }
-  const batch = await outcomeBatch(made[0]);
-  const delivery = await sendOutcomeCard(out, batch, old);
-  await tell(out, batch[0], ownSummary(batch, old.length > 0));
+  // the rows just saved are the whole outcome (one created_at); the card is posted on its head
+  const batch = outcomeOrder(made);
+  const { delivery } = await courier.postCard({ record: batch[0] }, { replaces: old.map(recordWhat) });
+  await courier.send({ telegramId: batch[0].ownerTelegramId }, ownSummary(batch, old.length > 0));
   return { ok: true, value: { recordIds: ids, anchorId, delivery, nothing: false } };
-}
-
-/** The outcome card in the platoon's commanders chat: what, for how long, the category. Never the diagnosis or the photo. */
-async function sendOutcomeCard(out: Outbound | null, batch: RecordView[], replaced: RecordView[]): Promise<Delivery> {
-  const [chat] = await db.select().from(wbCommanderChat).where(eq(wbCommanderChat.subunitId, batch[0].subunitId));
-  if (!chat) return "no-chat";
-  if (!out) return "failed";
-  try {
-    const msg = await out.api.sendMessage(chat.chatId, outcomeCardText(batch, { replaces: replaced.map(recordWhat) }), {
-      message_thread_id: chat.threadId ?? undefined,
-      reply_markup: outcomeKeyboard(batch, out.botUsername),
-    });
-    await db.insert(wbCard).values({ recordId: batch[0].id, chatId: chat.chatId, threadId: chat.threadId, messageId: msg.message_id });
-    return "sent";
-  } catch (e) {
-    console.error("wb outcome card:", e);
-    return "failed";
-  }
 }
 
 function ownSummary(batch: RecordView[], corrected: boolean): string {
@@ -248,7 +228,7 @@ function ownSummary(batch: RecordView[], corrected: boolean): string {
  * "Uploaded to ONENS": the trooper on his own MC, or a commander who decides
  * for him. Only an MC that is owed.
  */
-export async function markOnens(out: Outbound | null, actor: Actor, recordId: string, via: Via): Promise<{ ok: true; record: RecordView } | { ok: false; error: string }> {
+export async function markOnens(courier: Courier, actor: Actor, recordId: string, via: Via): Promise<{ ok: true; record: RecordView } | { ok: false; error: string }> {
   const r = await recordView(recordId);
   if (!r) return { ok: false, error: "That record has gone." };
   const owner = !!actor.personId && actor.personId === r.personId;
@@ -264,6 +244,6 @@ export async function markOnens(out: Outbound | null, actor: Actor, recordId: st
   });
   if (!res.ok) return res;
   const after = (await recordView(recordId))!;
-  await refreshCards(out, after);
+  await courier.redraw({ record: after });
   return { ok: true, record: after };
 }

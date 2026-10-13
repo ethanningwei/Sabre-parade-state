@@ -4,6 +4,7 @@ import { featureOff } from "@/lib/flags";
 import { eveningRound } from "@/lib/wb/evening";
 import { ALLOWED_UPDATES, GROUP_COMMANDS, PRIVATE_COMMANDS } from "@/lib/wb/telegram/commands";
 import { miniAppUrl } from "@/lib/wb/telegram/links";
+import { courierOf } from "@/lib/wb/telegram/courier";
 
 // One-off bot setup, driven by `npm run wb:setup -- <action>`. It runs on the
 // deployment so the bot token never leaves it, and is authorised by
@@ -47,7 +48,7 @@ export async function POST(request: Request): Promise<Response> {
         break;
       case "evening": {
         const me = await api.getMe();
-        return Response.json(await eveningRound({ api, botUsername: me.username }, new Date(), { force: true }));
+        return Response.json(await eveningRound(courierOf({ api, botUsername: me.username }), new Date(), { force: true }));
       }
       case "status":
         break;

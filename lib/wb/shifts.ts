@@ -4,13 +4,13 @@ import { db } from "@/lib/db";
 import { toSgt } from "@/lib/parade/time";
 import { wbAudit } from "@/lib/wb/audit";
 import { inTx, Refusal, type Actor, type Via } from "@/lib/wb/core";
-import { wbCommanderChat, wbMinManning, wbShiftEvent, wbShiftPattern } from "@/lib/wb/db/schema";
+import { wbMinManning, wbShiftEvent, wbShiftPattern } from "@/lib/wb/db/schema";
 import { canEditShifts, canHoto } from "@/lib/wb/domain/rules";
 import { hotoEffect, minimumLabel, pairProblem, parseMinimum, partnerPattern, stintAround, type Minimum, type ShiftPattern, type WbShiftKind } from "@/lib/wb/domain/shifts";
 import { dayMonth } from "@/lib/wb/domain/timeline";
 import { campsInfo, loadPatterns } from "@/lib/wb/forecast-data";
 import { memberLabel } from "@/lib/wb/records";
-import type { Outbound } from "@/lib/wb/telegram/outbound";
+import type { Courier } from "@/lib/wb/telegram/courier";
 
 // Shifts: saving a camp's pattern and minimum, and logging a HOTO. Nothing
 // here writes v1: a HOTO is logged in wb_shift_event and moves the pattern,
@@ -128,7 +128,7 @@ const stamp = (d: Date) => `${dayMonth(toSgt(d).date)} ${toSgt(d).time}`;
  * pattern confirms it; otherwise the cycle moves (this team and its pair) and
  * the platoon's commanders chat is told. v1 camp.on_shift is not touched.
  */
-export async function logHoto(out: Outbound | null, actor: Actor, input: { campId: string; on: boolean; at: Date; note?: string }, via: Via = "MINIAPP") {
+export async function logHoto(courier: Courier, actor: Actor, input: { campId: string; on: boolean; at: Date; note?: string }, via: Via = "MINIAPP") {
   const res = await inTx(async (tx) => {
     const all = await campsInfo(tx);
     const team = all.find((c) => c.id === input.campId);
@@ -177,16 +177,7 @@ export async function logHoto(out: Outbound | null, actor: Actor, input: { campI
   });
   if (!res.ok) return res;
   const { team, matched, expected, alert } = res.value;
-  if (alert && out) {
-    const [chat] = await db.select().from(wbCommanderChat).where(eq(wbCommanderChat.subunitId, team.subunitId));
-    if (chat) {
-      try {
-        await out.api.sendMessage(chat.chatId, alert, { message_thread_id: chat.threadId ?? undefined });
-      } catch (e) {
-        console.error("wb hoto alert:", e);
-      }
-    }
-  }
+  if (alert) await courier.send({ platoon: team.subunitId }, alert);
   return { ok: true as const, value: { matched, expected, alert } satisfies HotoResult };
 }
 

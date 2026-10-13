@@ -1,17 +1,14 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
-import type { InlineKeyboardMarkup } from "grammy/types";
 import { db } from "@/lib/db";
 import { wbAudit } from "@/lib/wb/audit";
 import { inTx, Refusal, type Actor, type Delivery, type Via } from "@/lib/wb/core";
-import { wbCard, wbCommanderChat, wbMember, wbRecord, type WbRecordKind } from "@/lib/wb/db/schema";
+import { wbMember, wbRecord, type WbRecordKind } from "@/lib/wb/db/schema";
 import { STATE_LABEL } from "@/lib/wb/domain/describe";
-import { canDecide, initialState, isLive, isOutcome, kinOf, leaveChange, nextState, undoRefusal, type RecordAction } from "@/lib/wb/domain/rules";
-import { manningFor } from "@/lib/wb/forecast-data";
-import { memberLabel, outcomeBatch, recordView, recordViews, type Db, type RecordView } from "@/lib/wb/records";
-import { cardKeyboard, cardText, noticeText, outcomeCardText, outcomeKeyboard } from "@/lib/wb/telegram/cards";
-import { miniAppLink } from "@/lib/wb/telegram/links";
-import type { Outbound } from "@/lib/wb/telegram/outbound";
+import { canDecide, initialState, isLive, kinOf, leaveChange, nextState, undoRefusal, type RecordAction } from "@/lib/wb/domain/rules";
+import { memberLabel, recordView, recordViews, type Db, type RecordView } from "@/lib/wb/records";
+import { noticeText, outcomeButton } from "@/lib/wb/telegram/cards";
+import type { Courier } from "@/lib/wb/telegram/courier";
 
 // The decision core, shared by the bot's card buttons and the Mini App. Every
 // change happens in one transaction with its audit row; Telegram is told
@@ -20,64 +17,6 @@ import type { Outbound } from "@/lib/wb/telegram/outbound";
 export type Result = { ok: true; record: RecordView } | { ok: false; error: string; record?: RecordView };
 
 const NOTE_MAX = 300;
-
-// ------------------------------------------------------------------ Telegram
-
-const isNotModified = (e: unknown) => String((e as Error)?.message ?? e).includes("message is not modified");
-
-/** Edit every copy of a record's card to its current state. An outcome's card shows the whole outcome. */
-export async function refreshCards(out: Outbound | null, r: RecordView): Promise<void> {
-  if (!out) return;
-  const batch = isOutcome(r.kind) ? await outcomeBatch(r) : [r];
-  const cards = await db.select().from(wbCard).where(inArray(wbCard.recordId, batch.map((x) => x.id)));
-  if (!cards.length) return;
-  // recomputed on every redraw: approving or undoing changes the camp's numbers
-  const manning = isOutcome(r.kind) ? null : await manningFor(r);
-  for (const c of cards) {
-    const text = isOutcome(r.kind) ? outcomeCardText(batch) : cardText(r, manning);
-    const reply_markup = isOutcome(r.kind) ? outcomeKeyboard(batch, out.botUsername) : cardKeyboard(r, out.botUsername);
-    try {
-      await out.api.editMessageText(c.chatId, c.messageId, text, { reply_markup });
-    } catch (e) {
-      if (!isNotModified(e)) console.error("wb card edit:", e);
-    }
-  }
-}
-
-/** A DM to the trooper. If he's blocked the bot, it's logged and life goes on. */
-export async function tell(out: Outbound | null, r: { ownerTelegramId: number | null }, text: string, reply_markup?: InlineKeyboardMarkup): Promise<boolean> {
-  if (!out || !r.ownerTelegramId) return false;
-  try {
-    await out.api.sendMessage(r.ownerTelegramId, text, reply_markup ? { reply_markup } : undefined);
-    return true;
-  } catch (e) {
-    console.error("wb dm:", e);
-    return false;
-  }
-}
-
-/** A button straight to a record's outcome form. */
-export const outcomeButton = (out: Outbound, recordId: string): InlineKeyboardMarkup => ({
-  inline_keyboard: [[{ text: "💊 Update outcome", url: miniAppLink(out.botUsername, `records/${recordId}/outcome`) }]],
-});
-
-/** Post a record's card in its platoon's commanders chat (topic, if set) and remember it. */
-export async function sendCard(out: Outbound | null, r: RecordView): Promise<Delivery> {
-  const [chat] = await db.select().from(wbCommanderChat).where(eq(wbCommanderChat.subunitId, r.subunitId));
-  if (!chat) return "no-chat";
-  if (!out) return "failed";
-  try {
-    const msg = await out.api.sendMessage(chat.chatId, cardText(r, await manningFor(r)), {
-      message_thread_id: chat.threadId ?? undefined,
-      reply_markup: cardKeyboard(r, out.botUsername),
-    });
-    await db.insert(wbCard).values({ recordId: r.id, chatId: chat.chatId, threadId: chat.threadId, messageId: msg.message_id });
-    return "sent";
-  } catch (e) {
-    console.error("wb card send:", e);
-    return "failed";
-  }
-}
 
 // ------------------------------------------------------------------ helpers
 
@@ -122,7 +61,7 @@ export interface NewRecord {
  * when it needs no approval, so his PC knows about the MA; a commander's proxy
  * entries are DMed to each man instead.
  */
-export async function submit(out: Outbound | null, actor: Actor, recs: NewRecord[], via: Via): Promise<{ records: RecordView[]; delivery: Delivery | null }> {
+export async function submit(courier: Courier, actor: Actor, recs: NewRecord[], via: Via): Promise<{ records: RecordView[]; delivery: Delivery | null }> {
   const ids = await db.transaction(async (tx) => {
     const rows = await tx
       .insert(wbRecord)
@@ -137,11 +76,11 @@ export async function submit(out: Outbound | null, actor: Actor, recs: NewRecord
 
   if (recs.every((r) => r.createdVia === "PROXY")) {
     const by = await memberLabel(actor.id);
-    for (const r of records) await tell(out, r, noticeText(r, { kind: "added", by }));
+    for (const r of records) await courier.send({ telegramId: r.ownerTelegramId }, noticeText(r, { kind: "added", by }));
     return { records, delivery: null };
   }
   let delivery: Delivery | null = null;
-  for (const r of records) delivery = await sendCard(out, r);
+  for (const r of records) delivery = (await courier.postCard({ record: r })).delivery;
   return { records, delivery };
 }
 
@@ -152,7 +91,7 @@ export async function submit(out: Outbound | null, actor: Actor, recs: NewRecord
  * commanders tapping at once exactly one wins; the other is told who did.
  * Approving spends the leave in the same transaction.
  */
-export async function decide(out: Outbound | null, actor: Actor, recordId: string, action: "approve" | "reject", via: Via, note?: string): Promise<Result> {
+export async function decide(courier: Courier, actor: Actor, recordId: string, action: "approve" | "reject", via: Via, note?: string): Promise<Result> {
   const before = await recordView(recordId);
   if (!before) return { ok: false, error: "That record has gone." };
   if (!canDecide(actor.grants, before)) return { ok: false, error: decideRefusal(before), record: before };
@@ -174,17 +113,17 @@ export async function decide(out: Outbound | null, actor: Actor, recordId: strin
   if (!res.ok) return { ok: false, error: res.error, record: before };
 
   const after = (await recordView(recordId))!;
-  await refreshCards(out, after);
+  await courier.redraw({ record: after });
   if (!res.value) {
     return { ok: false, error: `Already ${STATE_LABEL[after.state]}${after.deciderLabel ? ` by ${after.deciderLabel}` : ""}.`, record: after };
   }
   const sickApproved = (after.kind === "RSI" || after.kind === "RSO") && after.state === "APPROVED";
-  await tell(out, after, noticeText(after, { kind: "decided" }), sickApproved && out ? outcomeButton(out, after.id) : undefined);
+  await courier.send({ telegramId: after.ownerTelegramId }, noticeText(after, { kind: "decided" }), sickApproved ? outcomeButton(after.id) : undefined);
   return { ok: true, record: after };
 }
 
 /** Take a decision back: only the decider, within ten minutes. Approved leave is refunded. */
-export async function undo(out: Outbound | null, actor: Actor, recordId: string, via: Via): Promise<Result> {
+export async function undo(courier: Courier, actor: Actor, recordId: string, via: Via): Promise<Result> {
   const res = await inTx(async (tx) => {
     const [row] = await tx.select().from(wbRecord).where(eq(wbRecord.id, recordId)).for("update");
     if (!row) throw new Refusal("That record has gone.");
@@ -205,13 +144,13 @@ export async function undo(out: Outbound | null, actor: Actor, recordId: string,
   });
   if (!res.ok) return { ok: false, error: res.error, record: (await recordView(recordId)) ?? undefined };
   const after = (await recordView(recordId))!;
-  await refreshCards(out, after);
-  await tell(out, after, noticeText(after, { kind: "undone", by: res.value }));
+  await courier.redraw({ record: after });
+  await courier.send({ telegramId: after.ownerTelegramId }, noticeText(after, { kind: "undone", by: res.value }));
   return { ok: true, record: after };
 }
 
 /** The trooper pulls his own request back while it's still pending. */
-export async function withdraw(out: Outbound | null, actor: Actor, recordId: string, via: Via): Promise<Result> {
+export async function withdraw(courier: Courier, actor: Actor, recordId: string, via: Via): Promise<Result> {
   const res = await inTx(async (tx) => {
     const [row] = await tx.select().from(wbRecord).where(eq(wbRecord.id, recordId)).for("update");
     if (!row || !actor.personId || row.personId !== actor.personId) throw new Refusal("That isn't yours to withdraw.");
@@ -221,7 +160,7 @@ export async function withdraw(out: Outbound | null, actor: Actor, recordId: str
   });
   if (!res.ok) return { ok: false, error: res.error };
   const after = (await recordView(recordId))!;
-  await refreshCards(out, after);
+  await courier.redraw({ record: after });
   return { ok: true, record: after };
 }
 
@@ -231,7 +170,7 @@ export async function withdraw(out: Outbound | null, actor: Actor, recordId: str
  * deleted; whoever approved it stays on the row, and the voider and why go in
  * the note and the audit. Approved leave is refunded.
  */
-export async function voidRecord(out: Outbound | null, actor: Actor, recordId: string, reason: string, via: Via): Promise<Result> {
+export async function voidRecord(courier: Courier, actor: Actor, recordId: string, reason: string, via: Via): Promise<Result> {
   const before = await recordView(recordId);
   if (!before) return { ok: false, error: "That record has gone." };
   if (!canDecide(actor.grants, before)) return { ok: false, error: `Only ${before.subunitName}'s PC or PS can void this.`, record: before };
@@ -264,14 +203,14 @@ export async function voidRecord(out: Outbound | null, actor: Actor, recordId: s
   });
   if (!res.ok) return { ok: false, error: res.error, record: before };
   const after = (await recordView(recordId))!;
-  await refreshCards(out, after);
-  for (const k of await recordViews(res.value.also)) await refreshCards(out, k);
-  await tell(out, after, noticeText(after, { kind: "voided", by, reason: why, refunded: res.value.delta }));
+  await courier.redraw({ record: after });
+  for (const k of await recordViews(res.value.also)) await courier.redraw({ record: k });
+  await courier.send({ telegramId: after.ownerTelegramId }, noticeText(after, { kind: "voided", by, reason: why, refunded: res.value.delta }));
   return { ok: true, record: after };
 }
 
 /** "Say why" after a rejection: the decider's reason goes on the record, the card, and to the trooper. */
-export async function sayWhy(out: Outbound | null, actor: Actor, recordId: string, note: string, via: Via): Promise<Result> {
+export async function sayWhy(courier: Courier, actor: Actor, recordId: string, note: string, via: Via): Promise<Result> {
   const why = note.trim().slice(0, NOTE_MAX);
   if (!why) return { ok: false, error: "Type a reason." };
   const res = await inTx(async (tx) => {
@@ -283,8 +222,8 @@ export async function sayWhy(out: Outbound | null, actor: Actor, recordId: strin
   });
   if (!res.ok) return { ok: false, error: res.error };
   const after = (await recordView(recordId))!;
-  await refreshCards(out, after);
-  await tell(out, after, noticeText(after, { kind: "why", by: after.deciderLabel ?? "your commander" }));
+  await courier.redraw({ record: after });
+  await courier.send({ telegramId: after.ownerTelegramId }, noticeText(after, { kind: "why", by: after.deciderLabel ?? "your commander" }));
   return { ok: true, record: after };
 }
 

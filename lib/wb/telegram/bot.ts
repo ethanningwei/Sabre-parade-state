@@ -16,7 +16,7 @@ import { closeRf } from "@/lib/wb/rf";
 import { CARD_CALLBACK, ONENS_CALLBACK } from "./cards";
 import { matchSubunit, QUICK_COMMANDS } from "./commands";
 import { miniAppLink, miniAppUrl } from "./links";
-import type { Outbound } from "./outbound";
+import { courierOf, type Courier } from "./courier";
 
 // The whereabouts bot (WB_BOT_TOKEN, webhook). Thin on purpose: forms live in
 // the Mini App. Privacy mode stays on, so in groups it only sees commands
@@ -124,7 +124,7 @@ async function quick(ctx: Context) {
 /** How long a "Say why" prompt waits for its reply. */
 const SAY_WHY_MS = 10 * 60 * 1000;
 
-const outboundOf = (ctx: Context): Outbound => ({ api: ctx.api, botUsername: ctx.me.username });
+const courierFor = (ctx: Context): Courier => courierOf({ api: ctx.api, botUsername: ctx.me.username });
 const actorOf = (m: NonNullable<Awaited<ReturnType<typeof memberWithGrants>>>): Actor => ({ id: m.id, personId: m.personId, grants: m.grants });
 
 /** A tap on a card: d:<recordId>:a|r|u|w. Every decision rule lives in lib/wb/decide. */
@@ -136,11 +136,11 @@ async function onCard(ctx: Context) {
   const actor = actorOf(member);
 
   if (act === "a" || act === "r") {
-    const res = await decide(outboundOf(ctx), actor, recordId, act === "a" ? "approve" : "reject", "BOT");
+    const res = await decide(courierFor(ctx), actor, recordId, act === "a" ? "approve" : "reject", "BOT");
     return void (await (res.ok ? ctx.answerCallbackQuery({ text: act === "a" ? "Approved" : "Rejected" }) : alert(res.error)));
   }
   if (act === "u") {
-    const res = await undo(outboundOf(ctx), actor, recordId, "BOT");
+    const res = await undo(courierFor(ctx), actor, recordId, "BOT");
     return void (await (res.ok ? ctx.answerCallbackQuery({ text: "Undone" }) : alert(res.error)));
   }
 
@@ -179,7 +179,7 @@ async function onOnens(ctx: Context) {
   const [, recordId] = ctx.match as RegExpMatchArray;
   const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
   if (!member?.registeredAt) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
-  const res = await markOnens(outboundOf(ctx), actorOf(member), recordId, "BOT");
+  const res = await markOnens(courierFor(ctx), actorOf(member), recordId, "BOT");
   if (!res.ok) return void (await ctx.answerCallbackQuery({ text: res.error, show_alert: true }));
   await ctx.answerCallbackQuery({ text: "Marked as uploaded" });
   // drop just this button; any other MC on the same reminder keeps its own
@@ -197,7 +197,7 @@ async function onRfClose(ctx: Context) {
   const [, requestId] = ctx.match as RegExpMatchArray;
   const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
   if (!member?.registeredAt) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
-  const res = await closeRf(outboundOf(ctx), actorOf(member), requestId, "BOT");
+  const res = await closeRf(courierFor(ctx), actorOf(member), requestId, "BOT");
   await ctx.answerCallbackQuery(res.ok ? { text: "Closed" } : { text: res.error, show_alert: true });
 }
 
@@ -219,7 +219,7 @@ async function onReply(ctx: Context, next: NextFunction) {
   if (text.startsWith("/")) return void (await answer("That looked like a command, so I dropped it. Tap Say why again."));
   const member = await memberWithGrants(ctx.from.id);
   if (!member) return;
-  const res = await sayWhy(outboundOf(ctx), actorOf(member), c.recordId, text, "BOT");
+  const res = await sayWhy(courierFor(ctx), actorOf(member), c.recordId, text, "BOT");
   await answer(res.ok ? `✅ Sent to ${res.record.rank} ${res.record.name}.` : res.error);
 }
 

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { featureOff } from "@/lib/flags";
 import { eveningRound } from "@/lib/wb/evening";
+import { courierOf } from "@/lib/wb/telegram/courier";
 import { outbound } from "@/lib/wb/telegram/outbound";
 
 // The evening round (vercel.json crons, 0 11 * * * UTC = 1900 SGT). Vercel
@@ -19,5 +20,5 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const force = new URL(request.url).searchParams.get("force") === "1";
-  return Response.json(await eveningRound(await outbound(), new Date(), { force }));
+  return Response.json(await eveningRound(courierOf(await outbound()), new Date(), { force }));
 }

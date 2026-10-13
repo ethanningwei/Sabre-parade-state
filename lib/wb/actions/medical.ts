@@ -11,22 +11,13 @@ import { MAX_STATUSES, NOT_ON_ROSTER } from "@/lib/wb/domain/rules";
 import { markOnens, saveOutcome } from "@/lib/wb/outcome";
 import { verifyPhotoToken } from "@/lib/wb/photo";
 import { personWhere } from "@/lib/wb/records";
-import { outbound, type Outbound } from "@/lib/wb/telegram/outbound";
+import { courier } from "@/lib/wb/telegram/courier";
 
 // The Mini App's medical actions: what the doctor gave (outcome, correction,
 // nothing given) and "Uploaded to ONENS". Report sick itself is in records.ts
 // with the other requests. Every rule lives in lib/wb/domain and lib/wb/outcome.
 
 const zDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date.");
-
-async function tryOutbound(): Promise<Outbound | null> {
-  try {
-    return await outbound();
-  } catch (e) {
-    console.error("wb outbound:", e);
-    return null;
-  }
-}
 
 const actorOf = (m: Member): Actor => ({ id: m.id, personId: m.personId, grants: m.grants });
 
@@ -83,7 +74,7 @@ export async function recordOutcome(input: z.input<typeof outcomeInput>) {
     }
 
     const res = await saveOutcome(
-      await tryOutbound(),
+      await courier(),
       actorOf(member),
       {
         anchorId: a.anchorId,
@@ -106,7 +97,7 @@ export async function markUploaded(input: z.input<typeof idInput>) {
   requireFeature();
   return run(async () => {
     const member = await actionMember();
-    const res = await markOnens(await tryOutbound(), actorOf(member), idInput.parse(input).recordId, "MINIAPP");
+    const res = await markOnens(await courier(), actorOf(member), idInput.parse(input).recordId, "MINIAPP");
     if (!res.ok) throw new UserError(res.error);
     return { onens: res.record.onens };
   });

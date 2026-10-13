@@ -101,7 +101,7 @@ const actorOf = async (tgId: number) => {
   const grants = await db.select({ role: wbGrant.role, subunitId: wbGrant.subunitId, campId: wbGrant.campId }).from(wbGrant).where(eq(wbGrant.memberId, m.id));
   return { id: m.id, personId: m.personId, grants };
 };
-const out = async () => (await import("@/lib/wb/telegram/outbound")).outbound();
+const out = async () => (await import("@/lib/wb/telegram/courier")).courier();
 const leaveOf = async (tgId: number) => (await db.select({ l: wbMember.leaveLeft }).from(wbMember).where(eq(wbMember.telegramUserId, tgId)))[0].l;
 const day = (n: number) => addDays(todaySgt(), n);
 const sends = () => tg.calls.filter((c) => c.method === "sendMessage");

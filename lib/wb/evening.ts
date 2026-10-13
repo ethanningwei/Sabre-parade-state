@@ -1,11 +1,9 @@
 import "server-only";
 import { and, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
-import type { InlineKeyboardMarkup } from "grammy/types";
 import { db } from "@/lib/db";
 import { person, subunit } from "@/lib/db/schema";
 import { wbAudit } from "@/lib/wb/audit";
 import { bootstrapAdminIds } from "@/lib/wb/auth";
-import { outcomeButton, tell } from "@/lib/wb/decide";
 import { wbAudit as wbAuditTable, wbCommanderChat, wbMember, wbRecord } from "@/lib/wb/db/schema";
 import { recordWhat } from "@/lib/wb/domain/describe";
 import { isLive } from "@/lib/wb/domain/rules";
@@ -15,9 +13,8 @@ import { rangeLabel } from "@/lib/wb/domain/timeline";
 import { shortBy } from "@/lib/wb/domain/rf";
 import { openRequests } from "@/lib/wb/rf-data";
 import { findViews } from "@/lib/wb/records";
-import { noticeText, onensData } from "@/lib/wb/telegram/cards";
-import { miniAppLink } from "@/lib/wb/telegram/links";
-import type { Outbound } from "@/lib/wb/telegram/outbound";
+import { noticeText, onensData, outcomeButton } from "@/lib/wb/telegram/cards";
+import type { Button, Courier } from "@/lib/wb/telegram/courier";
 
 // The evening round, 1900 SGT, once a day (Vercel Hobby allows daily crons).
 // Ports Sabre Bot's chase(): nobody needs reminding to come back to camp, but
@@ -72,7 +69,7 @@ async function claim(date: string, force: boolean): Promise<boolean> {
   });
 }
 
-export async function eveningRound(out: Outbound, now: Date = new Date(), { force = false } = {}): Promise<RoundSummary> {
+export async function eveningRound(courier: Courier, now: Date = new Date(), { force = false } = {}): Promise<RoundSummary> {
   const today = todaySgt(now);
   const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0 };
   if (!(await claim(today, force))) return { ...summary, skipped: true };
@@ -92,7 +89,7 @@ export async function eveningRound(out: Outbound, now: Date = new Date(), { forc
   const ending = await findViews(
     and(inArray(wbRecord.kind, ["MC", "HL", "STATUS"]), eq(wbRecord.state, "RECORDED"), gt(wbRecord.endAt, todayStart), lte(wbRecord.endAt, tomorrow.startAt))!,
   );
-  for (const r of ending) if (await tell(out, r, noticeText(r, { kind: "ending" }))) summary.ending++;
+  for (const r of ending) if (await courier.send({ telegramId: r.ownerTelegramId }, noticeText(r, { kind: "ending" }))) summary.ending++;
   for (const rows of groupBy(ending, (r) => r.subunitId).values()) {
     addPart(rows[0], [`✅ ${plural(rows.length, "man")} back to full duty tomorrow`, ...rows.map((r) => `• ${r.rank} ${r.name} (${r.campName}): ${recordWhat(r)}`)].join("\n"));
   }
@@ -102,16 +99,14 @@ export async function eveningRound(out: Outbound, now: Date = new Date(), { forc
     and(inArray(wbRecord.kind, ["MA", "EVENT"]), inArray(wbRecord.state, ["RECORDED", "APPROVED"]), gte(wbRecord.startAt, tomorrow.startAt), lt(wbRecord.startAt, tomorrow.endAt!))!,
   );
   for (const rows of groupBy(due, (r) => r.personId).values()) {
-    if (await tell(out, rows[0], noticeText(rows[0], { kind: "tomorrow", rows }))) summary.tomorrow++;
+    if (await courier.send({ telegramId: rows[0].ownerTelegramId }, noticeText(rows[0], { kind: "tomorrow", rows }))) summary.tomorrow++;
   }
 
   // ---------------------------------------------------------------- ONENS still owed
   const owed = await findViews(and(eq(wbRecord.onens, "OWED"), eq(wbRecord.state, "RECORDED"))!);
   for (const rows of groupBy(owed, (r) => r.personId).values()) {
-    const kb: InlineKeyboardMarkup = {
-      inline_keyboard: rows.map((r) => [{ text: rows.length === 1 ? "☁️ Uploaded" : `☁️ Uploaded: ${r.kind} ${recordWhat(r).split(" · ")[1] ?? ""}`.trim(), callback_data: onensData(r.id) }]),
-    };
-    if (await tell(out, rows[0], noticeText(rows[0], { kind: "onens", rows }), kb)) summary.onens++;
+    const kb: Button[][] = rows.map((r) => [{ text: rows.length === 1 ? "☁️ Uploaded" : `☁️ Uploaded: ${r.kind} ${recordWhat(r).split(" · ")[1] ?? ""}`.trim(), data: onensData(r.id) }]);
+    if (await courier.send({ telegramId: rows[0].ownerTelegramId }, noticeText(rows[0], { kind: "onens", rows }), kb)) summary.onens++;
   }
 
   // ---------------------------------------------------------------- a report sick with no outcome after a day
@@ -131,7 +126,7 @@ export async function eveningRound(out: Outbound, now: Date = new Date(), { forc
       .where(inArray(wbRecord.parentId, approvedSick.map((r) => r.id)));
     const answered = new Set(kids.filter((k) => isLive(k.state)).map((k) => k.parentId));
     for (const r of approvedSick.filter((x) => !answered.has(x.id))) {
-      if (await tell(out, r, noticeText(r, { kind: "chase" }), outcomeButton(out, r.id))) summary.chased++;
+      if (await courier.send({ telegramId: r.ownerTelegramId }, noticeText(r, { kind: "chase" }), outcomeButton(r.id))) summary.chased++;
     }
   }
 
@@ -168,32 +163,13 @@ export async function eveningRound(out: Outbound, now: Date = new Date(), { forc
   }
 
   // ---------------------------------------------------------------- one digest per commanders chat
-  if (digest.size) {
-    const chats = await db.select().from(wbCommanderChat).where(inArray(wbCommanderChat.subunitId, [...digest.keys()]));
-    for (const chat of chats) {
-      const d = digest.get(chat.subunitId)!;
-      try {
-        await out.api.sendMessage(chat.chatId, `🌙 Tonight · ${d.name}\n\n${d.parts.join("\n\n")}`, {
-          message_thread_id: chat.threadId ?? undefined,
-          reply_markup:
-            d.approvals || d.rf
-              ? {
-                  inline_keyboard: [
-                    ...(d.approvals ? [[{ text: "Open Approvals", url: miniAppLink(out.botUsername, "approvals") }]] : []),
-                    ...(d.rf ? [[{ text: "Open the RF board", url: miniAppLink(out.botUsername, "rf") }]] : []),
-                  ],
-                }
-              : undefined,
-        });
-        summary.digests++;
-      } catch (e) {
-        console.error("wb evening digest:", e);
-      }
-    }
+  for (const [subunitId, d] of digest) {
+    const buttons: Button[][] = [...(d.approvals ? [[{ text: "Open Approvals", route: "approvals" }]] : []), ...(d.rf ? [[{ text: "Open the RF board", route: "rf" }]] : [])];
+    summary.digests += await courier.send({ platoon: subunitId }, `🌙 Tonight · ${d.name}\n\n${d.parts.join("\n\n")}`, buttons.length ? buttons : undefined);
   }
 
   // ---------------------------------------------------------------- heartbeat, last: one sent before the work would lie
-  summary.heartbeats = await heartbeat(out, now, summary);
+  summary.heartbeats = await heartbeat(courier, now, summary);
   return summary;
 }
 
@@ -201,9 +177,8 @@ export async function eveningRound(out: Outbound, now: Date = new Date(), { forc
  * Proof of life to the admins. A dead man's switch: the alarm is the evening
  * it doesn't arrive, because a bot that has stopped can't say so.
  */
-async function heartbeat(out: Outbound, now: Date, s: RoundSummary): Promise<number> {
-  const ids = bootstrapAdminIds();
-  if (!ids.length) return 0;
+async function heartbeat(courier: Courier, now: Date, s: RoundSummary): Promise<number> {
+  if (!bootstrapAdminIds().length) return 0;
   const since = dayRange(todaySgt(now)).startAt;
   const [[roster], [registered], [pending], [today], [linked], [platoons]] = await Promise.all([
     db.select({ n: sql<number>`count(*)::int` }).from(person).where(eq(person.active, true)),
@@ -220,14 +195,5 @@ async function heartbeat(out: Outbound, now: Date, s: RoundSummary): Promise<num
     `${linked.n} commanders chats linked (${platoons.n} platoons)\n` +
     `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.digests} digests\n\n` +
     "Sent every evening. If an evening goes by without one, the bot isn't running.";
-  let sent = 0;
-  for (const id of ids) {
-    try {
-      await out.api.sendMessage(id, text);
-      sent++;
-    } catch (e) {
-      console.error("wb heartbeat:", e);
-    }
-  }
-  return sent;
+  return courier.send({ admins: true }, text);
 }

@@ -157,6 +157,9 @@ export const outcomeKeyboard = (rows: readonly CardRecord[], botUsername: string
   inline_keyboard: [[{ text: "Open", url: miniAppLink(botUsername, `records/${anchorOf(rows[0])}`) }]],
 });
 
+/** A button straight to a record's outcome form (a Courier button: the Courier makes it a Mini App link). */
+export const outcomeButton = (recordId: string) => [[{ text: "💊 Update outcome", route: `records/${recordId}/outcome` }]];
+
 // ------------------------------------------------------------------ DMs to the trooper
 
 export type Notice =

@@ -9,7 +9,7 @@ import type { Actor } from "@/lib/wb/core";
 import { MAX_ASSIGN, MAX_NEED, RF_ROLES, WB_ASSIGNMENT_TYPES } from "@/lib/wb/domain/rf";
 import { checkRange, dayCount, todaySgt, type Range } from "@/lib/wb/domain/timeline";
 import { assign, closeRf, deploy, raiseRf, standDown } from "@/lib/wb/rf";
-import { outbound, type Outbound } from "@/lib/wb/telegram/outbound";
+import { courier } from "@/lib/wb/telegram/courier";
 
 // The Mini App's RF actions: raise a request, deploy a man to it, close it,
 // stand a man down, and Assign Extra/RF/SOL directly. Rules and permissions
@@ -25,15 +25,6 @@ const zTime = z
   .refine((t): t is string => t !== null, "Give the time as HHMM, e.g. 2100.");
 const zId = z.string().uuid();
 const rangeInput = { startDate: zDate, startTime: zTime, endDate: zDate, endTime: zTime };
-
-async function tryOutbound(): Promise<Outbound | null> {
-  try {
-    return await outbound();
-  } catch (e) {
-    console.error("wb outbound:", e);
-    return null;
-  }
-}
 
 const actorOf = (m: Member): Actor => ({ id: m.id, personId: m.personId, grants: m.grants });
 
@@ -66,7 +57,7 @@ export async function raiseRequest(input: z.input<typeof raiseInput>) {
   return run(async () => {
     const member = await commander();
     const a = raiseInput.parse(input);
-    const res = await raiseRf(await tryOutbound(), actorOf(member), { campId: a.campId, role: a.role, need: a.need, reason: a.reason.toUpperCase(), ...range(a, MAX_DAYS.RF) }, "MINIAPP");
+    const res = await raiseRf(await courier(), actorOf(member), { campId: a.campId, role: a.role, need: a.need, reason: a.reason.toUpperCase(), ...range(a, MAX_DAYS.RF) }, "MINIAPP");
     if (!res.ok) throw new UserError(res.error);
     return { requestId: res.value.request.id, delivery: res.value.delivery, chats: res.value.chats };
   });
@@ -76,7 +67,7 @@ export async function deployMan(requestId: string, personId: string) {
   requireFeature();
   return run(async () => {
     const member = await commander();
-    const res = await deploy(await tryOutbound(), actorOf(member), zId.parse(requestId), zId.parse(personId), "MINIAPP");
+    const res = await deploy(await courier(), actorOf(member), zId.parse(requestId), zId.parse(personId), "MINIAPP");
     if (!res.ok) throw new UserError(res.error);
     return { state: res.value.request.state, away: res.value.away };
   });
@@ -86,7 +77,7 @@ export async function closeRequest(requestId: string) {
   requireFeature();
   return run(async () => {
     const member = await commander();
-    const res = await closeRf(await tryOutbound(), actorOf(member), zId.parse(requestId), "MINIAPP");
+    const res = await closeRf(await courier(), actorOf(member), zId.parse(requestId), "MINIAPP");
     if (!res.ok) throw new UserError(res.error);
     return { stillSent: res.value.deployed.length };
   });
@@ -96,7 +87,7 @@ export async function standDownMan(assignmentId: string) {
   requireFeature();
   return run(async () => {
     const member = await commander();
-    const res = await standDown(await tryOutbound(), actorOf(member), zId.parse(assignmentId), "MINIAPP");
+    const res = await standDown(await courier(), actorOf(member), zId.parse(assignmentId), "MINIAPP");
     if (!res.ok) throw new UserError(res.error);
     return undefined;
   });
@@ -118,7 +109,7 @@ export async function assignMen(input: z.input<typeof assignInput>) {
     const member = await commander();
     const a = assignInput.parse(input);
     const res = await assign(
-      await tryOutbound(),
+      await courier(),
       actorOf(member),
       { type: a.type, campId: a.type === "SOL" ? null : a.campId, personIds: [...new Set(a.personIds)], note: a.note, ...range(a, MAX_DAYS[a.type]) },
       "MINIAPP",

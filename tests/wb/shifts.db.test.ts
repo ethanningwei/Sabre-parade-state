@@ -326,7 +326,8 @@ describe("manning on cards, the forecast and the digest (DB)", () => {
     await records.decideRecord({ recordId: id, action: "approve" });
     tg.calls = [];
     const { outbound } = await import("@/lib/wb/telegram/outbound");
-    const summary = await eveningRound(await outbound(), new Date(), { force: true });
+    const { courierOf } = await import("@/lib/wb/telegram/courier");
+    const summary = await eveningRound(courierOf(await outbound()), new Date(), { force: true });
     expect(summary.short).toBe(1);
     const digest = sends().find((c) => c.payload.chat_id === -1006);
     expect(String(digest?.payload.text)).toContain("⚠️ Below minimum tomorrow\n• SLR: 0:5:11 / min 1:5:11");

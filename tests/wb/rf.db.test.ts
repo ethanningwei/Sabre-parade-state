@@ -46,6 +46,7 @@ const data = await import("@/lib/wb/forecast-data");
 const rfData = await import("@/lib/wb/rf-data");
 const { eveningRound } = await import("@/lib/wb/evening");
 const { outbound } = await import("@/lib/wb/telegram/outbound");
+const { courierOf } = await import("@/lib/wb/telegram/courier");
 
 const bot = createBot("123:TEST", { id: 1, is_bot: true, first_name: "Sabre", username: "sabrecoybot", can_join_groups: true, can_read_all_group_messages: false, supports_inline_queries: false } as UserFromGetMe);
 bot.api.config.use(async (_prev, method, payload) => {
@@ -242,7 +243,7 @@ describe("deploying (DB)", () => {
     if (!reachable) ctx.skip();
     const id = await raised(1);
     const { deploy } = await import("@/lib/wb/rf");
-    const out = await outbound();
+    const out = courierOf(await outbound());
     const actor = async (tgId: number) => {
       const [m] = await db.select().from(wbMember).where(eq(wbMember.telegramUserId, tgId));
       const grants = await db.select({ role: wbGrant.role, subunitId: wbGrant.subunitId, campId: wbGrant.campId }).from(wbGrant).where(eq(wbGrant.memberId, m.id));
@@ -282,6 +283,27 @@ describe("deploying (DB)", () => {
     const first = list[0];
     expect(first).toMatchObject({ role: "ST CBT", refusal: null });
     expect(list.filter((c) => c.campId === ids.bdk).every((c) => /^BDK on .+ without him: 17 \/ min 18 — BELOW MINIMUM$/.test(c.manning ?? ""))).toBe(true);
+  });
+});
+
+describe("deploying, through the Courier's seam (DB)", () => {
+  it("tells the man, his platoon and the raiser, and redraws the request's cards: no Telegram fake needed", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await setup();
+    await as(GC_SLR);
+    const id = ((await raise()) as { ok: true; data: { requestId: string } }).data.requestId;
+    const { deploy } = await import("@/lib/wb/rf");
+    const { recordingCourier } = await import("./recording-courier");
+    const [ps7] = await db.select().from(wbMember).where(eq(wbMember.telegramUserId, PS7));
+    const courier = recordingCourier();
+    const res = await deploy(courier, { id: ps7.id, personId: null, grants: [{ role: "PS", subunitId: ids.pl7, campId: null }] }, id, people.BDK[1], "MINIAPP");
+    expect(res.ok).toBe(true);
+    expect(courier.sent.map((s) => ("send" in s ? { send: s.send } : s))).toEqual([
+      { redraw: { rf: id } },
+      { send: { person: people.BDK[1] } },
+      { send: { platoon: ids.pl7 } },
+      { send: { telegramId: GC_SLR } },
+    ]);
   });
 });
 
@@ -401,7 +423,7 @@ describe("assignments in the forecast and on cards (DB)", () => {
     await as(GC_SLR);
     await raise();
     tg.calls = [];
-    const summary = await eveningRound(await outbound(), new Date(), { force: true });
+    const summary = await eveningRound(courierOf(await outbound()), new Date(), { force: true });
     expect(summary.rf).toBe(1);
     const digest = (chat: number) => String(sends().find((c) => c.payload.chat_id === chat && String(c.payload.text).startsWith("🌙"))?.payload.text ?? "");
     expect(digest(CHAT6)).toMatch(/🚌 1 RF request still open\n• SLR .+: short 2 of 2/);

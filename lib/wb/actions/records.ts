@@ -12,7 +12,7 @@ import { AL_PLACES, LEAVE_REASONS } from "@/lib/wb/domain/roles";
 import { canProxy, isAbsentKind, leaveRefusal, NOT_ON_ROSTER } from "@/lib/wb/domain/rules";
 import { checkRange, dayCount, dayRange, daysTouched, MAX_DAYS, todaySgt, type Range } from "@/lib/wb/domain/timeline";
 import { clashFor, personWhere } from "@/lib/wb/records";
-import { outbound, type Outbound } from "@/lib/wb/telegram/outbound";
+import { courier } from "@/lib/wb/telegram/courier";
 
 // The Mini App's timeline actions: apply, report, add for others, and the
 // commander's decisions. Every rule lives in lib/wb/domain or lib/wb/decide;
@@ -29,16 +29,6 @@ const zText = (what: string, max = 100) => z.string().trim().min(1, `Say ${what}
 const zId = z.string().uuid();
 
 const rangeInput = z.object({ startDate: zDate, startTime: zTime, endDate: zDate, endTime: zTime });
-
-/** Telegram is best effort: without it (no token in local dev) the record still saves. */
-async function tryOutbound(): Promise<Outbound | null> {
-  try {
-    return await outbound();
-  } catch (e) {
-    console.error("wb outbound:", e);
-    return null;
-  }
-}
 
 const actorOf = (m: Member): Actor => ({ id: m.id, personId: m.personId, grants: m.grants });
 
@@ -68,7 +58,7 @@ export interface Submitted {
 async function submitOwn(rec: Omit<NewRecord, "personId" | "memberId" | "createdVia">): Promise<Submitted> {
   const me = await self();
   const { records, delivery } = await submit(
-    await tryOutbound(),
+    await courier(),
     actorOf(me.member),
     [{ ...rec, personId: me.personId, memberId: me.member.id, createdVia: "SELF" }],
     "MINIAPP",
@@ -233,7 +223,7 @@ export async function addEventFor(input: z.input<typeof proxyInput>) {
     const out = people.find((p) => !p || !canProxy(member.grants, p));
     if (out !== undefined) throw new UserError(out ? `${out.rank} ${out.name} isn't in your scope.` : "Someone on that list has left the roster.");
     const { records } = await submit(
-      await tryOutbound(),
+      await courier(),
       actorOf(member),
       ids.map((personId) => ({ ...rec, personId, memberId: null, createdVia: "PROXY" as const })),
       "MINIAPP",
@@ -257,7 +247,7 @@ export async function decideRecord(input: z.input<typeof decideInput>) {
   return run(async () => {
     const member = await actionMember();
     const a = decideInput.parse(input);
-    return decided(await decide(await tryOutbound(), actorOf(member), a.recordId, a.action, "MINIAPP", a.note));
+    return decided(await decide(await courier(), actorOf(member), a.recordId, a.action, "MINIAPP", a.note));
   });
 }
 
@@ -267,7 +257,7 @@ export async function undoDecision(input: z.input<typeof idInput>) {
   requireFeature();
   return run(async () => {
     const member = await actionMember();
-    return decided(await undo(await tryOutbound(), actorOf(member), idInput.parse(input).recordId, "MINIAPP"));
+    return decided(await undo(await courier(), actorOf(member), idInput.parse(input).recordId, "MINIAPP"));
   });
 }
 
@@ -276,7 +266,7 @@ export async function withdrawRecord(input: z.input<typeof idInput>) {
   requireFeature();
   return run(async () => {
     const member = await actionMember();
-    return decided(await withdraw(await tryOutbound(), actorOf(member), idInput.parse(input).recordId, "MINIAPP"));
+    return decided(await withdraw(await courier(), actorOf(member), idInput.parse(input).recordId, "MINIAPP"));
   });
 }
 
@@ -288,7 +278,7 @@ export async function voidEntry(input: z.input<typeof voidInput>) {
   return run(async () => {
     const member = await actionMember();
     const a = voidInput.parse(input);
-    return decided(await voidRecord(await tryOutbound(), actorOf(member), a.recordId, a.reason, "MINIAPP"));
+    return decided(await voidRecord(await courier(), actorOf(member), a.recordId, a.reason, "MINIAPP"));
   });
 }
 
@@ -300,6 +290,6 @@ export async function giveReason(input: z.input<typeof whyInput>) {
   return run(async () => {
     const member = await actionMember();
     const a = whyInput.parse(input);
-    return decided(await sayWhy(await tryOutbound(), actorOf(member), a.recordId, a.note, "MINIAPP"));
+    return decided(await sayWhy(await courier(), actorOf(member), a.recordId, a.note, "MINIAPP"));
   });
 }

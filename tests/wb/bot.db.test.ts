@@ -11,6 +11,7 @@ import { submit } from "@/lib/wb/decide";
 import { wbAudit, wbCard, wbCommanderChat, wbConversation, wbGrant, wbMember, wbRecord } from "@/lib/wb/db/schema";
 import { addDays, dateRange, todaySgt } from "@/lib/wb/domain/timeline";
 import { createBot } from "@/lib/wb/telegram/bot";
+import { courierOf } from "@/lib/wb/telegram/courier";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
 
 const BOT_INFO = {
@@ -222,7 +223,7 @@ describe("bot: approval cards (fake Telegram)", () => {
     calls = [];
     const d = addDays(todaySgt(), 10);
     const { records, delivery } = await submit(
-      { api: bot.api, botUsername: "sabrecoybot" },
+      courierOf({ api: bot.api, botUsername: "sabrecoybot" }),
       { id: trooper.id, personId: irfan.id, grants: [] },
       [{ personId: irfan.id, memberId: trooper.id, kind: "AL", ...dateRange(d, d), endAt: dateRange(d, d).endAt!, absent: true, leaveDays: 1, detail: "AL @ SINGAPORE", createdVia: "SELF" }],
       "MINIAPP",
@@ -366,7 +367,7 @@ describe("evening round (fake Telegram)", () => {
       .values({ personId: irfan, memberId: trooperId, kind: "MC", absent: true, state: "RECORDED", createdVia: "SELF", ...dateRange(todaySgt(), todaySgt()), ...over })
       .returning()
       .then((r) => r[0]);
-  const out = () => ({ api: bot.api, botUsername: "sabrecoybot" });
+  const out = () => courierOf({ api: bot.api, botUsername: "sabrecoybot" });
 
   it("sends each reminder once, one digest per platoon, and a heartbeat last", async (ctx) => {
     if (!reachable) ctx.skip();
