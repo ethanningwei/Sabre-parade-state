@@ -2,8 +2,9 @@
 // setCampShift, saveDuty and endDuty write (absences, duties, the "RF @ X"
 // home absence, audit rows) and what they refuse. Written before their bodies
 // were extracted into plain cores for the whereabouts projector, so the
-// extraction is held to "no behaviour change". Uses sabre_test; skipped if
-// unreachable.
+// extraction is held to "no behaviour change"; the last block checks the
+// cores (lib/core) write exactly what the actions do. Uses sabre_test; skipped
+// if unreachable.
 
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +19,8 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 const { setStatus, setCampShift } = await import("@/lib/actions/attendance");
 const { saveDuty, endDuty } = await import("@/lib/actions/duties");
+const { setStatusCore, setCampShiftCore } = await import("@/lib/core/attendance");
+const { saveDutyCore, endDutyCore } = await import("@/lib/core/duties");
 
 const ADMIN = "v1-test-admin";
 const GC = "v1-test-gc";
@@ -220,5 +223,79 @@ describe("saveDuty and endDuty", () => {
     await db.update(person).set({ active: false }).where(eq(person.id, p.t2));
     expect(await saveDuty({ type: "RF", personId: p.t2, campId: ids.bdk, ...base })).toEqual({ ok: false, error: "That person is no longer on the roster." });
     await db.update(person).set({ active: true }).where(eq(person.id, p.t2));
+  });
+});
+
+describe("the cores write exactly what the actions write", () => {
+  const blank = { otherReason: "", startDate: null, startTime: null, endDate: null, endTime: null, maTiming: "", maLocation: "" };
+  // a row with what's bound to differ (ids, the person, clocks) left out
+  const shape = <T extends Record<string, unknown>>(row: T | undefined) => {
+    if (!row) return row;
+    const rest: Record<string, unknown> = { ...row, closed: row.closedAt != null, linked: row.dutyId != null };
+    for (const k of ["id", "personId", "createdAt", "closedAt", "dutyId", "rank", "name", "sortOrder"]) delete rest[k];
+    return rest;
+  };
+  const history = async (personId: string) => (await absencesOf(personId)).map(shape);
+
+  it("setStatus: open, edit, replace, present", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const steps = [
+      { ...blank, ...mc, startTime: "0800" },
+      { ...blank, ...mc, endDate: "2026-10-16" },
+      { ...blank, status: "OTHERS" as const, otherReason: "Course" },
+      { ...blank, status: "PRESENT" as const },
+    ];
+    for (const step of steps) {
+      expect((await setStatus({ ...step, personIds: [p.t1] })).ok).toBe(true);
+      await db.transaction((tx) => setStatusCore(tx, ADMIN, { ...step, personIds: [p.t2] }));
+    }
+    expect(await history(p.t2)).toEqual(await history(p.t1));
+    const actions = await auditActions();
+    expect(actions.filter((_, i) => i % 2 === 1)).toEqual(actions.filter((_, i) => i % 2 === 0));
+  });
+
+  it("setCampShift", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await setCampShift(ids.tft, false);
+    const { before, after } = await db.transaction((tx) => setCampShiftCore(tx, ADMIN, ids.bdk, false));
+    expect([before.onShift, after.onShift]).toEqual([true, false]);
+    const rows = await db.select({ action: auditLog.action, before: auditLog.before, after: auditLog.after }).from(auditLog).where(eq(auditLog.userId, ADMIN)).orderBy(asc(auditLog.at));
+    expect(rows[1]).toEqual(rows[0]);
+  });
+
+  it("saveDuty and endDuty: create, edit, end, with the home absence", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const base = { rank: "", name: "", campId: ids.bdk, startTime: null, endTime: null };
+    const viaAction = (await saveDuty({ type: "RF", personId: p.t1, campId: ids.bdk, startDate: "2026-10-13", startTime: "2100", endDate: "2026-10-15" })) as { data: string };
+    const viaCore = await db.transaction((tx) => saveDutyCore(tx, ADMIN, { ...base, type: "RF", personId: p.t2, startDate: "2026-10-13", startTime: "2100", endDate: "2026-10-15" }));
+    const duties = async () => [
+      shape((await db.select().from(duty).where(eq(duty.id, viaAction.data)))[0]),
+      shape((await db.select().from(duty).where(eq(duty.id, viaCore.id)))[0]),
+    ];
+    let [a, b] = await duties();
+    expect(b).toEqual(a);
+    expect(await history(p.t2)).toEqual(await history(p.t1));
+
+    await saveDuty({ id: viaAction.data, type: "RF", personId: p.t1, campId: ids.bdk, startDate: "2026-10-13", endDate: "2026-10-18" });
+    await db.transaction((tx) => saveDutyCore(tx, ADMIN, { ...base, id: viaCore.id, type: "RF", personId: p.t2, startDate: "2026-10-13", endDate: "2026-10-18" }));
+    [a, b] = await duties();
+    expect(b).toEqual(a);
+    expect(await history(p.t2)).toEqual(await history(p.t1));
+
+    await endDuty(viaAction.data);
+    await db.transaction((tx) => endDutyCore(tx, ADMIN, viaCore.id));
+    [a, b] = await duties();
+    expect(b).toEqual(a);
+    expect(await history(p.t2)).toEqual(await history(p.t1));
+    expect(await auditActions()).toEqual(["create-duty:duty", "create-duty:duty", "update-duty:duty", "update-duty:duty", "end-duty:duty", "end-duty:duty"]);
+  });
+
+  it("the cores refuse what the actions refuse", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const [sftA1] = await db.select({ id: person.id }).from(person).where(and(eq(person.campId, ids.sftA), eq(person.active, true)));
+    await expect(db.transaction((tx) => setStatusCore(tx, ADMIN, { ...blank, ...mc, personIds: [sftA1.id] }))).rejects.toThrow("SFT A is off shift");
+    await expect(
+      db.transaction((tx) => saveDutyCore(tx, ADMIN, { type: "RF", rank: "", name: "", personId: p.t1, campId: ids.tft, startDate: "2026-10-13", startTime: null, endDate: "2026-10-14", endTime: null })),
+    ).rejects.toThrow("can't be served at their own team (TFT)");
   });
 });

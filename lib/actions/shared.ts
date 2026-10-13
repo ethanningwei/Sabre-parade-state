@@ -2,13 +2,13 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { ForbiddenError, type Viewer } from "@/lib/authz";
-import { db } from "@/lib/db";
-import { auditLog } from "@/lib/db/schema";
+import { writeAudit, type Tx } from "@/lib/core/audit";
+import type { db } from "@/lib/db";
+import { UserError } from "@/lib/errors";
 
 export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string };
 
-/** User-fixable problem: shown as a message, not a crash. */
-export class UserError extends Error {}
+export { UserError };
 
 export async function run<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   try {
@@ -23,8 +23,6 @@ export async function run<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   }
 }
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
 export async function audit(
   tx: Tx | typeof db,
   viewer: Viewer,
@@ -34,14 +32,7 @@ export async function audit(
   before: unknown,
   after: unknown,
 ) {
-  await tx.insert(auditLog).values({
-    userId: viewer.id,
-    action,
-    entity,
-    entityId,
-    before: before ?? null,
-    after: after ?? null,
-  });
+  await writeAudit(tx, viewer.id, action, entity, entityId, before, after);
 }
 
 export const zDate = z
