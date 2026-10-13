@@ -48,7 +48,7 @@ npm run lint
 ```
 
 ## Importing the real data from Google Sheets
-You can re-run this as many times as you like until cutover. Users, platoon assignments and history are kept. People, absences and duties are replaced.
+The import updates people **in place**: each Sheet row is matched to the person already in the app (same camp and name, or the same name in another camp when only one person has it), then edited, moved or added. Anyone the Sheet no longer has is marked inactive, never deleted, and comes back with their history if the Sheet has them again. Users, platoon assignments, history and whereabouts data are kept. By default absences, duties, on-shift and the Telegram chat are **left as the app has them**.
 
 1. Put the bot's `credentials.json` in the repo root. It is gitignored and should be treated like a password.
 2. One-time setup: `python3 -m venv .venv && ./.venv/bin/pip install --upgrade gspread pandas python-telegram-bot python-dotenv google-auth`
@@ -56,16 +56,18 @@ You can re-run this as many times as you like until cutover. Users, platoon assi
    - If Google briefly fails to open a sheet ("please check that the spreadsheet link … is working"), just run it again.
    - If the bot would report problems, you get the same numbered list. Fix them in the Sheets and run it again.
    - Otherwise it writes `sabre-export.json`. This file contains personal data: don't commit or share it, and delete it after importing.
-4. `npm run import` loads the data, then renders the parade state from the database at the bot's CAA and compares it with the bot's output.
-   - `✅ PARITY` means the app prints exactly what the bot printed.
+4. `npm run import -- --dry-run` prints what the import would do (edited, moved, back, added, removed, likely renames) and writes nothing. Check it first.
+   - It refuses to run while a name is **ambiguous** (more than one person has it and they can't be told apart) or the Sheet has dropped a camp or subunit (delete it in Admin, or put it back).
    - Any cell the app can't represent is listed, for example a date written `28/09/26` instead of `280926`.
+5. `npm run import` updates people and structure. If anyone would be marked inactive it stops and asks you to run it again with `--yes`.
+6. Parallel run only: `npm run import -- --with-absences --yes` also replaces every absence, duty, on-shift and the Telegram chat with the Sheet's, then renders the parade state from the database at the bot's CAA and compares it with the bot's output. `✅ PARITY` means the app prints exactly what the bot printed. It overwrites what GCs typed in the app.
 
 **Into production:** `.env.production.local` (gitignored) holds the production `DATABASE_URL_UNPOOLED`.
 ```bash
-DATABASE_URL="$(grep '^DATABASE_URL_UNPOOLED=' .env.production.local | cut -d= -f2- | tr -d '"')" npm run import
+DATABASE_URL="$(grep '^DATABASE_URL_UNPOOLED=' .env.production.local | cut -d= -f2- | tr -d '"')" npm run import -- --dry-run
 rm sabre-export.json
 ```
-Re-import only during the parallel run. After cutover the app is the source of truth: a re-import would overwrite everyone's attendance.
+Then the same without `--dry-run` (plus `--yes` if it asks). After cutover the app is the source of truth for attendance: never use `--with-absences` then. A plain import (people only) stays safe.
 
 An SOL typed under the other team (e.g. SFT B) is automatically tied to the person in SFT A when the name matches.
 

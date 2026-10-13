@@ -2,23 +2,37 @@
 // in-place import after it): the coy's active people with their camp names,
 // and what hangs off each person, so a removal can be weighed before it runs.
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { absence, camp, coy, person } from "@/lib/db/schema";
 import { wbAssignment, wbMember, wbRecord } from "@/lib/wb/db/schema";
-import type { RosterRow, StakeCounts } from "@/lib/data/roster-plan";
+import { absence, camp, coy, person, subunit } from "@/lib/db/schema";
+import type { RosterRow, StakeCounts, Structure } from "@/lib/data/roster-plan";
 
-export async function loadRoster(db: Db, coyKey: string): Promise<{ people: RosterRow[]; camps: string[] }> {
+type Reader = Pick<Db, "select">;
+
+/** The coy's people (active, and inactive newest first) and its structure; all empty when the coy isn't in the DB yet. */
+export async function loadRoster(
+  db: Reader,
+  coyKey: string,
+): Promise<{ people: RosterRow[]; inactive: RosterRow[]; structure: Structure }> {
   const [c] = await db.select({ id: coy.id }).from(coy).where(eq(coy.key, coyKey));
-  if (!c) return { people: [], camps: [] };
+  if (!c) return { people: [], inactive: [], structure: { camps: [], subunits: [] } };
   const camps = await db.select({ name: camp.name }).from(camp).where(eq(camp.coyId, c.id)).orderBy(camp.sortOrder);
+  const subunits = await db.select({ name: subunit.name }).from(subunit).where(eq(subunit.coyId, c.id)).orderBy(subunit.sortOrder);
+  const cols = { id: person.id, campName: camp.name, name: person.name, rank: person.rank, role: person.role };
   const people = await db
-    .select({ id: person.id, campName: camp.name, name: person.name, rank: person.rank, role: person.role })
+    .select(cols)
     .from(person)
     .innerJoin(camp, eq(camp.id, person.campId))
     .where(and(eq(camp.coyId, c.id), eq(person.active, true)))
     .orderBy(camp.sortOrder, person.sortOrder);
-  return { people, camps: camps.map((r) => r.name) };
+  const inactive = await db
+    .select(cols)
+    .from(person)
+    .innerJoin(camp, eq(camp.id, person.campId))
+    .where(and(eq(camp.coyId, c.id), eq(person.active, false)))
+    .orderBy(desc(person.createdAt));
+  return { people, inactive, structure: { camps: camps.map((r) => r.name), subunits: subunits.map((r) => r.name) } };
 }
 
 /** What each person has attached to them, keyed by person id. Only non-zero entries are returned. */

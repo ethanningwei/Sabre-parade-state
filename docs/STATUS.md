@@ -89,11 +89,10 @@ The parade-state engine is `lib/parade/` (pure TypeScript, no I/O). Its output m
   - Ten failed logins from one IP locks it for 15 minutes, which can lock out a whole camp on shared Wi-Fi.
   - Changing `APP_PASSWORD` signs everyone out.
   - Individual logins are the obvious v2 security item.
-- **The daily re-import overwrites** people, absences, duties and the Telegram chat/topic with the Sheets' values.
+- **The re-import** (changed 2026-10-13, on the `whereabouts` branch) updates people in place and by default leaves absences, duties, on-shift and the Telegram chat alone; `--dry-run` shows the plan first. `--with-absences --yes` is the old parallel-run behaviour (the Sheets' absences, duties, on-shift and Telegram chat, then the parity check). See README.
   - Users and history are kept.
   - The physical-camp grouping is re-derived from the camp names, so a manual edit in Structure is lost.
-  - Only re-import during the parallel run. After cutover the app is the source of truth, so never re-import.
-  - A possible change: the import stops touching Telegram settings once they're set.
+  - After cutover the app is the source of truth: never use `--with-absences` then.
 - **Imported RFs aren't linked to roster people.** Their home absences stay as typed in the Sheets ("RF BDK (…)"). New RFs created in the app are linked.
 - **No per-person history screen yet.** Closed `absence` rows and `audit_log` hold the data.
 - **iPhone Safari wasn't tested in an emulator:** Playwright WebKit segfaults on this Mac when emulating a phone. The iOS date-field fix in `app/globals.css` is based on documented Safari behaviour. Confirm on a real phone.

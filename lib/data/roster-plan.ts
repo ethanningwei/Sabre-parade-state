@@ -5,8 +5,11 @@
 // Matching, in order:
 //   1. same camp, same name (case and spacing ignored) → kept
 //   2. same name in another camp, exactly one on each side → moved
-//   3. a name more than one person has → ambiguous: never matched by guesswork
-//   4. the rest → added (only in the Sheet) or removed (only in the app)
+//   3. a name more than one person has, with a choice to make → ambiguous:
+//      never matched by guesswork (nor a name twice in one camp of the Sheet)
+//   4. the rest → added (only in the Sheet) or removed (only in the app),
+//      except that an added name matching an inactive person in the same camp
+//      brings that person back (revived) with their history
 // A removed person is to be marked inactive, never deleted, so whatever hangs
 // off them (whereabouts records, Telegram links, history) survives.
 
@@ -43,19 +46,31 @@ export interface Matched {
 export interface RosterPlan {
   kept: Matched[];
   moved: Matched[];
+  /** inactive people the Sheet has again, in the same camp: reactivated, history kept */
+  revived: Matched[];
   added: SheetRow[];
   removed: RosterRow[];
-  /** names that more than one person has, on either side, and couldn't be matched across camps */
+  /** names more than one person has that couldn't be matched without guessing, or that the Sheet has twice in one camp */
   ambiguous: { name: string; current: RosterRow[]; sheet: SheetRow[] }[];
   /** a removed and an added name in the same camp that look like one person renamed */
   renameHints: { current: RosterRow; sheet: SheetRow }[];
-  /** camps in the app that the Sheet no longer has */
+  /** camps and subunits in the app that the Sheet no longer has: the import refuses to run until they're sorted out */
   campsGone: string[];
+  subunitsGone: string[];
+}
+
+/** Names of the camps and subunits on each side, to spot ones the Sheet dropped. */
+export interface Structure {
+  camps: string[];
+  subunits: string[];
 }
 
 export const normName = (s: string) => s.trim().replace(/\s+/g, " ").toUpperCase();
 
-export const sheetCamps = (input: CoyInput) => input.subunits.flatMap((s) => s.camps.map((c) => c.name));
+export const sheetStructure = (input: CoyInput): Structure => ({
+  camps: input.subunits.flatMap((s) => s.camps.map((c) => c.name)),
+  subunits: input.subunits.map((s) => s.name),
+});
 
 export function sheetRows(input: CoyInput): SheetRow[] {
   return input.subunits.flatMap((s) =>
@@ -99,9 +114,24 @@ function looksRenamed(a: string, b: string) {
 export function planRoster(
   current: RosterRow[],
   sheet: SheetRow[],
-  camps: { current: string[]; sheet: string[] } = { current: [], sheet: [] },
+  opts: {
+    structure?: { current: Structure; sheet: Structure };
+    /** inactive people, newest first */
+    inactive?: RosterRow[];
+  } = {},
 ): RosterPlan {
-  const plan: RosterPlan = { kept: [], moved: [], added: [], removed: [], ambiguous: [], renameHints: [], campsGone: [] };
+  const structure = opts.structure ?? { current: { camps: [], subunits: [] }, sheet: { camps: [], subunits: [] } };
+  const plan: RosterPlan = {
+    kept: [],
+    moved: [],
+    revived: [],
+    added: [],
+    removed: [],
+    ambiguous: [],
+    renameHints: [],
+    campsGone: [],
+    subunitsGone: [],
+  };
   const key = (camp: string, name: string) => `${camp}\u0000${normName(name)}`;
 
   // 1. same camp, same name — only when the name is unique in that camp on both sides
@@ -114,7 +144,12 @@ export function planRoster(
   const sheetLeft = new Set(sheet);
   for (const [k, ss] of sheetByKey) {
     const cs = curByKey.get(k) ?? [];
-    if (cs.length === 1 && ss.length === 1) {
+    if (ss.length > 1) {
+      // twice in one camp of the Sheet: the app can't hold that, whatever it has now
+      plan.ambiguous.push({ name: normName(ss[0].name), current: cs, sheet: ss });
+      cs.forEach((r) => curLeft.delete(r));
+      ss.forEach((r) => sheetLeft.delete(r));
+    } else if (cs.length === 1 && ss.length === 1) {
       plan.kept.push({ current: cs[0], sheet: ss[0], changes: changesBetween(cs[0], ss[0]) });
       curLeft.delete(cs[0]);
       sheetLeft.delete(ss[0]);
@@ -132,13 +167,23 @@ export function planRoster(
     const ss = sheetByName.get(name) ?? [];
     if (cs.length === 1 && ss.length === 1) {
       plan.moved.push({ current: cs[0], sheet: ss[0], changes: changesBetween(cs[0], ss[0]) });
-    } else if (cs.length > 1 || ss.length > 1) {
+    } else if (cs.length && ss.length && (cs.length > 1 || ss.length > 1)) {
       plan.ambiguous.push({ name, current: cs, sheet: ss });
     } else {
       plan.removed.push(...cs);
       plan.added.push(...ss);
     }
   }
+
+  // back on the roster: the newest inactive row with the same camp and name
+  const dormant = [...(opts.inactive ?? [])];
+  plan.added = plan.added.filter((s) => {
+    const i = dormant.findIndex((r) => r.campName === s.campName && normName(r.name) === normName(s.name));
+    if (i < 0) return true;
+    plan.revived.push({ current: dormant[i], sheet: s, changes: changesBetween(dormant[i], s) });
+    dormant.splice(i, 1);
+    return false;
+  });
 
   // hints only; the import still treats these as one removed and one added
   const addedLeft = new Set(plan.added);
@@ -150,8 +195,9 @@ export function planRoster(
     }
   }
 
-  const sheetCamps = new Set(camps.sheet);
-  plan.campsGone = camps.current.filter((c) => !sheetCamps.has(c));
+  const gone = (current: string[], sheet: string[]) => current.filter((x) => !new Set(sheet).has(x));
+  plan.campsGone = gone(structure.current.camps, structure.sheet.camps);
+  plan.subunitsGone = gone(structure.current.subunits, structure.sheet.subunits);
   return plan;
 }
 
@@ -177,23 +223,24 @@ function stakeText(s: StakeCounts | undefined) {
 
 const who = (r: { campName: string; rank: string; name: string }) => `${r.campName} › ${r.rank} ${r.name}`.trim();
 
-/** The dry run's report: what an in-place import would do, worst news last so it's what's on screen. */
-export function formatRosterPlan(plan: RosterPlan, stakes: Map<string, StakeCounts>, label: string): string {
+/** What an in-place import will do, worst news last so it's what's left on screen. */
+export function formatRosterPlan(plan: RosterPlan, stakes: Map<string, StakeCounts>, heading: string): string {
   const hinted = new Set<RosterRow | SheetRow>(plan.renameHints.flatMap((h) => [h.current, h.sheet]));
   const added = plan.added.filter((s) => !hinted.has(s));
   const removed = plan.removed.filter((r) => !hinted.has(r));
   const edited = plan.kept.filter((m) => m.changes.length);
-  const sheetCount = plan.kept.length + plan.moved.length + plan.added.length + plan.ambiguous.reduce((n, a) => n + a.sheet.length, 0);
+  const sheetCount = plan.kept.length + plan.moved.length + plan.revived.length + plan.added.length + plan.ambiguous.reduce((n, a) => n + a.sheet.length, 0);
   const appCount = plan.kept.length + plan.moved.length + plan.removed.length + plan.ambiguous.reduce((n, a) => n + a.current.length, 0);
   const change = (c: FieldChange) => `${c.field} ${c.from || "(none)"} → ${c.to || "(none)"}`;
 
   const out: string[] = [
-    `DRY RUN: nothing was written. ${label}: ${sheetCount} in the Sheet, ${appCount} in the app.`,
+    `${heading}: ${sheetCount} in the Sheet, ${appCount} in the app.`,
     "",
     [
       `✅ ${plan.kept.length - edited.length} unchanged`,
       `✏️ ${edited.length} edited`,
       `🔀 ${plan.moved.length} moved`,
+      plan.revived.length && `↩️ ${plan.revived.length} back`,
       `➕ ${added.length} added`,
       `➖ ${removed.length} removed`,
       plan.renameHints.length && `❓ ${plan.renameHints.length} renamed?`,
@@ -212,6 +259,10 @@ export function formatRosterPlan(plan: RosterPlan, stakes: Map<string, StakeCoun
       [`${m.current.rank} ${m.current.name}: ${m.current.campName} → ${m.sheet.campName}`, ...m.changes.map(change)].join(", "),
     ),
   );
+  section(
+    "↩️ Back on the roster (inactive, now in the Sheet again: reactivated, history kept)",
+    plan.revived.map((m) => [who(m.current), ...m.changes.map(change)].join(", ")),
+  );
   section("➕ Added (new people)", added.map(who));
   section(
     "➖ Removed: marked inactive, never deleted; off the parade state",
@@ -228,6 +279,18 @@ export function formatRosterPlan(plan: RosterPlan, stakes: Map<string, StakeCoun
         `${a.name}: app ${a.current.map((r) => r.campName).join(", ") || "(none)"} · Sheet ${a.sheet.map((s) => s.campName).join(", ") || "(none)"}`,
     ),
   );
-  section("🏚 Camps the Sheet no longer has", plan.campsGone);
+  section(
+    "🏚 Gone from the Sheet. The import will refuse to run until they're deleted in the app's Admin or put back in the Sheet",
+    [...plan.subunitsGone.map((n) => `subunit ${n}`), ...plan.campsGone.map((n) => `camp ${n}`)],
+  );
   return out.join("\n");
+}
+
+/** Why an import can't run as planned, or [] when it can. */
+export function rosterBlockers(plan: RosterPlan): string[] {
+  return [
+    ...plan.ambiguous.map((a) => `More than one person is called ${a.name}, so they can't be matched. Tell them apart in the Sheet (e.g. a fuller name).`),
+    ...plan.subunitsGone.map((n) => `Subunit ${n} isn't in the Sheet. Delete it in the app's Admin, or put it back in the Sheet.`),
+    ...plan.campsGone.map((n) => `Camp ${n} isn't in the Sheet. Delete it in the app's Admin, or put it back in the Sheet.`),
+  ];
 }

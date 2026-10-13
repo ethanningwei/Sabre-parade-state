@@ -1,6 +1,6 @@
 // Admin actions and Gaps through the database. Uses sabre_test; skipped if unreachable.
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeCoy } from "@/lib/data/write-coy";
 import { db } from "@/lib/db";
@@ -57,7 +57,7 @@ async function signInAs(telegramUserId: number) {
   await signIn({ id: telegramUserId, first_name: "T" });
 }
 async function personNamed(name: string) {
-  const [p] = await db.select().from(person).where(eq(person.name, name));
+  const [p] = await db.select().from(person).where(and(eq(person.name, name), eq(person.active, true)));
   return p;
 }
 

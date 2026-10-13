@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { editDistance, planRoster, type RosterRow, type SheetRow } from "@/lib/data/roster-plan";
+import { editDistance, planRoster, rosterBlockers, type RosterRow, type SheetRow } from "@/lib/data/roster-plan";
 
 let n = 0;
 const cur = (campName: string, name: string, rank = "PTE", role = ""): RosterRow => ({ id: `p${++n}`, campName, name, rank, role });
@@ -44,6 +44,17 @@ describe("planRoster", () => {
     expect(plan.ambiguous).toEqual([]);
   });
 
+  it("adds or removes same-name people when there's no choice to make", () => {
+    const plan = planRoster([cur("A", "OLD"), cur("B", "OLD")], [row("C", "NEW"), row("D", "NEW")]);
+    expect(plan.ambiguous).toEqual([]);
+    expect(plan.added).toHaveLength(2);
+    expect(plan.removed).toHaveLength(2);
+  });
+
+  it("blocks a name twice in one camp of the Sheet, even for new people", () => {
+    expect(planRoster([], [row("HDN", "TWIN"), row("HDN", "TWIN")]).ambiguous).toHaveLength(1);
+  });
+
   it("reports a duplicate name inside one camp as ambiguous", () => {
     const a = cur("HDN", "ZHARFAN");
     const plan = planRoster([a], [row("HDN", "ZHARFAN"), row("HDN", "ZHARFAN")]);
@@ -60,15 +71,31 @@ describe("planRoster", () => {
     expect(plan.renameHints).toEqual([{ current: gone, sheet: row("PRC", "MUHAMMAD FAIZAL B ROSLI") }]);
   });
 
+  it("brings back the newest inactive person with the same camp and name instead of adding", () => {
+    const older = cur("TFT", "HAZIQ");
+    const newer = cur("TFT", "HAZIQ", "LCP");
+    const plan = planRoster([], [row("TFT", "haziq", "LCP"), row("SLR", "HAZIQ")], { inactive: [newer, older, cur("BDK", "X")] });
+    expect(plan.revived).toEqual([{ current: newer, sheet: row("TFT", "haziq", "LCP"), changes: [{ field: "name", from: "HAZIQ", to: "haziq" }] }]);
+    expect(plan.added).toEqual([row("SLR", "HAZIQ")]);
+  });
+
   it("hints at a one-letter typo but not across camps", () => {
     const a = cur("TFT", "HAZIQ");
     expect(planRoster([a], [row("TFT", "HAZIK")]).renameHints).toHaveLength(1);
     expect(planRoster([a], [row("SLR", "HAZIK")]).renameHints).toEqual([]);
   });
 
-  it("lists camps the Sheet no longer has", () => {
-    const plan = planRoster([], [], { current: ["SFT A", "OLD CAMP"], sheet: ["SFT A", "NEW CAMP"] });
+  it("lists camps and subunits the Sheet no longer has, and blocks on them and on ambiguous names", () => {
+    const plan = planRoster([cur("A", "LIM"), cur("B", "LIM")], [row("C", "LIM")], {
+      structure: {
+        current: { camps: ["SFT A", "OLD CAMP"], subunits: ["PLATOON 5", "PLATOON 9"] },
+        sheet: { camps: ["SFT A", "NEW CAMP"], subunits: ["PLATOON 5"] },
+      },
+    });
     expect(plan.campsGone).toEqual(["OLD CAMP"]);
+    expect(plan.subunitsGone).toEqual(["PLATOON 9"]);
+    expect(rosterBlockers(plan)).toHaveLength(3);
+    expect(rosterBlockers(planRoster([cur("A", "X")], [row("A", "X")]))).toEqual([]);
   });
 });
 
