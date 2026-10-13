@@ -3,12 +3,13 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { wbAudit } from "@/lib/wb/audit";
-import { inTx, outcomeBatch, outcomeOrder, refreshCards, Refusal, tell, type Actor, type Delivery, type Via } from "@/lib/wb/decide";
+import { inTx, Refusal, type Actor, type Delivery, type Via } from "@/lib/wb/core";
+import { refreshCards, tell } from "@/lib/wb/decide";
 import { wbCard, wbCommanderChat, wbRecord } from "@/lib/wb/db/schema";
-import { recordWhat } from "@/lib/wb/domain/describe";
+import { outcomeOrder, recordWhat } from "@/lib/wb/domain/describe";
 import { asksSeenBy, canDecide, isLive, isOutcome, kinOf, MAX_STATUSES, onensFor, outcomeParentRefusal, VISIT_KINDS, type WbSeenBy } from "@/lib/wb/domain/rules";
 import { addDays, dateRange, dayCount, todaySgt } from "@/lib/wb/domain/timeline";
-import { memberLabel, recordView, recordViews, type RecordView } from "@/lib/wb/records";
+import { memberLabel, outcomeBatch, recordView, recordViews, type RecordView } from "@/lib/wb/records";
 import { outcomeCardText, outcomeKeyboard } from "@/lib/wb/telegram/cards";
 import type { Outbound } from "@/lib/wb/telegram/outbound";
 
@@ -142,7 +143,7 @@ export async function saveOutcome(out: Outbound | null, actor: Actor, input: Out
       checkDates(`Status ${i + 1}`, st.startDate, st.endDate, STATUS_MAX_DAYS, today);
     });
 
-    // one created_at for every row: it's what ties one outcome together (decide.ts outcomeBatch)
+    // one created_at for every row: it's what ties one outcome together (records.ts outcomeBatch)
     const headId = randomUUID();
     const hangOff = parent?.id ?? null;
     const common = {

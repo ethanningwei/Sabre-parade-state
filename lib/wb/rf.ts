@@ -4,7 +4,7 @@ import type { InlineKeyboardMarkup } from "grammy/types";
 import { db } from "@/lib/db";
 import { camp, subunit } from "@/lib/db/schema";
 import { wbAudit } from "@/lib/wb/audit";
-import { inTx, Refusal, type Actor, type Delivery, type Via } from "@/lib/wb/decide";
+import { inTx, Refusal, type Actor, type Delivery, type Via } from "@/lib/wb/core";
 import { wbAssignment, wbCommanderChat, wbMember, wbRfCard, wbRfRequest } from "@/lib/wb/db/schema";
 import {
   ASSIGNMENT_LABEL,

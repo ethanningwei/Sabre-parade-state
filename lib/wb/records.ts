@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { camp, duty, person, subunit } from "@/lib/db/schema";
 import { clashLines } from "@/lib/wb/domain/clash";
 import type { GrantRow } from "@/lib/wb/domain/grants";
+import { outcomeOrder } from "@/lib/wb/domain/describe";
 import { canDecide, canProxy, DEAD_STATES, STANDING_STATES } from "@/lib/wb/domain/rules";
 import type { Range } from "@/lib/wb/domain/timeline";
 import { wbAssignment, wbMember, wbRecord } from "@/lib/wb/db/schema";
@@ -106,6 +107,18 @@ export async function findViews(where: SQL, tx: Db = db): Promise<RecordView[]> 
 export async function recordViews(ids: readonly string[], tx: Db = db): Promise<RecordView[]> {
   if (!ids.length) return [];
   return (await views(tx, inArray(wbRecord.id, [...ids]))).map(toView);
+}
+
+/**
+ * Every row of one outcome: an MC and the statuses on the same paper. They're
+ * saved in one statement with one created_at, which is what ties them.
+ */
+export async function outcomeBatch(r: RecordView, tx: Db = db): Promise<RecordView[]> {
+  const ids = await tx
+    .select({ id: wbRecord.id })
+    .from(wbRecord)
+    .where(and(eq(wbRecord.personId, r.personId), eq(wbRecord.createdAt, r.createdAt), inArray(wbRecord.kind, ["MC", "HL", "STATUS"])));
+  return outcomeOrder(await recordViews(ids.map((x) => x.id), tx));
 }
 
 /** The direct children of these records (outcomes of a visit, statuses under a standalone MC), oldest first. */

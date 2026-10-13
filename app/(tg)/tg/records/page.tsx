@@ -9,7 +9,7 @@ import { bigButtonClass, EmptyState } from "@/components/tg/ui";
 import { buttonVariants } from "@/components/ui/button";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
-import { outcomeOrder } from "@/lib/wb/decide";
+import { outcomeOrder } from "@/lib/wb/domain/describe";
 import { accessTo, awaitsOutcome, isCurrent, nestOutcomes } from "@/lib/wb/domain/rules";
 import { rosterSelf } from "@/lib/wb/me";
 import { recordsOfPerson } from "@/lib/wb/records";

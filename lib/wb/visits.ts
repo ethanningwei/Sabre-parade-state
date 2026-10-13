@@ -1,6 +1,6 @@
 import "server-only";
 import type { OutcomeAnswers } from "@/components/tg/apply/outcome-form";
-import { outcomeOrder } from "@/lib/wb/decide";
+import { outcomeOrder } from "@/lib/wb/domain/describe";
 import { isLive, isOutcome, VISIT_KINDS, type WbSeenBy } from "@/lib/wb/domain/rules";
 import { toSgt } from "@/lib/parade/time";
 import { childrenOf, recordView, type RecordView } from "@/lib/wb/records";

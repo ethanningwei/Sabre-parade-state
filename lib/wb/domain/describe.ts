@@ -108,3 +108,13 @@ export function eventDetail(what: string, place: string, timeStart: string, time
 
 /** "Holiday", or what they typed. */
 export const reasonText = (reason: string, other: string) => (reason === "OTHER" ? other.trim() : reason);
+
+/** An outcome reads MC/HL first, then its statuses by start. */
+export const outcomeOrder = <R extends { kind: string; startAt: Date; detail: string }>(rows: R[]): R[] =>
+  rows.sort(
+    (a, b) =>
+      (a.kind === "STATUS" ? 1 : 0) - (b.kind === "STATUS" ? 1 : 0) ||
+      a.startAt.getTime() - b.startAt.getTime() ||
+      // same day: by name, so a card reads the same every time it's redrawn
+      a.detail.localeCompare(b.detail),
+  );

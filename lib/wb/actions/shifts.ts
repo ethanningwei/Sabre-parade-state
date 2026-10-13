@@ -5,7 +5,7 @@ import { run, UserError } from "@/lib/actions/shared";
 import { requireFeature } from "@/lib/flags";
 import { parseHhmm, sgtToInstant } from "@/lib/parade/time";
 import { actionMember, type Member } from "@/lib/wb/auth";
-import type { Actor } from "@/lib/wb/decide";
+import type { Actor } from "@/lib/wb/core";
 import { WB_SHIFT_KINDS } from "@/lib/wb/domain/shifts";
 import { logHoto, saveShift } from "@/lib/wb/shifts";
 import { outbound, type Outbound } from "@/lib/wb/telegram/outbound";

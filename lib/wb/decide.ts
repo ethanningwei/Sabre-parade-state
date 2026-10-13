@@ -3,12 +3,12 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { InlineKeyboardMarkup } from "grammy/types";
 import { db } from "@/lib/db";
 import { wbAudit } from "@/lib/wb/audit";
+import { inTx, Refusal, type Actor, type Delivery, type Via } from "@/lib/wb/core";
 import { wbCard, wbCommanderChat, wbMember, wbRecord, type WbRecordKind } from "@/lib/wb/db/schema";
 import { STATE_LABEL } from "@/lib/wb/domain/describe";
-import type { GrantRow } from "@/lib/wb/domain/grants";
 import { canDecide, initialState, isLive, isOutcome, kinOf, leaveChange, nextState, undoRefusal, type RecordAction } from "@/lib/wb/domain/rules";
 import { manningFor } from "@/lib/wb/forecast-data";
-import { memberLabel, recordView, recordViews, type Db, type RecordView } from "@/lib/wb/records";
+import { memberLabel, outcomeBatch, recordView, recordViews, type Db, type RecordView } from "@/lib/wb/records";
 import { cardKeyboard, cardText, noticeText, outcomeCardText, outcomeKeyboard } from "@/lib/wb/telegram/cards";
 import { miniAppLink } from "@/lib/wb/telegram/links";
 import type { Outbound } from "@/lib/wb/telegram/outbound";
@@ -17,47 +17,13 @@ import type { Outbound } from "@/lib/wb/telegram/outbound";
 // change happens in one transaction with its audit row; Telegram is told
 // afterwards, and a Telegram failure never undoes a decision.
 
-export type Via = "BOT" | "MINIAPP";
-
-/** Who is acting: a member, their roster person (if linked) and their grants. */
-export interface Actor {
-  id: string;
-  personId: string | null;
-  grants: readonly GrantRow[];
-}
-
 export type Result = { ok: true; record: RecordView } | { ok: false; error: string; record?: RecordView };
-
-/** Thrown inside a transaction to roll it back with a message for the user. */
-export class Refusal extends Error {}
 
 const NOTE_MAX = 300;
 
 // ------------------------------------------------------------------ Telegram
 
 const isNotModified = (e: unknown) => String((e as Error)?.message ?? e).includes("message is not modified");
-
-/**
- * Every row of one outcome: an MC and the statuses on the same paper. They're
- * saved in one statement with one created_at, which is what ties them.
- */
-export async function outcomeBatch(r: RecordView, tx: Db = db): Promise<RecordView[]> {
-  const ids = await tx
-    .select({ id: wbRecord.id })
-    .from(wbRecord)
-    .where(and(eq(wbRecord.personId, r.personId), eq(wbRecord.createdAt, r.createdAt), inArray(wbRecord.kind, ["MC", "HL", "STATUS"])));
-  return outcomeOrder(await recordViews(ids.map((x) => x.id), tx));
-}
-
-/** An outcome reads MC/HL first, then its statuses by start. */
-export const outcomeOrder = <R extends { kind: string; startAt: Date; detail: string }>(rows: R[]): R[] =>
-  rows.sort(
-    (a, b) =>
-      (a.kind === "STATUS" ? 1 : 0) - (b.kind === "STATUS" ? 1 : 0) ||
-      a.startAt.getTime() - b.startAt.getTime() ||
-      // same day: by name, so a card reads the same every time it's redrawn
-      a.detail.localeCompare(b.detail),
-  );
 
 /** Edit every copy of a record's card to its current state. An outcome's card shows the whole outcome. */
 export async function refreshCards(out: Outbound | null, r: RecordView): Promise<void> {
@@ -95,8 +61,6 @@ export const outcomeButton = (out: Outbound, recordId: string): InlineKeyboardMa
   inline_keyboard: [[{ text: "💊 Update outcome", url: miniAppLink(out.botUsername, `records/${recordId}/outcome`) }]],
 });
 
-export type Delivery = "sent" | "no-chat" | "failed";
-
 /** Post a record's card in its platoon's commanders chat (topic, if set) and remember it. */
 export async function sendCard(out: Outbound | null, r: RecordView): Promise<Delivery> {
   const [chat] = await db.select().from(wbCommanderChat).where(eq(wbCommanderChat.subunitId, r.subunitId));
@@ -130,15 +94,6 @@ async function moveLeave(tx: Db, personId: string, delta: number, who: string): 
     throw new Refusal(`${who} has only ${left} day${left === 1 ? "" : "s"} of leave left, and this needs ${-delta}.`);
   }
   await tx.update(wbMember).set({ leaveLeft: left + delta }).where(eq(wbMember.id, m.id));
-}
-
-export async function inTx<T>(fn: (tx: Db) => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: string }> {
-  try {
-    return { ok: true, value: await db.transaction(fn) };
-  } catch (e) {
-    if (e instanceof Refusal) return { ok: false, error: e.message };
-    throw e;
-  }
 }
 
 const decideRefusal = (r: RecordView) => `Only ${r.subunitName}'s PC or PS can decide this.`;

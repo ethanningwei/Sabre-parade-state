@@ -4,7 +4,7 @@ import { z } from "zod";
 import { run, UserError } from "@/lib/actions/shared";
 import { requireFeature } from "@/lib/flags";
 import { actionMember, type Member } from "@/lib/wb/auth";
-import type { Actor } from "@/lib/wb/decide";
+import type { Actor } from "@/lib/wb/core";
 import { mcCategoryOf, statusLabel } from "@/lib/wb/domain/describe";
 import { MC_CATEGORIES, STATUSES } from "@/lib/wb/domain/roles";
 import { MAX_STATUSES, NOT_ON_ROSTER } from "@/lib/wb/domain/rules";

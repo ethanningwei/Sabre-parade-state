@@ -5,7 +5,7 @@ import { run, UserError } from "@/lib/actions/shared";
 import { requireFeature } from "@/lib/flags";
 import { parseHhmm } from "@/lib/parade/time";
 import { actionMember, type Member } from "@/lib/wb/auth";
-import type { Actor } from "@/lib/wb/decide";
+import type { Actor } from "@/lib/wb/core";
 import { MAX_ASSIGN, MAX_NEED, RF_ROLES, WB_ASSIGNMENT_TYPES } from "@/lib/wb/domain/rf";
 import { checkRange, dayCount, todaySgt, type Range } from "@/lib/wb/domain/timeline";
 import { assign, closeRf, deploy, raiseRf, standDown } from "@/lib/wb/rf";
