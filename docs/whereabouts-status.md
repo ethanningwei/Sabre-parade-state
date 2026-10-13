@@ -44,8 +44,8 @@
 | 3 | Medical: RSI/RSO → MC/HL/status outcomes, ONENS, evening round | ✅ Done 2026-10-12 (958b4a4…a382f5c, pushed), migration 0005 on the preview branch. Verified on the user's phone (the user, 2026-10-12). Medical data cleared for real use (no S6 involved) |
 | 3½ | UI/UX pass on the Mini App (not a phase): current-only records + Full history, restyle, motion, skeletons | ✅ Done 2026-10-12 (aa3949f…61513ca, pushed). Verified on the user's phone (the user, 2026-10-12) |
 | 4 | Shifts + forecast: patterns, HOTO, min manning, forecast grid, impact on cards | ✅ Done 2026-10-12 (5f0ec8d…2db17c7, pushed). Migration 0006 and the agreed patterns/minimums on the preview branch. Verified on the user's phone (the user, 2026-10-13) |
-| 5 | RF requests + deploy, Assign Extra/RF/SOL | 🧪 Built 2026-10-13 (f368ba7…9f49960 and the docs commit, not pushed yet). Migration 0007 on the preview branch. **Waiting for push and the user's phone check** (checklist in §3a) |
-| 5½ | Refactor (not a phase): the Courier, one module for everything sent to Telegram | 🧪 Built 2026-10-13 (a3e9638…, tag `pre-courier` is the head before it), not pushed. No behaviour change: 417 existing tests unchanged + 8 new. Rides along with Phase 5's phone check (§3a) |
+| 5 | RF requests + deploy, Assign Extra/RF/SOL | 🧪 Built 2026-10-13 (f368ba7…9f49960 and the docs commit), pushed 2026-10-13 with the Courier refactor and the deploy-list fix (cc8254c). Migration 0007 on the preview branch. **Waiting for the user's phone check** (checklist in §3a) |
+| 5½ | Refactor (not a phase): the Courier, one module for everything sent to Telegram | 🧪 Built 2026-10-13 (a3e9638…eff8a75, tag `pre-courier` is the head before it), pushed. No behaviour change: 417 existing tests unchanged + 8 new. Then cc8254c: the deploy list now warns about open v1 duties, as `clashFor` does (it passed an empty list). Rides along with Phase 5's phone check (§3a) |
 | 6 | Projection into the parade state (shadow diff first) | ⏳ Next. Spec in §3b |
 | 7 | Transport claims | — |
 
