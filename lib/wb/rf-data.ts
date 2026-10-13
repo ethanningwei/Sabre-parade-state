@@ -222,8 +222,9 @@ export interface DeployCandidate extends Candidate {
 
 /**
  * Everyone this member may send, best first: whether he fits the role, what
- * he's already down for (a warning), whether he can't go at all (his own
- * camp, already sent somewhere), and what losing him does to his own camp.
+ * he's already down for (a warning), whether he can't go at all (already
+ * sent somewhere then), and what losing him does to his own camp. The
+ * camp's own men are left out.
  */
 export async function candidatesFor(r: RfRequestView, grants: readonly GrantRow[], now: Date = new Date()): Promise<DeployCandidate[]> {
   const people = await db
@@ -233,7 +234,8 @@ export async function candidatesFor(r: RfRequestView, grants: readonly GrantRow[
     .innerJoin(subunit, eq(subunit.id, camp.subunitId))
     .where(and(eq(person.active, true), eq(camp.coyId, (await db.select({ c: camp.coyId }).from(camp).where(eq(camp.id, r.campId)))[0].c)))
     .orderBy(asc(subunit.sortOrder), asc(camp.sortOrder), asc(person.sortOrder));
-  const mine = people.filter((p) => canDeployRf(grants, p));
+  // the camp's own men can never answer its request, so they aren't offered
+  const mine = people.filter((p) => p.campId !== r.campId && canDeployRf(grants, p));
   if (!mine.length) return [];
 
   const [input, minimums, camps, assignments] = await Promise.all([forecastInput(r, [r.campId], now), loadMinimums(), campsInfo(), liveAssignments(r, mine.map((p) => p.personId))]);

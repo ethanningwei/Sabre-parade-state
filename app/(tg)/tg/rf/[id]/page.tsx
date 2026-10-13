@@ -27,7 +27,7 @@ export default async function RfRequestPage({ params }: { params: Promise<{ id: 
     <div className="flex flex-col gap-5">
       <Header title={`RF for ${r.campName}`} />
       <RfSummary r={r} now={now} />
-      {live && !mine && <BigLink href={`/tg/rf/${r.id}/deploy`}>Deploy someone</BigLink>}
+      {live && rfAnything(member.grants) && <BigLink href={`/tg/rf/${r.id}/deploy`}>Deploy someone</BigLink>}
       {r.deployed.length > 0 && (
         <Group title="Sent" rows>
           {r.deployed.map((d) => (

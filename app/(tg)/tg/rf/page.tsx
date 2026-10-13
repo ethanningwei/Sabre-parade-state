@@ -25,7 +25,7 @@ export default async function RfBoardPage() {
       <Header title="RF board" hint="Camps that will be short, and who's been sent." />
       <div className="-mt-2 flex gap-2">
         <Link href="/tg/rf/new" className={action}>
-          <Plus className="size-4" aria-hidden /> Ask for manpower
+          <Plus className="size-4" aria-hidden /> Ask for men
         </Link>
         <Link href="/tg/assign" className={action}>
           <UserPlus className="size-4" aria-hidden /> Assign

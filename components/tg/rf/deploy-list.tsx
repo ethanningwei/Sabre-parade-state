@@ -30,7 +30,8 @@ const SHOW_MAX = 60;
 
 export function DeployList({ requestId, want, wantLabel, short, people }: { requestId: string; want: RfRole; wantLabel: string; short: number; people: DeployItem[] }) {
   const router = useRouter();
-  const [all, setAll] = useState(want === "ANY");
+  // nobody on the roster carries that role (roles left blank): start with everyone rather than an empty list
+  const [all, setAll] = useState(want === "ANY" || !people.some((p) => !p.refusal && fits(want, p.role)));
   const [q, setQ] = useState("");
   const [sending, setSending] = useState<string | null>(null);
   const [left, setLeft] = useState(short);
