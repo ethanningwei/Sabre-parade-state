@@ -55,7 +55,7 @@ async function views(where: SQL | undefined, tx: Db = db): Promise<RfRequestView
   const rows = await requestRows(tx, where);
   if (!rows.length) return [];
   const sent = await tx
-    .select({ requestId: wbAssignment.rfRequestId, assignmentId: wbAssignment.id, personId: person.id, rank: person.rank, name: person.name, campName: camp.name })
+    .select({ requestId: wbAssignment.rfRequestId, assignmentId: wbAssignment.id, personId: person.id, rank: person.rank, name: person.name, campId: camp.id, campName: camp.name, subunitId: camp.subunitId })
     .from(wbAssignment)
     .innerJoin(person, eq(person.id, wbAssignment.personId))
     .innerJoin(camp, eq(camp.id, person.campId))
@@ -78,7 +78,9 @@ async function views(where: SQL | undefined, tx: Db = db): Promise<RfRequestView
     raisedByTelegramId: x.raiserTg ?? null,
     closedBy: x.r.closedBy ? (label(x.cRank, x.cName, x.cTgName) ?? "a commander") : null,
     createdAt: x.r.createdAt,
-    deployed: sent.filter((s) => s.requestId === x.r.id).map(({ assignmentId, personId, rank, name, campName }) => ({ assignmentId, personId, rank, name, campName })),
+    deployed: sent
+      .filter((s) => s.requestId === x.r.id)
+      .map((s) => ({ assignmentId: s.assignmentId, personId: s.personId, rank: s.rank, name: s.name, campId: s.campId, campName: s.campName, subunitId: s.subunitId })),
   }));
 }
 
@@ -198,6 +200,18 @@ export async function assignmentsInScope(grants: readonly GrantRow[], now: Date 
 /** A man's own live Extra/RF/SOL, not yet over (Home). */
 export async function assignmentsOf(personId: string, now: Date = new Date()): Promise<AssignmentView[]> {
   return assignmentViews(and(eq(wbAssignment.personId, personId), eq(wbAssignment.state, "ACTIVE"), gt(wbAssignment.endAt, now))!);
+}
+
+/** Active roster people this member may send (Assign's picker). */
+export async function peopleToSend(grants: readonly GrantRow[]) {
+  const rows = await db
+    .select({ personId: person.id, rank: person.rank, name: person.name, campId: camp.id, campName: camp.name, subunitId: subunit.id, subunitName: subunit.name })
+    .from(person)
+    .innerJoin(camp, eq(camp.id, person.campId))
+    .innerJoin(subunit, eq(subunit.id, camp.subunitId))
+    .where(eq(person.active, true))
+    .orderBy(asc(subunit.sortOrder), asc(camp.sortOrder), asc(person.sortOrder));
+  return rows.filter((p) => canDeployRf(grants, p));
 }
 
 // ------------------------------------------------------------------ the deploy screen

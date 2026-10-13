@@ -61,7 +61,7 @@ const request = (over: Partial<RfRequestView> = {}): RfRequestView => ({
   ...over,
 });
 const sent = (n: number) =>
-  Array.from({ length: n }, (_, i) => ({ assignmentId: `a${i}`, personId: `p${i}`, rank: "PTE", name: `MAN ${i + 1}`, campName: "BDK" }));
+  Array.from({ length: n }, (_, i) => ({ assignmentId: `a${i}`, personId: `p${i}`, rank: "PTE", name: `MAN ${i + 1}`, campId: "camp:BDK", campName: "BDK", subunitId: "pl7" }));
 
 describe("an RF request", () => {
   it("is short by what's still needed, never below zero", () => {

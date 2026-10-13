@@ -1,4 +1,4 @@
-import { ArrowLeftRight, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock, CloudUpload, History, ListChecks, Settings, UserPen, UsersRound } from "lucide-react";
+import { ArrowLeftRight, Bus, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock, CloudUpload, History, ListChecks, Settings, UserPen, UserPlus, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { StateChip } from "@/components/tg/record-summary";
@@ -7,6 +7,7 @@ import { Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { getMember, hasGrant } from "@/lib/wb/auth";
 import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
+import { rfAnything } from "@/lib/wb/domain/rf";
 import { decidesAnything, editsShiftsAnything, hotosAnything, proxiesAnything } from "@/lib/wb/domain/rules";
 import { todaySgt } from "@/lib/wb/domain/timeline";
 import { place } from "@/lib/wb/format";
@@ -14,6 +15,7 @@ import { rosterSelf } from "@/lib/wb/me";
 import { profileOf } from "@/lib/wb/members";
 import { ADMIN_ROLES, GAPS_ROLES } from "@/lib/wb/permissions";
 import { nowAndNext, onensOwedFor, pendingFor, type RecordView } from "@/lib/wb/records";
+import { assignmentsOf, openRequests } from "@/lib/wb/rf-data";
 
 // Home: who you are, where you are now and what's next, and the screens you can reach.
 export default async function TgHome() {
@@ -28,7 +30,9 @@ export default async function TgHome() {
 
   const hoto = hotosAnything(member.grants);
   const shifts = editsShiftsAnything(member.grants);
-  const commands = decides || hoto || shifts || proxiesAnything(member.grants) || hasGrant(member.grants, GAPS_ROLES, "any");
+  const rf = rfAnything(member.grants);
+  const [openRf, duties] = await Promise.all([rf ? openRequests().then((o) => o.length) : 0, self ? assignmentsOf(self.personId) : []]);
+  const commands = decides || hoto || shifts || rf || proxiesAnything(member.grants) || hasGrant(member.grants, GAPS_ROLES, "any");
 
   return (
     <div className="flex flex-col gap-6">
@@ -52,6 +56,19 @@ export default async function TgHome() {
         </section>
       )}
 
+      {duties.length > 0 && (
+        <section className="tg-enter" style={{ "--i": 1 } as React.CSSProperties}>
+          <Group title="Extra · RF · SOL" rows>
+            {duties.map((d) => (
+              <p key={d.id} className="px-4 py-3 text-sm">
+                <span className="font-medium">{d.line}</span>
+                {d.type !== "SOL" && <span className="block text-xs text-muted-foreground">Absent from {d.homeCampName}, counted at {d.campName}</span>}
+              </p>
+            ))}
+          </Group>
+        </section>
+      )}
+
       <nav className="tg-enter flex flex-col gap-6" style={{ "--i": 2 } as React.CSSProperties}>
         {self && (
           <Group title="You" rows>
@@ -66,6 +83,8 @@ export default async function TgHome() {
             {decides && <Tile href={`/tg/day/${todaySgt()}`} icon={<CalendarDays />} title="Today" hint="Who's on shift, who's away, who's on status" />}
             {decides && <Tile href="/tg/forecast" icon={<CalendarRange />} title="Forecast" hint="The next 14 days against minimum manning" />}
             {hoto && <Tile href="/tg/hoto" icon={<ArrowLeftRight />} title="HOTO" hint="Log a handover" />}
+            {rf && <Tile href="/tg/rf" icon={<Bus />} title="RF board" badge={openRf} hint="Camps short of men; ask for manpower or deploy" />}
+            {rf && <Tile href="/tg/assign" icon={<UserPlus />} title="Assign Extra, RF or SOL" hint="Put men on it straight away" />}
             {decides && <Tile href="/tg/people" icon={<History />} title="Person history" hint="Anyone's records; void a mistake" />}
             {proxiesAnything(member.grants) && <Tile href="/tg/add" icon={<UsersRound />} title="Add for several men" hint="A course or duty they've been detailed for" />}
             {hasGrant(member.grants, GAPS_ROLES, "any") && <Tile href="/tg/gaps" icon={<ClipboardList />} title="Gaps" hint="Who isn't registered or isn't on the roster" />}

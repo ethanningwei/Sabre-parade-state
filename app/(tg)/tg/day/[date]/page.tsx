@@ -11,8 +11,8 @@ import { addDays, dayMonthYear, todaySgt } from "@/lib/wb/domain/timeline";
 import { campsInfo, dayView, forecastScope, type DayCamp } from "@/lib/wb/forecast-data";
 
 // One day for a commander's camps: who's on shift, strength against the
-// minimum, who's away and why (from the timeline and the parade state; never
-// a diagnosis), and who's on a status. ?camp= narrows it to one camp.
+// minimum, who's away and why (from the timeline and Extra/RF/SOL; never a
+// diagnosis), who's been sent in, and who's on a status. ?camp= narrows it to one camp.
 export default async function DayPage({ params, searchParams }: { params: Promise<{ date: string }>; searchParams: Promise<{ camp?: string | string[] }> }) {
   await requireFeaturePage();
   const member = await requireRegistered();
@@ -125,6 +125,21 @@ function CampCard({ d, i }: { d: DayCamp; i: number }) {
           </ul>
         </div>
       )}
+      {on && d.manning.duties.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Sent in · Extra, RF, SOL · {d.manning.duties.length}</p>
+          <ul className="flex flex-col gap-1 text-sm">
+            {d.manning.duties.map((x) => (
+              <li key={x.id}>
+                <span className="font-medium">
+                  {x.rank} {x.name}
+                </span>{" "}
+                <span className="text-muted-foreground">· {x.type === "EXTRA" ? "Extra" : x.type}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {d.statuses.length > 0 && (
         <div className="flex flex-col gap-1.5">
           <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">On status · present</p>
@@ -140,7 +155,7 @@ function CampCard({ d, i }: { d: DayCamp; i: number }) {
           </ul>
         </div>
       )}
-      {d.away.length === 0 && d.statuses.length === 0 && <p className="text-sm text-muted-foreground">Everyone present.</p>}
+      {d.away.length === 0 && d.statuses.length === 0 && !(on && d.manning.duties.length) && <p className="text-sm text-muted-foreground">Everyone present.</p>}
     </article>
   );
 }

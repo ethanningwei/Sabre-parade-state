@@ -63,7 +63,9 @@ export interface RfDeployed {
   rank: string;
   name: string;
   /** his home camp */
+  campId: string;
   campName: string;
+  subunitId: string;
 }
 
 export interface RfRequestView extends Range {
