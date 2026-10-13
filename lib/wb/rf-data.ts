@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, eq, gt, inArray, isNull, lt, notInArray, or, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
-import { camp, person, subunit } from "@/lib/db/schema";
+import { camp, duty, person, subunit } from "@/lib/db/schema";
 import { wbAssignment, wbMember, wbRecord, wbRfRequest } from "@/lib/wb/db/schema";
 import { costOfSending, manningOf, snapshotFor } from "@/lib/wb/domain/forecast";
 import type { GrantRow } from "@/lib/wb/domain/grants";
@@ -242,7 +242,7 @@ export async function candidatesFor(r: RfRequestView, grants: readonly GrantRow[
   const days = daysTouched(r).map((date) => ({ date, manning: new Map(manningOf(snapshotFor(input, dayRange(date))).map((m) => [m.campId, m])) }));
   const campOf = new Map(camps.map((c) => [c.id, c]));
 
-  // what he's already down for: live absent records (pending too), then Extra/RF/SOL
+  // what he's already down for: live absent records (pending too), open v1 duties, then Extra/RF/SOL (as clashFor)
   const awayRows = await db
     .select({
       personId: wbRecord.personId,
@@ -267,6 +267,13 @@ export async function candidatesFor(r: RfRequestView, grants: readonly GrantRow[
       ),
     );
 
+  // open v1 duties, as clashFor reads them; clashLines keeps those that overlap
+  const dutyRows = await db
+    .select({ personId: duty.personId, type: duty.type, campName: camp.name, startDate: duty.startDate, startTime: duty.startTime, endDate: duty.endDate, endTime: duty.endTime })
+    .from(duty)
+    .innerJoin(camp, eq(camp.id, duty.campId))
+    .where(and(inArray(duty.personId, mine.map((p) => p.personId)), isNull(duty.closedAt)));
+
   const out = mine.map((p): DeployCandidate => {
     const role = roleOf(p.roster);
     const c = campOf.get(p.campId)!;
@@ -275,7 +282,7 @@ export async function candidatesFor(r: RfRequestView, grants: readonly GrantRow[
     return {
       ...p,
       role,
-      away: clashLines(r, awayRows.filter((x) => x.personId === p.personId), [], busy),
+      away: clashLines(r, awayRows.filter((x) => x.personId === p.personId), dutyRows.filter((x) => x.personId === p.personId), busy),
       refusal: deployRefusal(r, p, assignments, now) ?? null,
       manning: cost.line,
       short: cost.short,

@@ -284,6 +284,26 @@ describe("deploying (DB)", () => {
     expect(first).toMatchObject({ role: "ST CBT", refusal: null });
     expect(list.filter((c) => c.campId === ids.bdk).every((c) => /^BDK on .+ without him: 17 \/ min 18 — BELOW MINIMUM$/.test(c.manning ?? ""))).toBe(true);
   });
+
+  it("the deploy list warns about an open v1 duty, as the DM after deploying does", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const id = await raised();
+    const r = (await rfData.rfView(id))!;
+    const man = people.BDK[2];
+    const [p] = await db.select({ rank: person.rank, name: person.name }).from(person).where(eq(person.id, man));
+    const [hdn] = await db.select({ coyId: camp.coyId }).from(camp).where(eq(camp.id, ids.hdn));
+    const [d] = await db.insert(duty).values({ coyId: hdn.coyId, type: "EXTRA", rank: p.rank, name: p.name, personId: man, campId: ids.hdn, startDate: day(1), endDate: day(2), sortOrder: 99 }).returning({ id: duty.id });
+    try {
+      const [ps7] = await db.select().from(wbMember).where(eq(wbMember.telegramUserId, PS7));
+      const grants = await db.select({ role: wbGrant.role, subunitId: wbGrant.subunitId, campId: wbGrant.campId }).from(wbGrant).where(eq(wbGrant.memberId, ps7.id));
+      const him = (await rfData.candidatesFor(r, grants)).find((c) => c.personId === man)!;
+      expect(him.away).toContainEqual(expect.stringMatching(/^EXTRA @ HDN /));
+      const { clashFor } = await import("@/lib/wb/records");
+      expect(him.away).toEqual(await clashFor(man, r));
+    } finally {
+      await db.delete(duty).where(eq(duty.id, d.id));
+    }
+  });
 });
 
 describe("deploying, through the Courier's seam (DB)", () => {
