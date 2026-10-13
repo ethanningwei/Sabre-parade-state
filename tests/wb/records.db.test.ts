@@ -173,7 +173,7 @@ describe("timeline (DB)", () => {
     expect(String(edits()[0].payload.text)).toMatch(/^⏳ Approval needed/);
     expect(String(sends()[0].payload.text)).toMatch(/^⚠️ LCP CHUN HEI took that decision back/);
 
-    const audits = await db.select({ action: wbAudit.action, via: wbAudit.via }).from(wbAudit).where(eq(wbAudit.entityId, id));
+    const audits = await db.select({ action: wbAudit.action, via: wbAudit.via }).from(wbAudit).where(eq(wbAudit.entityId, id)).orderBy(wbAudit.at);
     expect(audits.map((a) => a.action)).toEqual(["submit", "approve", "undo"]);
     expect(audits.every((a) => a.via === "MINIAPP")).toBe(true);
   });
@@ -502,7 +502,7 @@ describe("medical (DB)", () => {
     } finally {
       fetchSpy.mockRestore();
     }
-    const reads = await db.select({ memberId: wbAudit.memberId, after: wbAudit.after }).from(wbAudit).where(eq(wbAudit.action, "read-medical"));
+    const reads = await db.select({ memberId: wbAudit.memberId, after: wbAudit.after }).from(wbAudit).where(eq(wbAudit.action, "read-medical")).orderBy(wbAudit.at);
     const ps = (await db.select().from(wbMember).where(eq(wbMember.telegramUserId, PS)))[0].id;
     const trooper = (await db.select().from(wbMember).where(eq(wbMember.telegramUserId, TROOPER)))[0].id;
     expect(reads).toEqual([
