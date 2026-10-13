@@ -50,6 +50,13 @@
       "when": 1791808069789,
       "tag": "0006_wb_shifts",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791855054118,
+      "tag": "0007_wb_rf",
+      "breakpoints": true
     }
   ]
 }

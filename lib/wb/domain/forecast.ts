@@ -2,6 +2,7 @@ import { computeCoy, type CampState } from "@/lib/parade/compute";
 import { toSgt } from "@/lib/parade/time";
 import type { AbsenceType, CoySnapshot, SnapshotAbsence, SnapshotDuty, SnapshotPerson } from "@/lib/parade/types";
 import { KIND_LABEL } from "./describe";
+import type { WbAssignmentType } from "./rf";
 import { isAbsentKind, STANDING_STATES, type WbRecordKind, type WbRecordState } from "./rules";
 import { gaps, minimumLabel, onDuring, shortfall, strengthLabel, strengthOf, type Gap, type Minimum, type ShiftPattern, type Strength } from "./shifts";
 import { addDays, dayMonth, dayRange, daysTouched, overlaps, type Range } from "./timeline";
@@ -15,7 +16,12 @@ import { addDays, dayMonth, dayRange, daysTouched, overlaps, type Range } from "
 // are typed by hand, often undated, and go stale (decided 2026-10-12). The
 // roster (who is posted where, and their role) is the only thing taken from
 // v1. In the end (Phase 6) the parade state is fed from the timeline, not the
-// other way round. Extra/RF/SOL come back in Phase 5 as wb_assignment.
+// other way round.
+//
+// Extra/RF/SOL come from wb_assignment (Phase 5), by v1's own rule: each is a
+// SnapshotDuty that computeCoy places with servingCampId, and an RF or Extra
+// man is away at home as OTHERS "RF @ BDK" unless he's already away for a real
+// reason (v1's syncHomeAbsence). SOL never takes him away from home.
 
 export interface TimelineRow {
   id: string;
@@ -27,6 +33,17 @@ export interface TimelineRow {
   detail: string;
 }
 
+/** A live (ACTIVE) wb_assignment: where a man stands for a while. */
+export interface AssignmentRow {
+  id: string;
+  personId: string;
+  type: WbAssignmentType;
+  /** where he stands; his own camp for SOL */
+  campId: string;
+  startAt: Date;
+  endAt: Date | null;
+}
+
 export interface ForecastInput {
   /** the roster: camps and people, from loadSnapshot. Its absences and duties are ignored */
   base: CoySnapshot;
@@ -35,6 +52,8 @@ export interface ForecastInput {
   patterns: ReadonlyMap<string, ShiftPattern>;
   /** live timeline rows (pending, approved, recorded); others are ignored */
   records: readonly TimelineRow[];
+  /** live Extra/RF/SOL (ACTIVE only) */
+  assignments?: readonly AssignmentRow[];
 }
 
 export interface SnapshotOptions {
@@ -50,9 +69,22 @@ export interface Built {
   pendingAway: ReadonlySet<string>;
   /** personId -> the timeline row that put them away */
   byRecord: ReadonlyMap<string, TimelineRow>;
+  /** personId -> the Extra/RF that put them away from home */
+  byAssignment: ReadonlyMap<string, AssignmentRow>;
 }
 
 const TYPE_OF: Partial<Record<WbRecordKind, AbsenceType>> = { MC: "MC", HL: "HL", AL: "AL", OL: "OL", OFF: "OFF", MA: "MA" };
+
+const sgtFields = (r: { startAt: Date; endAt: Date | null }) => {
+  const s = toSgt(r.startAt);
+  const e = r.endAt ? toSgt(r.endAt) : null;
+  return { startDate: s.date, startTime: s.time, endDate: e?.date ?? null, endTime: e?.time ?? null };
+};
+
+/** v1's home absence for a man serving Extra/RF elsewhere: OTHERS "RF @ BDK", the duty's dates. */
+function sentAbsence(a: AssignmentRow, at: string): SnapshotAbsence {
+  return { id: `wba:${a.id}`, type: "OTHERS", otherReason: `${a.type} @ ${at}`, ...sgtFields(a), maTiming: "", maLocation: "" };
+}
 
 function asAbsence(r: TimelineRow): SnapshotAbsence {
   const s = toSgt(r.startAt);
@@ -85,10 +117,34 @@ export function snapshotFor(input: ForecastInput, window: Range, opts: SnapshotO
   }
   const pendingAway = new Set<string>();
   const byRecord = new Map<string, TimelineRow>();
+  const byAssignment = new Map<string, AssignmentRow>();
+
+  // Extra/RF/SOL in force at any moment of the window, as v1 duties
+  const people = new Map<string, SnapshotPerson & { campId: string }>();
+  const campName = new Map<string, string>();
+  for (const s of input.base.subunits)
+    for (const c of s.camps) {
+      campName.set(c.id, c.name);
+      for (const p of c.people) people.set(p.id, { ...p, campId: c.id });
+    }
+  const duties: SnapshotDuty[] = [];
+  const sentAway = new Map<string, AssignmentRow>();
+  for (const a of input.assignments ?? []) {
+    const who = people.get(a.personId);
+    if (!who || !overlaps(a, window)) continue;
+    duties.push({ id: `wba:${a.id}`, type: a.type, rank: who.rank, name: who.name, personId: a.personId, campId: a.campId, ...sgtFields(a) });
+    if (a.type !== "SOL" && a.campId !== who.campId && !sentAway.has(a.personId)) sentAway.set(a.personId, a);
+  }
 
   const person = (p: SnapshotPerson): SnapshotPerson => {
     const r = away.get(p.id);
-    if (!r) return { ...p, absence: null };
+    if (!r) {
+      // already away for a real reason (an MC): that absence is kept, as v1 does
+      const a = sentAway.get(p.id);
+      if (!a) return { ...p, absence: null };
+      byAssignment.set(p.id, a);
+      return { ...p, absence: sentAbsence(a, campName.get(a.campId) ?? "another camp") };
+    }
     byRecord.set(p.id, r);
     if (r.state === "PENDING" && r.id !== opts.assume) pendingAway.add(p.id);
     return { ...p, absence: asAbsence(r) };
@@ -104,10 +160,10 @@ export function snapshotFor(input: ForecastInput, window: Range, opts: SnapshotO
         return { ...c, onShift: on ?? c.onShift, people: c.people.map(person) };
       }),
     })),
-    // the parade state's Extra/RF/SOL aren't read; Phase 5's assignments go here
-    duties: [],
+    // the parade state's own Extra/RF/SOL aren't read: only wb_assignment
+    duties,
   };
-  return { snapshot, pendingAway, byRecord };
+  return { snapshot, pendingAway, byRecord, byAssignment };
 }
 
 /** The snapshot at one instant (spec: snapshotAt). */
@@ -127,6 +183,8 @@ export interface AwayPerson {
   dates: string;
   /** the timeline row, when it came from there */
   recordId: string | null;
+  /** the Extra/RF that sent him elsewhere, when that's why */
+  assignmentId: string | null;
   pending: boolean;
 }
 
@@ -186,6 +244,7 @@ export function manningOf(built: Built): CampManning[] {
           what: awayWhat(p),
           dates: awayDates(p.absence!),
           recordId: built.byRecord.get(p.id)?.id ?? null,
+          assignmentId: built.byAssignment.get(p.id)?.id ?? null,
           pending: built.pendingAway.has(p.id),
         })),
         duties: sentIn,
@@ -280,16 +339,25 @@ export interface WorstDay {
  * a day it isn't manned. Null when it's off for all of it.
  */
 export function worstDay(input: ForecastInput, record: TimelineRow & { campId: string }, minimum: Minimum | null): WorstDay | null {
-  const days = daysTouched(record);
+  return worstDayOf(input, record.campId, record, minimum, record.id);
+}
+
+/**
+ * The worst day of a camp over a range (most short, then fewest heads), days
+ * it's off shift left out. `assume` counts that record as away whatever its
+ * state. Null when the camp is off for all of it.
+ */
+export function worstDayOf(input: ForecastInput, campId: string, range: Range, minimum: Minimum | null, assume?: string): WorstDay | null {
+  const days = daysTouched(range);
   let worst: WorstDay | null = null;
   for (const date of days) {
-    const m = manningOf(snapshotFor(input, dayRange(date), { assume: record.id })).find((x) => x.campId === record.campId);
+    const m = manningOf(snapshotFor(input, dayRange(date), { assume })).find((x) => x.campId === campId);
     if (!m || !m.on) continue;
     const v = verdict(m, minimum);
     const score = [shortfall(v.gaps), -m.strength.present] as const;
     const best = worst ? ([shortfall(worst.verdict.gaps), -worst.manning.strength.present] as const) : null;
     if (!best || score[0] > best[0] || (score[0] === best[0] && score[1] > best[1])) {
-      const p = manningOf(snapshotFor(input, dayRange(date), { assume: record.id, pending: true })).find((x) => x.campId === record.campId)!;
+      const p = manningOf(snapshotFor(input, dayRange(date), { assume, pending: true })).find((x) => x.campId === campId)!;
       worst = { date, manning: m, verdict: v, withPending: verdict(p, minimum), pendingCount: p.away.filter((a) => a.pending).length, multiDay: days.length > 1 };
     }
   }

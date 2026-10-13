@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { camp, coy, subunit } from "@/lib/db/schema";
 import { loadSnapshot } from "@/lib/data/snapshot";
 import { toSgt } from "@/lib/parade/time";
-import { wbMinManning, wbRecord, wbShiftPattern } from "@/lib/wb/db/schema";
+import { wbAssignment, wbMinManning, wbRecord, wbShiftPattern } from "@/lib/wb/db/schema";
 import {
   forecastGrid,
   manningLine,
@@ -13,6 +13,8 @@ import {
   snapshotFor,
   verdict,
   worstDay,
+  worstDayOf,
+  type AssignmentRow,
   type CampManning,
   type ForecastInput,
   type GridRow,
@@ -122,6 +124,21 @@ async function timelineRows(range: Range, tx: Db = db): Promise<TimelineRow[]> {
     );
 }
 
+/** Live (ACTIVE) Extra/RF/SOL that touch a range. */
+export async function assignmentRows(range: Range, tx: Db = db): Promise<AssignmentRow[]> {
+  return tx
+    .select({
+      id: wbAssignment.id,
+      personId: wbAssignment.personId,
+      type: wbAssignment.type,
+      campId: wbAssignment.campId,
+      startAt: wbAssignment.startAt,
+      endAt: wbAssignment.endAt,
+    })
+    .from(wbAssignment)
+    .where(and(eq(wbAssignment.state, "ACTIVE"), lt(wbAssignment.startAt, range.endAt ?? new Date(8.64e15)), gt(wbAssignment.endAt, range.startAt)));
+}
+
 /** The coy these camps belong to (the forecast works one coy's parade state at a time). */
 async function coyOf(campIds: readonly string[]) {
   const [row] = await db.select({ c: coy }).from(coy).innerJoin(camp, eq(camp.coyId, coy.id)).where(inArray(camp.id, [...campIds])).limit(1);
@@ -135,8 +152,8 @@ async function coyOf(campIds: readonly string[]) {
 export async function forecastInput(range: Range, campIds: readonly string[], now: Date = new Date()): Promise<ForecastInput> {
   const owner = await coyOf(campIds);
   if (!owner) throw new Error("No coy for those camps");
-  const [base, patterns, records] = await Promise.all([loadSnapshot(owner), loadPatterns(), timelineRows(range)]);
-  return { base, now, patterns, records };
+  const [base, patterns, records, assignments] = await Promise.all([loadSnapshot(owner), loadPatterns(), timelineRows(range), assignmentRows(range)]);
+  return { base, now, patterns, records, assignments };
 }
 
 // ------------------------------------------------------------------ the card's line
@@ -159,6 +176,26 @@ export async function manningFor(r: RecordView, now: Date = new Date()): Promise
     const input = await forecastInput(r, [r.campId], now);
     const w = worstDay(input, { ...r, campId: r.campId }, minimum);
     return manningLine({ name: r.campName, isHq: false }, w, { minimum, ifMc: r.kind === "RSI" || r.kind === "RSO" }) || null;
+  } catch (e) {
+    console.error("wb manning:", e);
+    return null;
+  }
+}
+
+/**
+ * A camp's worst day over a range, as a line: "SFT A on 14/10 (worst day):
+ * 1:3:3 / min 1:4:3 — BELOW MINIMUM". What a commander needs when a man is
+ * sent away from it. Null for COY HQ or on any failure.
+ */
+export async function campManningLine(campId: string, range: Range, now: Date = new Date()): Promise<string | null> {
+  try {
+    const [camps, minimums] = await Promise.all([campsInfo(), loadMinimums()]);
+    const c = camps.find((x) => x.id === campId);
+    if (!c || c.isHq) return null;
+    const minimum = minimums.get(campId) ?? null;
+    if (!minimum) return manningLine(c, null, { minimum });
+    const input = await forecastInput(range, [campId], now);
+    return manningLine(c, worstDayOf(input, campId, range, minimum), { minimum }) || null;
   } catch (e) {
     console.error("wb manning:", e);
     return null;

@@ -7,7 +7,7 @@ import { clashLines } from "@/lib/wb/domain/clash";
 import type { GrantRow } from "@/lib/wb/domain/grants";
 import { canDecide, canProxy, DEAD_STATES, STANDING_STATES } from "@/lib/wb/domain/rules";
 import type { Range } from "@/lib/wb/domain/timeline";
-import { wbMember, wbRecord } from "@/lib/wb/db/schema";
+import { wbAssignment, wbMember, wbRecord } from "@/lib/wb/db/schema";
 
 // Read models for the timeline: one record with who it's about, a person's
 // history, pending requests in a commander's scope, the clash check.
@@ -127,7 +127,7 @@ export async function onensOwedFor(grants: readonly GrantRow[]): Promise<RecordV
   return rows.map(toView).filter((r) => canDecide(grants, r));
 }
 
-/** What's in the way of a new range: live absent records and open v1 duties. */
+/** What's in the way of a new range: live absent records, open v1 duties and live Extra/RF/SOL. */
 export async function clashFor(personId: string, range: Range, tx: Db = db): Promise<string[]> {
   const overlap = and(
     lt(wbRecord.startAt, range.endAt ?? new Date(8.64e15)),
@@ -149,7 +149,12 @@ export async function clashFor(personId: string, range: Range, tx: Db = db): Pro
     .from(duty)
     .innerJoin(camp, eq(camp.id, duty.campId))
     .where(and(eq(duty.personId, personId), isNull(duty.closedAt)));
-  return clashLines(range, records, duties);
+  const assignments = await tx
+    .select({ type: wbAssignment.type, campName: camp.name, startAt: wbAssignment.startAt, endAt: wbAssignment.endAt })
+    .from(wbAssignment)
+    .innerJoin(camp, eq(camp.id, wbAssignment.campId))
+    .where(and(eq(wbAssignment.personId, personId), eq(wbAssignment.state, "ACTIVE"), lt(wbAssignment.startAt, range.endAt ?? new Date(8.64e15)), gt(wbAssignment.endAt, range.startAt)));
+  return clashLines(range, records, duties, assignments);
 }
 
 /** The last MA, for "Same as last time?". */

@@ -17,6 +17,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { camp, person, subunit } from "../../db/schema";
 import { WB_ROLES, type WbRole } from "../domain/roles";
+import { RF_ROLES, WB_ASSIGNMENT_STATES, WB_ASSIGNMENT_TYPES, WB_RF_STATES } from "../domain/rf";
 import { WB_SHIFT_KINDS, type WbShiftKind } from "../domain/shifts";
 import { WB_ONENS, WB_RECORD_KINDS, WB_RECORD_STATES, WB_SEEN_BY, type WbRecordKind, type WbRecordState } from "../domain/rules";
 
@@ -313,3 +314,98 @@ export const wbMinManning = pgTable("wb_min_manning", {
   updatedBy: uuid("updated_by").references(() => wbMember.id, { onDelete: "set null" }),
   updatedAt: tstz("updated_at").defaultNow().notNull(),
 });
+
+// ---------------------------------------------------------------------------
+// Phase 5: RF requests and Extra/RF/SOL assignments. Nothing here writes v1
+// duty or absence: an assignment is counted by the forecast only, until
+// projection (Phase 6).
+// ---------------------------------------------------------------------------
+
+export const wbRfRole = pgEnum("wb_rf_role", RF_ROLES);
+export const wbRfState = pgEnum("wb_rf_state", WB_RF_STATES);
+export const wbAssignmentType = pgEnum("wb_assignment_type", WB_ASSIGNMENT_TYPES);
+export const wbAssignmentState = pgEnum("wb_assignment_state", WB_ASSIGNMENT_STATES);
+
+/** A camp saying it will be short: how many, of what, when, and why. */
+export const wbRfRequest = pgTable(
+  "wb_rf_request",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** where the men are needed */
+    campId: uuid("camp_id")
+      .notNull()
+      .references(() => camp.id, { onDelete: "cascade" }),
+    role: wbRfRole("role").notNull(),
+    need: integer("need").notNull(),
+    startAt: tstz("start_at").notNull(),
+    endAt: tstz("end_at").notNull(),
+    reason: text("reason").default("").notNull(),
+    raisedBy: uuid("raised_by").references(() => wbMember.id, { onDelete: "set null" }),
+    state: wbRfState("state").default("OPEN").notNull(),
+    closedBy: uuid("closed_by").references(() => wbMember.id, { onDelete: "set null" }),
+    closedAt: tstz("closed_at"),
+    createdAt: tstz("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("wb_rf_request_state_idx").on(t.state, t.startAt),
+    check("wb_rf_request_range", sql`${t.endAt} > ${t.startAt}`),
+    check("wb_rf_request_need", sql`${t.need} > 0`),
+  ],
+);
+
+/**
+ * Where a man stands, when it isn't his own camp's turn as usual: Extra or RF
+ * at another camp (absent at home, counted there), or SOL (leave stopped; he
+ * stands with his own physical camp). It says where he stands, not that he's
+ * away, so it's kept apart from wb_record (as Sabre Bot did). camp_id is his
+ * own camp for SOL, as in v1's duty table.
+ */
+export const wbAssignment = pgTable(
+  "wb_assignment",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => person.id, { onDelete: "cascade" }),
+    type: wbAssignmentType("type").notNull(),
+    campId: uuid("camp_id")
+      .notNull()
+      .references(() => camp.id, { onDelete: "cascade" }),
+    startAt: tstz("start_at").notNull(),
+    endAt: tstz("end_at").notNull(),
+    /** the request he was sent to, if any */
+    rfRequestId: uuid("rf_request_id").references(() => wbRfRequest.id, { onDelete: "set null" }),
+    note: text("note").default("").notNull(),
+    state: wbAssignmentState("state").default("ACTIVE").notNull(),
+    createdBy: uuid("created_by").references(() => wbMember.id, { onDelete: "set null" }),
+    createdAt: tstz("created_at").defaultNow().notNull(),
+    cancelledBy: uuid("cancelled_by").references(() => wbMember.id, { onDelete: "set null" }),
+    cancelledAt: tstz("cancelled_at"),
+  },
+  (t) => [
+    index("wb_assignment_person_range_idx").on(t.personId, t.startAt, t.endAt),
+    index("wb_assignment_request_idx").on(t.rfRequestId),
+    check("wb_assignment_range", sql`${t.endAt} > ${t.startAt}`),
+  ],
+);
+
+/**
+ * Every copy of an RF card, so a deploy or a close can edit them all (Sabre
+ * Bot kept this in memory and lost it on restart). `own` is the raiser's DM
+ * copy, which has Close and no Deploy.
+ */
+export const wbRfCard = pgTable(
+  "wb_rf_card",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    rfRequestId: uuid("rf_request_id")
+      .notNull()
+      .references(() => wbRfRequest.id, { onDelete: "cascade" }),
+    chatId: tgId("chat_id").notNull(),
+    threadId: tgId("thread_id"),
+    messageId: integer("message_id").notNull(),
+    own: boolean("own").default(false).notNull(),
+    sentAt: tstz("sent_at").defaultNow().notNull(),
+  },
+  (t) => [index("wb_rf_card_request_idx").on(t.rfRequestId)],
+);

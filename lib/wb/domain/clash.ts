@@ -33,8 +33,16 @@ export function dutyRange(d: ClashDuty): Range {
   return { startAt, endAt };
 }
 
+/** A live wb_assignment (Phase 5): Extra/RF/SOL he's already down for. */
+export interface ClashAssignment extends Range {
+  type: "EXTRA" | "RF" | "SOL";
+  campName: string;
+}
+
+const ASSIGNED: Record<ClashAssignment["type"], string> = { EXTRA: "Extra", RF: "RF", SOL: "SOL" };
+
 /** The lines to show, oldest first. Empty means nothing in the way. */
-export function clashLines(range: Range, records: readonly ClashRecord[], duties: readonly ClashDuty[]): string[] {
+export function clashLines(range: Range, records: readonly ClashRecord[], duties: readonly ClashDuty[], assignments: readonly ClashAssignment[] = []): string[] {
   const recs = records
     .filter((r) => r.absent && isLive(r.state) && overlaps(range, r))
     .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
@@ -43,5 +51,9 @@ export function clashLines(range: Range, records: readonly ClashRecord[], duties
     .map((d) => ({ d, r: dutyRange(d) }))
     .filter(({ r }) => overlaps(range, r))
     .map(({ d, r }) => `${d.type} @ ${d.campName}${d.startDate ? ` ${rangeLabel(r)}` : ""}`);
-  return [...recs, ...dut];
+  const asg = assignments
+    .filter((a) => overlaps(range, a))
+    .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
+    .map((a) => `${ASSIGNED[a.type]} @ ${a.campName} ${rangeLabel(a)}`);
+  return [...recs, ...dut, ...asg];
 }
