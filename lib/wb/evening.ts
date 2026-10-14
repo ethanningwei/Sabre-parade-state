@@ -13,6 +13,10 @@ import { rangeLabel } from "@/lib/wb/domain/timeline";
 import { shortBy } from "@/lib/wb/domain/rf";
 import { openRequests } from "@/lib/wb/rf-data";
 import { findViews } from "@/lib/wb/records";
+import { backData } from "@/lib/wb/domain/projection-kinds";
+import { v1End } from "@/lib/wb/domain/projection";
+import { dayMonth } from "@/lib/wb/domain/timeline";
+import { dueBack, projectionReport, syncProjection } from "@/lib/wb/projection";
 import { noticeText, onensData, outcomeButton } from "@/lib/wb/telegram/cards";
 import type { Button, Courier } from "@/lib/wb/telegram/courier";
 
@@ -43,6 +47,10 @@ export interface RoundSummary {
   short: number;
   /** RF requests still open */
   rf: number;
+  /** "Back?" messages sent to commanders chats (Phase 6, projection on) */
+  back: number;
+  /** the admin's shadow diff / projection report sent (Phase 6) */
+  projection: number;
 }
 
 const groupBy = <T, K>(rows: readonly T[], key: (r: T) => K) => {
@@ -71,7 +79,7 @@ async function claim(date: string, force: boolean): Promise<boolean> {
 
 export async function eveningRound(courier: Courier, now: Date = new Date(), { force = false } = {}): Promise<RoundSummary> {
   const today = todaySgt(now);
-  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0 };
+  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, back: 0, projection: 0 };
   if (!(await claim(today, force))) return { ...summary, skipped: true };
 
   const todayStart = dayRange(today).startAt;
@@ -168,6 +176,32 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
     summary.digests += await courier.send({ platoon: subunitId }, `🌙 Tonight · ${d.name}\n\n${d.parts.join("\n\n")}`, buttons.length ? buttons : undefined);
   }
 
+  // ---------------------------------------------------------------- projection (Phase 6)
+  // On: sync, then ask each platoon about everything ending before tomorrow's
+  // round, so each closes the moment it ends. Off: the admin's shadow diff.
+  try {
+    const res = await syncProjection(now);
+    if (res.live) {
+      const due = await dueBack(new Date(now.getTime() + 24 * 60 * 60 * 1000));
+      for (const rows of groupBy(due, (r) => r.subunitId).values()) {
+        const line = (r: (typeof rows)[number]) => {
+          const end = v1End(r.endAt);
+          return `• ${r.rank} ${r.name} (${r.campName}): ${r.what} ${r.endAt.getTime() <= now.getTime() ? "ended" : "to"} ${dayMonth(end.date)}${end.time ? ` ${end.time}` : ""}`;
+        };
+        const text = [
+          `🏠 Back? · ${rows.length} on the parade state`,
+          "Tap when he's back. The parade state marks him present once it ends, not before.",
+          rows.map(line).join("\n"),
+        ].join("\n\n");
+        const buttons: Button[][] = rows.map((r) => [{ text: `✅ ${r.rank} ${r.name} back`, data: backData(r.projectionId) }]);
+        summary.back += await courier.send({ platoon: rows[0].subunitId }, text, buttons);
+      }
+    }
+    if (bootstrapAdminIds().length) summary.projection = await courier.send({ admins: true }, await projectionReport(res));
+  } catch (e) {
+    console.error("wb evening projection:", e);
+  }
+
   // ---------------------------------------------------------------- heartbeat, last: one sent before the work would lie
   summary.heartbeats = await heartbeat(courier, now, summary);
   return summary;
@@ -193,7 +227,7 @@ async function heartbeat(courier: Courier, now: Date, s: RoundSummary): Promise<
     `${roster.n} on the roster · ${registered.n} registered\n` +
     `${pending.n} waiting on a decision · ${today.n} recorded today\n` +
     `${linked.n} commanders chats linked (${platoons.n} platoons)\n` +
-    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.digests} digests\n\n` +
+    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.digests} digests, ${s.back} Back? messages\n\n` +
     "Sent every evening. If an evening goes by without one, the bot isn't running.";
   return courier.send({ admins: true }, text);
 }

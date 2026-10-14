@@ -15,3 +15,7 @@ export type WbProjectionKind = (typeof WB_PROJECTION_KINDS)[number];
  */
 export const WB_PROJECTION_CLOSES = ["VOID", "BACK", "REPLACED", "STOOD_DOWN", "BY_HAND", "DONE"] as const;
 export type WbProjectionClose = (typeof WB_PROJECTION_CLOSES)[number];
+
+/** "✅ Back" on the evening "Back?" message: b:<projectionId>. */
+export const BACK_CALLBACK = /^b:([0-9a-f-]{36})$/;
+export const backData = (projectionId: string) => `b:${projectionId}`;

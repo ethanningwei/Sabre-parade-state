@@ -1,5 +1,5 @@
 // Drives /api/wb/setup on the deployment (or a tunnel to `next dev`):
-//   npm run wb:setup -- status | webhook | menu | commands | evening
+//   npm run wb:setup -- status | webhook | menu | commands | evening | diff
 // Reads WB_WEBHOOK_SECRET and WB_APP_URL from the environment or .env.local.
 // The bot token stays on the server; this script never sees it.
 import { existsSync, readFileSync } from "node:fs";

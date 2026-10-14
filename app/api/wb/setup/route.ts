@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { Api } from "grammy";
 import { featureOff } from "@/lib/flags";
 import { eveningRound } from "@/lib/wb/evening";
+import { diffNow } from "@/lib/wb/projection";
 import { ALLOWED_UPDATES, GROUP_COMMANDS, PRIVATE_COMMANDS } from "@/lib/wb/telegram/commands";
 import { miniAppUrl } from "@/lib/wb/telegram/links";
 import { courierOf } from "@/lib/wb/telegram/courier";
@@ -15,6 +16,8 @@ import { courierOf } from "@/lib/wb/telegram/courier";
 //   commands  command lists for private chats and groups
 //   evening   run the evening round now (forced: even if it ran today). Vercel
 //             crons only fire on production, so this is how a preview runs it
+//   diff      what the projector would write to the parade state now (read-only,
+//             whatever FEATURE_PROJECTION says)
 export async function POST(request: Request): Promise<Response> {
   const off = featureOff();
   if (off) return off;
@@ -50,10 +53,12 @@ export async function POST(request: Request): Promise<Response> {
         const me = await api.getMe();
         return Response.json(await eveningRound(courierOf({ api, botUsername: me.username }), new Date(), { force: true }));
       }
+      case "diff":
+        return Response.json({ projection: process.env.FEATURE_PROJECTION === "1" ? "on" : "off (shadow)", diff: (await diffNow()).split("\n") });
       case "status":
         break;
       default:
-        return Response.json({ error: "action must be status, webhook, menu, commands or evening" }, { status: 400 });
+        return Response.json({ error: "action must be status, webhook, menu, commands, evening or diff" }, { status: 400 });
     }
     const [me, hook, menu] = await Promise.all([api.getMe(), api.getWebhookInfo(), api.getChatMenuButton()]);
     return Response.json({

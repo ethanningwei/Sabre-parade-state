@@ -12,7 +12,7 @@ import { getCoyByKey, loadSnapshot } from "@/lib/data/snapshot";
 import { db } from "@/lib/db";
 import { absence, auditLog, camp, duty, person, user } from "@/lib/db/schema";
 import { sgtToInstant } from "@/lib/parade/time";
-import { wbAssignment, wbProjection, wbRecord, wbShiftEvent } from "@/lib/wb/db/schema";
+import { wbAssignment, wbMember, wbProjection, wbRecord, wbShiftEvent } from "@/lib/wb/db/schema";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
@@ -22,10 +22,14 @@ const { PROJECTOR_USER, syncProjection } = await import("@/lib/wb/projection");
 const { currentSnapshot } = await import("@/lib/data/current");
 const { generateParadeState } = await import("@/lib/actions/parade");
 const { inTx } = await import("@/lib/wb/core");
+const { confirmBack, dueBack } = await import("@/lib/wb/projection");
+const { eveningRound } = await import("@/lib/wb/evening");
+const { recordingCourier } = await import("./recording-courier");
 
 const at = (date: string, time = "0000") => sgtToInstant({ date, time });
 const NOW = at("2026-10-14", "1000");
 const GC = "projection-test-gc";
+const TG = 770001;
 
 let reachable = true;
 const ids = { tft: "", bdk: "", sftA: "", sftB: "" };
@@ -45,6 +49,7 @@ beforeEach(async () => {
   vi.stubEnv("FEATURE_WHEREABOUTS", "1");
   vi.stubEnv("FEATURE_PROJECTION", "");
   await db.delete(wbProjection);
+  await db.delete(wbMember).where(eq(wbMember.telegramUserId, TG));
   await db.delete(wbAssignment);
   await db.delete(wbShiftEvent);
   await db.delete(wbRecord);
@@ -88,6 +93,68 @@ const v1Counts = async () => ({
   duties: (await db.select({ id: duty.id }).from(duty).where(isNull(duty.closedAt))).length,
   onShift: (await db.select({ id: camp.id }).from(camp).where(eq(camp.onShift, true))).length,
   audit: (await db.select({ id: auditLog.id }).from(auditLog)).length,
+});
+
+describe("Back?", () => {
+  it("lists what ends before the next round; only his GC, PC or PS can confirm; it closes once it has ended", async (ctx) => {
+    if (!reachable) ctx.skip();
+    live();
+    await record({ kind: "MC", personId: t1, state: "RECORDED", startAt: at("2026-10-12"), endAt: at("2026-10-15") });
+    await record({ kind: "AL", personId: t2, startAt: at("2026-10-13"), endAt: at("2026-10-20") });
+    await syncProjection(NOW);
+    const due = await dueBack(at("2026-10-15", "1000"));
+    expect(due.map((d) => [d.personId, d.what])).toEqual([[t1, "MC"]]);
+
+    const [m] = await db.insert(wbMember).values({ telegramUserId: TG, registeredAt: new Date() }).returning();
+    const tftSub = (await db.select({ s: camp.subunitId }).from(camp).where(eq(camp.id, ids.tft)))[0].s;
+    const bdkGc = { id: m.id, personId: null, grants: [{ role: "GC" as const, subunitId: null, campId: ids.bdk }] };
+    expect(await confirmBack(bdkGc, due[0].projectionId, "BOT")).toMatchObject({ ok: false });
+    const ps = { id: m.id, personId: null, grants: [{ role: "PS" as const, subunitId: tftSub, campId: null }] };
+    // confirmed the evening before: noted, still MC until it ends (syncs run at the real time, long after)
+    await db.update(wbRecord).set({ endAt: new Date(Date.now() + 86_400_000) }).where(eq(wbRecord.personId, t1));
+    await syncProjection(new Date());
+    const [pending] = await dueBack(new Date(Date.now() + 2 * 86_400_000));
+    expect(await confirmBack(ps, pending.projectionId, "BOT")).toMatchObject({ ok: true, closed: false });
+    expect(await openOf(t1)).toMatchObject({ type: "MC" });
+    expect(await dueBack(new Date(Date.now() + 2 * 86_400_000))).toEqual([]);
+    // once it has ended, the next sync closes it
+    await syncProjection(new Date(Date.now() + 2 * 86_400_000));
+    expect(await openOf(t1)).toBeUndefined();
+  });
+
+  it("an MC extended after Back needs a new Back", async (ctx) => {
+    if (!reachable) ctx.skip();
+    live();
+    const mc = await record({ kind: "MC", personId: t1, state: "RECORDED", startAt: at("2026-10-12"), endAt: at("2026-10-15") });
+    await syncProjection(NOW);
+    await db.update(wbProjection).set({ backConfirmedAt: NOW });
+    await db.update(wbRecord).set({ endAt: at("2026-10-18") }).where(eq(wbRecord.id, mc.id));
+    await syncProjection(NOW);
+    expect((await db.select().from(wbProjection))[0].backConfirmedAt).toBeNull();
+    await syncProjection(at("2026-10-19"));
+    expect(await openOf(t1)).toMatchObject({ type: "MC", endDate: "2026-10-17" });
+  });
+
+  it("the evening round: Back? to the platoon when on, the shadow diff to the admins when off", async (ctx) => {
+    if (!reachable) ctx.skip();
+    vi.stubEnv("WB_ADMIN_TELEGRAM_IDS", "1");
+    await record({ kind: "AL", personId: t1, startAt: at("2026-10-13"), endAt: at("2026-10-15") });
+    const shadow = recordingCourier();
+    expect(await eveningRound(shadow, at("2026-10-14", "1900"), { force: true })).toMatchObject({ back: 0, projection: 1 });
+    const diff = shadow.sent.find((x) => "send" in x && "admins" in x.send);
+    expect(diff && "text" in diff && diff.text).toMatch(/^🔍 Shadow diff[\s\S]*TFT\n• .*: \+ AL 13\/10–14\/10/);
+    expect(await openOf(t1)).toBeUndefined();
+
+    live();
+    const on = recordingCourier();
+    const res = await eveningRound(on, at("2026-10-14", "1900"), { force: true });
+    expect(res).toMatchObject({ back: 1, projection: 1 });
+    const back = on.sent.find((x) => "send" in x && x.text.startsWith("🏠 Back?"));
+    expect(back && "buttons" in back && back.buttons?.[0][0].text).toMatch(/^✅ .* back$/);
+    expect(back && "text" in back && back.text).toContain("AL to 14/10");
+    expect(await openOf(t1)).toMatchObject({ type: "AL" });
+    vi.stubEnv("WB_ADMIN_TELEGRAM_IDS", "");
+  });
 });
 
 describe("shadow mode (FEATURE_PROJECTION off)", () => {

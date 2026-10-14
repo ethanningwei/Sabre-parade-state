@@ -1,13 +1,17 @@
 import "server-only";
 import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { setCampShiftCore, setStatusCore } from "@/lib/core/attendance";
 import type { Tx } from "@/lib/core/audit";
 import { endDutyCore, saveDutyCore } from "@/lib/core/duties";
 import { db } from "@/lib/db";
-import { absence, camp, duty, person, user } from "@/lib/db/schema";
+import { absence, camp, duty, person, subunit, user } from "@/lib/db/schema";
 import { UserError } from "@/lib/errors";
 import { isEnabled } from "@/lib/flags";
+import { wbAudit } from "@/lib/wb/audit";
+import type { Actor, Via } from "@/lib/wb/core";
 import { wbAssignment, wbProjection, wbRecord, wbShiftEvent } from "@/lib/wb/db/schema";
+import { hasGrant } from "@/lib/wb/domain/grants";
 import {
   absenceRow,
   dutyRow,
@@ -18,6 +22,8 @@ import {
   type PProjection,
   type Write,
 } from "@/lib/wb/domain/projection";
+import { formatProjection, type Who } from "@/lib/wb/domain/projection-report";
+import type { WbRole } from "@/lib/wb/domain/roles";
 import { STANDING_STATES } from "@/lib/wb/domain/rules";
 
 // The projector: the timeline into the parade state (status §3b, plan §4f).
@@ -205,7 +211,8 @@ async function apply(tx: Tx, w: Write, now: Date) {
       const [res] = await setStatusCore(tx, ME, { personIds: [w.personId], ...w.values });
       const wrote = absenceRow(w.values);
       if (w.replaces && res.after?.id === w.replaces.absenceId) {
-        await tx.update(wbProjection).set({ recordId: w.recordId, wrote, updatedAt: now }).where(eq(wbProjection.id, w.replaces.id));
+        // a new end (an MC extended) needs a new "Back"
+        await tx.update(wbProjection).set({ recordId: w.recordId, wrote, updatedAt: now, backConfirmedAt: null, backConfirmedBy: null }).where(eq(wbProjection.id, w.replaces.id));
         return;
       }
       if (w.replaces) await closeProjection(tx, w.replaces.id, "REPLACED", now);
@@ -220,7 +227,7 @@ async function apply(tx: Tx, w: Write, now: Date) {
     case "duty": {
       const saved = await saveDutyCore(tx, ME, { ...w.values, id: w.projection?.dutyId ?? undefined });
       const wrote = dutyRow(w.values);
-      if (w.projection) await tx.update(wbProjection).set({ wrote, updatedAt: now }).where(eq(wbProjection.id, w.projection.id));
+      if (w.projection) await tx.update(wbProjection).set({ wrote, updatedAt: now, backConfirmedAt: null, backConfirmedBy: null }).where(eq(wbProjection.id, w.projection.id));
       else await tx.insert(wbProjection).values({ kind: "DUTY", personId: w.personId, assignmentId: w.assignmentId, dutyId: saved.id, wrote, wroteAt: now, updatedAt: now });
       return;
     }
@@ -285,4 +292,116 @@ export async function syncQuietly(): Promise<void> {
   } catch (e) {
     console.error("projection sync failed", e);
   }
+}
+
+// ------------------------------------------------------------------ reporting
+
+/** Rank, name and camp of everyone on the roster, and camp names in roster order, for the report. */
+async function reportNames(): Promise<{ people: Map<string, Who>; camps: Map<string, string> }> {
+  const [people, camps] = await Promise.all([
+    db.select({ id: person.id, rank: person.rank, name: person.name, campId: person.campId }).from(person).where(eq(person.active, true)),
+    db.select({ id: camp.id, name: camp.name }).from(camp).innerJoin(subunit, eq(subunit.id, camp.subunitId)).orderBy(subunit.sortOrder, camp.sortOrder),
+  ]);
+  return { people: new Map(people.map((p) => [p.id, p])), camps: new Map(camps.map((c) => [c.id, c.name])) };
+}
+
+/** A sync's result in words: the admin's "🔍 Shadow diff" or "🔁 Projection". */
+export async function projectionReport(res: Pick<SyncResult, "plan" | "live" | "applied" | "failed">): Promise<string> {
+  return formatProjection({ ...res, ...(await reportNames()) });
+}
+
+/** The report for now without writing anything, whatever the flag says (`wb:setup -- diff`). */
+export async function diffNow(now: Date = new Date()): Promise<string> {
+  const plan = await planNow(now);
+  return projectionReport({ plan, live: false, applied: 0, failed: [] });
+}
+
+// ------------------------------------------------------------------ "Back?"
+
+/** Who may confirm a man is back: his camp's GC, his platoon's PC or PS, or OC, 2IC or CSM. */
+export const BACK_ROLES: readonly WbRole[] = ["GC", "PC", "PS", "OC", "2IC", "CSM"];
+
+export interface DueBack {
+  projectionId: string;
+  personId: string;
+  rank: string;
+  name: string;
+  campId: string;
+  campName: string;
+  subunitId: string;
+  /** "MC", "RF @ BDK", … */
+  what: string;
+  endAt: Date;
+}
+
+/**
+ * Projected absences and duties that have ended, or end before `until`, with
+ * no "Back" yet: the evening round asks about them the night before, so the
+ * projector can close each the moment it ends (a page load syncs).
+ */
+export async function dueBack(until: Date): Promise<DueBack[]> {
+  const who = { rank: person.rank, name: person.name, campId: person.campId, campName: camp.name, subunitId: camp.subunitId };
+  const absences = await db
+    .select({ projectionId: wbProjection.id, personId: person.id, ...who, type: absence.type, reason: absence.otherReason, endAt: wbRecord.endAt })
+    .from(wbProjection)
+    .innerJoin(wbRecord, eq(wbRecord.id, wbProjection.recordId))
+    .innerJoin(absence, eq(absence.id, wbProjection.absenceId))
+    .innerJoin(person, eq(person.id, wbProjection.personId))
+    .innerJoin(camp, eq(camp.id, person.campId))
+    .where(
+      and(
+        eq(wbProjection.kind, "ABSENCE"),
+        isNull(wbProjection.closedAt),
+        isNull(wbProjection.backConfirmedAt),
+        inArray(wbRecord.state, [...STANDING_STATES]),
+        lte(wbRecord.endAt, until),
+      ),
+    );
+  const serving = alias(camp, "serving");
+  const duties = await db
+    .select({ projectionId: wbProjection.id, personId: person.id, ...who, type: wbAssignment.type, at: serving.name, endAt: wbAssignment.endAt })
+    .from(wbProjection)
+    .innerJoin(wbAssignment, eq(wbAssignment.id, wbProjection.assignmentId))
+    .innerJoin(serving, eq(serving.id, wbAssignment.campId))
+    .innerJoin(person, eq(person.id, wbProjection.personId))
+    .innerJoin(camp, eq(camp.id, person.campId))
+    .where(
+      and(
+        eq(wbProjection.kind, "DUTY"),
+        isNull(wbProjection.closedAt),
+        isNull(wbProjection.backConfirmedAt),
+        eq(wbAssignment.state, "ACTIVE"),
+        lte(wbAssignment.endAt, until),
+      ),
+    );
+  return [
+    ...absences.map(({ type, reason, endAt, ...r }) => ({ ...r, what: type === "OTHERS" ? reason : type, endAt: endAt! })),
+    ...duties.map(({ type, at, ...r }) => ({ ...r, what: `${type} @ ${at}` })),
+  ].sort((a, b) => a.endAt.getTime() - b.endAt.getTime());
+}
+
+export type BackResult = { ok: true; label: string; closed: boolean } | { ok: false; error: string };
+
+/** "✅ Back" from the evening message: noted now, and the parade state marks him present once it has ended. */
+export async function confirmBack(actor: Actor, projectionId: string, via: Via): Promise<BackResult> {
+  const [row] = await db
+    .select({ p: wbProjection, rank: person.rank, name: person.name, campId: camp.id, subunitId: camp.subunitId })
+    .from(wbProjection)
+    .innerJoin(person, eq(person.id, wbProjection.personId))
+    .innerJoin(camp, eq(camp.id, person.campId))
+    .where(eq(wbProjection.id, projectionId));
+  if (!row) return { ok: false, error: "That's no longer on the parade state." };
+  const label = `${row.rank} ${row.name}`;
+  if (!hasGrant(actor.grants, BACK_ROLES, { subunitId: row.subunitId, campId: row.campId })) {
+    return { ok: false, error: `Only ${label}'s GC, PC or PS can say he's back.` };
+  }
+  if (row.p.closedAt) return { ok: true, label, closed: true };
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx.update(wbProjection).set({ backConfirmedAt: now, backConfirmedBy: actor.id, updatedAt: now }).where(and(eq(wbProjection.id, projectionId), isNull(wbProjection.closedAt)));
+    await wbAudit(tx, { memberId: actor.id, via, action: "confirm-back", entity: "wb_projection", entityId: projectionId });
+  });
+  await syncQuietly();
+  const [after] = await db.select({ closedAt: wbProjection.closedAt }).from(wbProjection).where(eq(wbProjection.id, projectionId));
+  return { ok: true, label, closed: !!after?.closedAt };
 }

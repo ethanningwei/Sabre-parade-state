@@ -13,6 +13,8 @@ import { memberLabel, recordView } from "@/lib/wb/records";
 import { markOnens } from "@/lib/wb/outcome";
 import { RF_CALLBACK } from "@/lib/wb/domain/rf";
 import { closeRf } from "@/lib/wb/rf";
+import { BACK_CALLBACK } from "@/lib/wb/domain/projection-kinds";
+import { confirmBack } from "@/lib/wb/projection";
 import { CARD_CALLBACK, ONENS_CALLBACK } from "./cards";
 import { matchSubunit, QUICK_COMMANDS } from "./commands";
 import { miniAppLink, miniAppUrl } from "./links";
@@ -201,6 +203,23 @@ async function onRfClose(ctx: Context) {
   await ctx.answerCallbackQuery(res.ok ? { text: "Closed" } : { text: res.error, show_alert: true });
 }
 
+/** "✅ … back" on the evening "Back?" message: b:<projectionId>. Drops that man's button once noted. */
+async function onBack(ctx: Context) {
+  const [, projectionId] = ctx.match as RegExpMatchArray;
+  const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
+  if (!member?.registeredAt) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
+  const res = await confirmBack(actorOf(member), projectionId, "BOT");
+  if (!res.ok) return void (await ctx.answerCallbackQuery({ text: res.error, show_alert: true }));
+  await ctx.answerCallbackQuery({ text: res.closed ? `${res.label}: marked present` : `${res.label}: noted, marked present when it ends` });
+  const kb = ctx.callbackQuery?.message?.reply_markup?.inline_keyboard ?? [];
+  const left = kb.filter((row) => !row.some((b) => "callback_data" in b && b.callback_data === ctx.callbackQuery?.data));
+  try {
+    await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: left } });
+  } catch (e) {
+    console.error("wb back edit:", e);
+  }
+}
+
 /** A reply to a "Say why" prompt. Anything else passes through untouched. */
 async function onReply(ctx: Context, next: NextFunction) {
   const replyTo = ctx.msg?.reply_to_message;
@@ -234,6 +253,7 @@ export function createBot(token: string, botInfo?: UserFromGetMe): Bot {
   safe.callbackQuery(CARD_CALLBACK, onCard);
   safe.callbackQuery(ONENS_CALLBACK, onOnens);
   safe.callbackQuery(RF_CALLBACK, onRfClose);
+  safe.callbackQuery(BACK_CALLBACK, onBack);
   safe.on("message:text", onReply);
   // an old or unknown button: at least stop the spinner
   safe.on("callback_query:data", (ctx) => ctx.answerCallbackQuery());
