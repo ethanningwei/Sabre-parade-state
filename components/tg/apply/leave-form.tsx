@@ -27,7 +27,8 @@ const STEPS: { step: Step; label: string; back?: Step }[] = [
 const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const weekday = (date: string) => WEEKDAY[new Date(`${date}T00:00:00Z`).getUTCDay()];
 
-export function LeaveForm({ kind, today, leaveLeft }: { kind: Kind; today: string; leaveLeft: number }) {
+/** `noApproval`: OC, 2IC and CSM, whose own requests are recorded as they're sent. */
+export function LeaveForm({ kind, today, leaveLeft, noApproval = false }: { kind: Kind; today: string; leaveLeft: number; noApproval?: boolean }) {
   const [step, setStep] = useState<Step>("dates");
   const [dates, setDates] = useState({ startDate: today, startTime: "00:00", endDate: today, endTime: "23:59" });
   const [clash, setClash] = useState<string[]>([]);
@@ -233,7 +234,7 @@ export function LeaveForm({ kind, today, leaveLeft }: { kind: Kind; today: strin
             </div>
           )}
           <Submit pending={pending} disabled={!reason || (reason === "OTHER" && !reasonOther.trim())}>
-            Send for approval
+            {noApproval ? "Record it" : "Send for approval"}
           </Submit>
         </form>
       )}
