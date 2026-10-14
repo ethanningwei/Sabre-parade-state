@@ -1,5 +1,6 @@
 import { ClipboardCheck, KeyRound, MessagesSquare, Users } from "lucide-react";
 import { Header } from "@/components/tg/form-bits";
+import { ParadeStateTile } from "@/components/tg/parade-state-tile";
 import { Tile } from "@/components/tg/tile";
 import { Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
@@ -17,6 +18,7 @@ export default async function AdminHome() {
           <Tile href="/tg/admin/members" icon={<Users />} title="Members" hint="Link to the roster, unlink, deactivate" />
           <Tile href="/tg/admin/grants" icon={<KeyRound />} title="Grants" hint="Who is PS, PC, OC… and where" />
           <Tile href="/tg/admin/chats" icon={<MessagesSquare />} title="Commanders' chats" hint="Linked with /here" />
+          <ParadeStateTile />
           <Tile href="/tg/admin/projection" icon={<ClipboardCheck />} title="Projection" hint="Into the parade state: on or off, and what would change" />
         </Group>
       </nav>

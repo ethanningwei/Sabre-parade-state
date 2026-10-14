@@ -4,6 +4,7 @@ import { and, count, eq, gt, lt, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { appSession, loginFailure, user } from "@/lib/db/schema";
+import { forgetFromTelegram } from "@/lib/wb/from-telegram";
 
 export const SESSION_COOKIE = "sabre_session";
 const SESSION_DAYS = 30;
@@ -93,4 +94,5 @@ export async function endSession() {
   const token = jar.get(SESSION_COOKIE)?.value;
   if (token) await db.delete(appSession).where(eq(appSession.tokenHash, sha256(token)));
   jar.delete(SESSION_COOKIE);
+  await forgetFromTelegram(); // the Mini App's "Back to Sabre" marker; nothing with FEATURE_WHEREABOUTS off
 }

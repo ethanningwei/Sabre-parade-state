@@ -1,6 +1,7 @@
 import { ArrowLeftRight, Bus, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock, CloudUpload, History, ListChecks, Settings, UserPen, UserPlus, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ParadeStateTile } from "@/components/tg/parade-state-tile";
 import { StateChip } from "@/components/tg/record-summary";
 import { Tile } from "@/components/tg/tile";
 import { Group } from "@/components/tg/ui";
@@ -13,7 +14,7 @@ import { todaySgt } from "@/lib/wb/domain/timeline";
 import { place } from "@/lib/wb/format";
 import { rosterSelf } from "@/lib/wb/me";
 import { profileOf } from "@/lib/wb/members";
-import { ADMIN_ROLES, GAPS_ROLES } from "@/lib/wb/permissions";
+import { ADMIN_ROLES, GAPS_ROLES, PARADE_STATE_ROLES } from "@/lib/wb/permissions";
 import { nowAndNext, onensOwedFor, pendingFor, type RecordView } from "@/lib/wb/records";
 import { assignmentsOf, openRequests } from "@/lib/wb/rf-data";
 
@@ -32,7 +33,8 @@ export default async function TgHome() {
   const shifts = editsShiftsAnything(member.grants);
   const rf = rfAnything(member.grants);
   const [openRf, duties] = await Promise.all([rf ? openRequests().then((o) => o.length) : 0, self ? assignmentsOf(self.personId) : []]);
-  const commands = decides || hoto || shifts || rf || proxiesAnything(member.grants) || hasGrant(member.grants, GAPS_ROLES, "any");
+  const parade = hasGrant(member.grants, PARADE_STATE_ROLES, "any");
+  const commands = parade || decides || hoto || shifts || rf || proxiesAnything(member.grants) || hasGrant(member.grants, GAPS_ROLES, "any");
 
   return (
     <div className="flex flex-col gap-6">
@@ -78,6 +80,7 @@ export default async function TgHome() {
         )}
         {commands && (
           <Group title="Commander" rows>
+            {parade && <ParadeStateTile />}
             {decides && <Tile href="/tg/approvals" icon={<ClipboardCheck />} title="Approvals" badge={waiting} hint="Requests waiting on you" />}
             {decides && <Tile href="/tg/onens" icon={<CloudUpload />} title="ONENS owed" badge={owed} hint="Civilian MCs not uploaded yet" />}
             {decides && <Tile href={`/tg/day/${todaySgt()}`} icon={<CalendarDays />} title="Today" hint="Who's on shift, who's away, who's on status" />}

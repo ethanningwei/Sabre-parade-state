@@ -106,6 +106,22 @@ describe("every whereabouts entry point is guarded", () => {
     expect(readFileSync(f, "utf8")).toMatch(/featureOff\(/);
   });
 
+  // "Parade state" from the Mini App: v1's layout and sign-out reach it only
+  // through lib/wb/from-telegram.ts, whose every export checks the flag first.
+  it("v1's way back to Sabre exists only with the flag on", () => {
+    const layout = readFileSync(join(root, "app/(app)/layout.tsx"), "utf8");
+    expect(layout).toMatch(/\bfromTelegram\(\)/);
+    expect(layout.match(/<BackToSabre\b[^>]*\/>/g)).toEqual(["<BackToSabre />"]);
+    expect(layout).toMatch(/\{fromTg && <BackToSabre \/>\}/);
+    expect(readFileSync(join(root, "lib/session.ts"), "utf8")).toMatch(/await forgetFromTelegram\(\);/);
+
+    const helpers = readFileSync(join(root, "lib/wb/from-telegram.ts"), "utf8");
+    const readers = helpers.match(/^export async function (fromTelegram|forgetFromTelegram)\(\)[^{]*\{\n\s+if \(!isEnabled\("WHEREABOUTS"\)\) return/gm) ?? [];
+    expect(readers).toHaveLength(2);
+    // the only setter is called from the guarded action's path
+    expect(readFileSync(join(root, "lib/wb/actions/parade.ts"), "utf8")).toMatch(/requireFeature\(\);\n\s+return run/);
+  });
+
   it.each(files(join(root, "lib/wb/actions")))("every action in %s calls requireFeature()", (f) => {
     const src = readFileSync(f, "utf8");
     const actions = src.match(/^export async function \w+/gm) ?? [];
