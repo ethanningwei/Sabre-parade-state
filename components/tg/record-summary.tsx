@@ -1,7 +1,7 @@
 import { Ban, Check, Clock, CloudUpload, Undo2, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { KIND_LABEL, recordWhat, STATE_LABEL } from "@/lib/wb/domain/describe";
-import { costsLeave, isLive, type WbRecordState } from "@/lib/wb/domain/rules";
+import { approvedOnSave, approverOf, costsLeave, isLive, NO_APPROVAL_NOTE, type WbRecordState } from "@/lib/wb/domain/rules";
 import { dayMonthYear, rangeLabel } from "@/lib/wb/domain/timeline";
 import type { RecordView } from "@/lib/wb/records";
 import { enter } from "./ui";
@@ -67,13 +67,13 @@ function details(r: RecordView): string {
 function decision(r: RecordView): string | null {
   switch (r.state) {
     case "APPROVED":
-      return `Approved by ${r.deciderLabel ?? "a commander"}`;
+      return approvedOnSave(r) ? NO_APPROVAL_NOTE : `Approved by ${r.deciderLabel ?? "a commander"}`;
     case "REJECTED":
       return `Rejected by ${r.deciderLabel ?? "a commander"}${r.decisionNote ? `: “${r.decisionNote}”` : ""}`;
     case "CANCELLED":
       return r.decisionNote ?? "Voided";
     case "PENDING":
-      return "Waiting for your PC or PS";
+      return `Waiting for ${approverOf(r.ownerRoles) ?? "your PC or PS"}`;
     default:
       return r.createdVia === "PROXY" ? "Added by a commander" : null;
   }

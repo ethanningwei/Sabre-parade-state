@@ -5,13 +5,18 @@ import type { GrantRow } from "@/lib/wb/domain/grants";
 import { holidayOn } from "@/lib/wb/domain/holidays";
 import {
   accessTo,
+  approverOf,
   canDecide,
+  canDecideRequest,
   canProxy,
+  decideRefusalText,
   decidesAnything,
   initialState,
   leaveChange,
   leaveRefusal,
+  needsNoApproval,
   nextState,
+  NO_APPROVAL_NOTE,
   undoRefusal,
   UNDO_WINDOW_MS,
   WB_RECORD_STATES,
@@ -42,6 +47,64 @@ describe("rules: who decides", () => {
   it("decidesAnything: any PC/PS, or company HQ", () => {
     expect(decidesAnything([g("PS", { subunitId: "pl5" })])).toBe(true);
     expect(decidesAnything([g("GC", { campId: "x" }), g("ADMIN")])).toBe(false);
+  });
+
+  describe("a request goes to someone above whoever asked (2026-10-14)", () => {
+    const req = (personId: string, ownerRoles: GrantRow["role"][]) => ({ ...PL6, personId, ownerRoles });
+    const ps = { personId: "ps", grants: [g("PS", { subunitId: "pl6" })] };
+    const pc = { personId: "pc", grants: [g("PC", { subunitId: "pl6" })] };
+    const oc = { personId: "oc", grants: [g("OC")] };
+    const csm = { personId: "csm", grants: [g("CSM")] };
+
+    it("a trooper's or GC's: his PC or PS, or company HQ", () => {
+      for (const roles of [[], ["GC"]] as GrantRow["role"][][]) {
+        expect(canDecideRequest(ps, req("t", roles))).toBe(true);
+        expect(canDecideRequest(pc, req("t", roles))).toBe(true);
+        expect(canDecideRequest(oc, req("t", roles))).toBe(true);
+      }
+    });
+
+    it("a PS's: the PC or company HQ, never another PS", () => {
+      expect(canDecideRequest({ personId: "ps2", grants: [g("PS", { subunitId: "pl6" })] }, req("ps", ["PS"]))).toBe(false);
+      expect(canDecideRequest(pc, req("ps", ["PS"]))).toBe(true);
+      expect(canDecideRequest(csm, req("ps", ["PS"]))).toBe(true);
+    });
+
+    it("a PC's: OC, 2IC or CSM only", () => {
+      expect(canDecideRequest(ps, req("pc", ["PC"]))).toBe(false);
+      expect(canDecideRequest({ personId: "pc2", grants: [g("PC", { subunitId: "pl6" })] }, req("pc", ["PC"]))).toBe(false);
+      expect(canDecideRequest(csm, req("pc", ["PC"]))).toBe(true);
+      expect(canDecideRequest(oc, req("pc", ["PC"]))).toBe(true);
+    });
+
+    it("nobody decides their own, except an ADMIN", () => {
+      expect(canDecideRequest(ps, req("ps", ["PS"]))).toBe(false);
+      expect(canDecideRequest(oc, req("oc", ["OC"]))).toBe(false);
+      const admin = { personId: "ps", grants: [g("PS", { subunitId: "pl6" }), g("ADMIN")] };
+      expect(canDecideRequest(admin, req("ps", ["PS", "ADMIN"]))).toBe(true);
+      // ADMIN alone still needs a deciding grant over himself
+      expect(canDecideRequest({ personId: "t", grants: [g("ADMIN")] }, req("t", ["ADMIN"]))).toBe(false);
+    });
+
+    it("OC, 2IC and CSM need no approval; the others are told who approves", () => {
+      expect(needsNoApproval([g("2IC")])).toBe(true);
+      expect(needsNoApproval([g("PC", { subunitId: "pl6" })])).toBe(false);
+      expect(approverOf([])).toBe("your PC or PS");
+      expect(approverOf(["PS"])).toBe("your PC, OC, 2IC or CSM");
+      expect(approverOf(["PC"])).toBe("OC, 2IC or CSM");
+      expect(approverOf(["CSM"])).toBeNull();
+    });
+
+    it("the refusal says why", () => {
+      expect(decideRefusalText(ps, { ...req("ps", ["PS"]), subunitName: "PLATOON 6" })).toMatch(/your own/);
+      expect(decideRefusalText(ps, { ...req("pc", ["PC"]), subunitName: "PLATOON 6" })).toBe("Only OC, 2IC or CSM can decide this.");
+      expect(decideRefusalText({ personId: "x" }, { ...req("ps", ["PS"]), subunitName: "PLATOON 6" })).toMatch(/PLATOON 6's PC/);
+    });
+
+    it("approved on save can't be undone, only voided", () => {
+      const auto = { state: "APPROVED" as const, decidedBy: "m", decidedAt: new Date(), decisionNote: NO_APPROVAL_NOTE };
+      expect(undoRefusal(auto, "m", "you")).toMatch(/Void it instead/);
+    });
   });
 
   it("a camp's GC can add events for that camp only", () => {
@@ -174,7 +237,7 @@ describe("describe", () => {
 
 describe("rules: accessTo", () => {
   const now = new Date("2026-08-27T10:00:00Z");
-  const rec = { subunitId: "pl6", campId: "sft-a", personId: "p1", state: "PENDING" as const, decidedBy: null, decidedAt: null, decisionNote: null };
+  const rec = { subunitId: "pl6", campId: "sft-a", personId: "p1", ownerRoles: [], state: "PENDING" as const, decidedBy: null, decidedAt: null, decisionNote: null };
   const trooper = { id: "m1", personId: "p1", grants: [] };
   const ps = { id: "m2", personId: "p2", grants: [g("PS", { subunitId: "pl6" })] };
   const stranger = { id: "m3", personId: "p3", grants: [g("GC", { campId: "sft-a" })] };
@@ -183,6 +246,10 @@ describe("rules: accessTo", () => {
     expect(accessTo(trooper, rec, now)).toEqual({ view: true, decide: false, undo: false, sayWhy: false, void: false, withdraw: true });
     expect(accessTo(ps, rec, now)).toEqual({ view: true, decide: true, undo: false, sayWhy: false, void: false, withdraw: false });
     expect(accessTo(stranger, rec, now).view).toBe(false);
+  });
+
+  it("a PS sees his own pending request but can't decide it", () => {
+    expect(accessTo(ps, { ...rec, personId: "p2", ownerRoles: ["PS"] }, now)).toMatchObject({ view: true, decide: false, withdraw: true });
   });
 
   it("after a rejection the decider may undo and say why, once", () => {

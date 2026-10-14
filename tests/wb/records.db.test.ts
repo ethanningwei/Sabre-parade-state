@@ -85,7 +85,7 @@ afterAll(async () => {
   await db.$client.end();
 });
 
-type Role = "PS" | "PC" | "GC" | "OC" | "ASA";
+type Role = "PS" | "PC" | "GC" | "OC" | "ASA" | "ADMIN";
 async function member(tgId: number, personId: string | null, grants: { role: Role; subunitId?: string; campId?: string }[] = [], leaveLeft = 14) {
   const [m] = await db.insert(wbMember).values({ telegramUserId: tgId, tgName: `T${tgId}`, personId, registeredAt: new Date(), leaveLeft, source: personId ? "ROSTER" : "SELF" }).returning();
   for (const g of grants) await db.insert(wbGrant).values({ memberId: m.id, role: g.role, subunitId: g.subunitId ?? null, campId: g.campId ?? null });
@@ -134,6 +134,76 @@ async function applyAl(over: Record<string, unknown> = {}) {
   if (!res.ok) throw new Error(res.error);
   return res.data.recordId;
 }
+
+describe("approval chain (DB, 2026-10-14)", () => {
+  const PC = 3001;
+  const OC = 4001;
+  const psApplies = async () => {
+    await as(PS);
+    const res = await actions.applyLeave(al());
+    if (!res.ok) throw new Error(res.error);
+    return res.data;
+  };
+
+  it("a PS's own request: he can't decide it, the PC can", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await setup();
+    await member(PC, pl6People[0], [{ role: "PC", subunitId: pl6 }]);
+    const { recordId, approved } = await psApplies();
+    expect(approved).toBe(false);
+    const { pendingFor } = await import("@/lib/wb/records");
+    expect((await pendingFor(await actorOf(PS))).map((r) => r.id)).not.toContain(recordId);
+    expect((await pendingFor(await actorOf(PC))).map((r) => r.id)).toContain(recordId);
+
+    expect(await actions.decideRecord({ recordId, action: "approve" })).toEqual({ ok: false, error: "You can't decide your own request. It's with the commander above you." });
+    await as(PC);
+    expect(await actions.decideRecord({ recordId, action: "approve" })).toEqual({ ok: true, data: { state: "APPROVED" } });
+    expect(await leaveOf(PS)).toBe(11);
+  });
+
+  it("a PC's own request goes to COY HQ's chat too, for OC/2IC/CSM", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await setup();
+    const [{ id: hq }] = await db.select({ id: subunit.id }).from(subunit).where(eq(subunit.name, "COY HQ"));
+    await db.insert(wbCommanderChat).values({ subunitId: hq, chatId: -1009, threadId: null, chatTitle: "COY HQ" });
+    await member(PC, pl6People[0], [{ role: "PC", subunitId: pl6 }]);
+    await as(PC);
+    const res = await actions.applyLeave(al());
+    if (!res.ok) throw new Error(res.error);
+    expect(sends().map((c) => c.payload.chat_id)).toEqual([-1006, -1009]);
+    expect(await db.select().from(wbCard).where(eq(wbCard.recordId, res.data.recordId))).toHaveLength(2);
+  });
+
+  it("an ADMIN may approve his own", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await member(TROOPER, irfan);
+    await member(PS, chunHei, [{ role: "PS", subunitId: pl6 }, { role: "ADMIN" }]);
+    const { recordId } = await psApplies();
+    expect(await actions.decideRecord({ recordId, action: "approve" })).toEqual({ ok: true, data: { state: "APPROVED" } });
+  });
+
+  it("OC/2IC/CSM: saved approved, leave spent, the card says no approval needed and has no Undo", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await setup();
+    await member(OC, pl6People[1], [{ role: "OC" }]);
+    await as(OC);
+    const res = await actions.applyLeave(al());
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.approved).toBe(true);
+    const [row] = await db.select().from(wbRecord).where(eq(wbRecord.id, res.data.recordId));
+    expect(row).toMatchObject({ state: "APPROVED", decisionNote: "No approval needed" });
+    expect(await leaveOf(OC)).toBe(11);
+
+    const card = sends().find((c) => c.payload.chat_id === -1006)!;
+    expect(card.payload.text).toContain("✅ No approval needed");
+    expect(JSON.stringify(card.payload.reply_markup)).not.toContain("Undo");
+
+    expect(await actions.undoDecision({ recordId: res.data.recordId })).toMatchObject({ ok: false, error: expect.stringMatching(/Void it instead/) });
+    // voiding gives the days back
+    expect(await actions.voidEntry({ recordId: res.data.recordId, reason: "Not going" })).toMatchObject({ ok: true });
+    expect(await leaveOf(OC)).toBe(14);
+  });
+});
 
 describe("timeline (DB)", () => {
   it("AL: saved PENDING, card in the platoon's topic, approve spends, undo refunds", async (ctx) => {

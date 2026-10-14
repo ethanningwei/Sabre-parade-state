@@ -97,7 +97,11 @@ export function LeaveForm({ kind, today, leaveLeft }: { kind: Kind; today: strin
     );
 
   if (step === "done" && result) {
-    return <Done title="Sent for approval" delivery={result.delivery} subunitName={result.subunitName} needsApproval />;
+    return result.approved ? (
+      <Done title="Recorded" delivery={result.delivery} subunitName={result.subunitName} needsApproval={false} note="No approval needed." />
+    ) : (
+      <Done title="Sent for approval" delivery={result.delivery} subunitName={result.subunitName} needsApproval />
+    );
   }
 
   const cost = days.length;

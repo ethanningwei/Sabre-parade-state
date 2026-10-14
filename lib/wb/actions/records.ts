@@ -53,6 +53,8 @@ export interface Submitted {
   /** where the card went: "sent", "no-chat" (the platoon hasn't linked one), or "failed" */
   delivery: Delivery | null;
   subunitName: string;
+  /** saved approved: OC, 2IC and CSM need no approval */
+  approved: boolean;
 }
 
 async function submitOwn(rec: Omit<NewRecord, "personId" | "memberId" | "createdVia">): Promise<Submitted> {
@@ -63,7 +65,7 @@ async function submitOwn(rec: Omit<NewRecord, "personId" | "memberId" | "created
     [{ ...rec, personId: me.personId, memberId: me.member.id, createdVia: "SELF" }],
     "MINIAPP",
   );
-  return { recordId: records[0].id, delivery, subunitName: me.subunitName };
+  return { recordId: records[0].id, delivery, subunitName: me.subunitName, approved: records[0].state === "APPROVED" };
 }
 
 // ------------------------------------------------------------------ clash

@@ -1,6 +1,6 @@
 import type { InlineKeyboardButton, InlineKeyboardMarkup } from "grammy/types";
 import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
-import { costsLeave, type WbOnens, type WbRecordKind, type WbRecordState } from "@/lib/wb/domain/rules";
+import { approvedOnSave, costsLeave, NO_APPROVAL_NOTE, type WbOnens, type WbRecordKind, type WbRecordState } from "@/lib/wb/domain/rules";
 import { place } from "@/lib/wb/format";
 import { miniAppLink } from "./links";
 
@@ -87,7 +87,7 @@ export function decisionLine(r: CardRecord): string {
   const by = r.deciderLabel ?? "a commander";
   switch (r.state) {
     case "APPROVED":
-      return `✅ Approved by ${by}`;
+      return approvedOnSave(r) ? `✅ ${NO_APPROVAL_NOTE}` : `✅ Approved by ${by}`;
     case "REJECTED":
       return `❌ Rejected by ${by}` + (r.decisionNote ? `\nWhy: ${r.decisionNote}` : "");
     case "CANCELLED":
@@ -116,7 +116,7 @@ export function cardKeyboard(r: CardRecord, botUsername: string): InlineKeyboard
       { text: "✅ Approve", callback_data: cardData(r.id, "a") },
       { text: "❌ Reject", callback_data: cardData(r.id, "r") },
     ]);
-  } else if (r.state === "APPROVED") {
+  } else if (r.state === "APPROVED" && !approvedOnSave(r)) {
     rows.push([{ text: "↩ Undo", callback_data: cardData(r.id, "u") }]);
   } else if (r.state === "REJECTED") {
     // Say why goes once a reason is in: it's optional and after the fact, so a

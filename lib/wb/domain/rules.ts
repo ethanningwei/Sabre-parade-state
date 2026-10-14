@@ -124,6 +124,60 @@ export interface Where {
 export const canDecide = (grants: readonly GrantRow[], where: Where) =>
   hasGrant(grants, PLATOON_DECIDERS, where) || hasGrant(grants, COMPANY_DECIDERS, "company");
 
+/** A request and whose it is: the roles the man it's about holds (wb_grant, any scope). */
+export interface Request extends Where {
+  personId: string;
+  ownerRoles: readonly WbRole[];
+}
+
+/**
+ * OC, 2IC and CSM record their own leave, off and report sick without asking
+ * anyone (the user, 2026-10-14): it's approved the moment it's saved.
+ */
+export const needsNoApproval = (grants: readonly GrantRow[]) => hasGrant(grants, COMPANY_DECIDERS, "any");
+
+/** Marks a record approved at submission because its owner needs no approval. */
+export const NO_APPROVAL_NOTE = "No approval needed";
+
+/** The platoon roles that may decide this man's requests: a PS's go to the PC, a PC's (and company HQ's) to OC/2IC/CSM only. */
+function platoonDecidersFor(ownerRoles: readonly WbRole[]): readonly WbRole[] {
+  if (ownerRoles.some((r) => r === "PC" || COMPANY_DECIDERS.includes(r))) return [];
+  if (ownerRoles.includes("PS")) return ["PC"];
+  return PLATOON_DECIDERS;
+}
+
+/**
+ * Approving or rejecting needs someone above the man who asked (the user,
+ * 2026-10-14): a trooper's or GC's request goes to his PC or PS, a PS's to the
+ * PC, a PC's to OC/2IC/CSM, and OC/2IC/CSM decide anyone's but their own.
+ * Nobody decides their own, except an ADMIN (so the app can be tested alone).
+ */
+export function canDecideRequest(viewer: { personId: string | null; grants: readonly GrantRow[] }, r: Request): boolean {
+  if (viewer.personId === r.personId) return hasGrant(viewer.grants, ["ADMIN"], "any") && canDecide(viewer.grants, r);
+  return hasGrant(viewer.grants, platoonDecidersFor(r.ownerRoles), r) || hasGrant(viewer.grants, COMPANY_DECIDERS, "company");
+}
+
+/** A PC's requests (and company HQ's) are decided by OC, 2IC or CSM only: their cards go to COY HQ's chat too. */
+export const onlyCompanyDecides = (ownerRoles: readonly WbRole[]) => platoonDecidersFor(ownerRoles).length === 0;
+
+/** Who approves this man's requests, for the Apply screen and a pending record: "your PC or PS", or null when nobody needs to. */
+export function approverOf(ownerRoles: readonly WbRole[]): string | null {
+  if (ownerRoles.some((r) => COMPANY_DECIDERS.includes(r))) return null;
+  const deciders = platoonDecidersFor(ownerRoles);
+  if (!deciders.length) return "OC, 2IC or CSM";
+  if (deciders.length === 1) return "your PC, OC, 2IC or CSM";
+  return "your PC or PS";
+}
+
+/** Why this viewer can't decide this request, in words. */
+export function decideRefusalText(viewer: { personId: string | null }, r: Request & { subunitName: string }): string {
+  if (viewer.personId === r.personId) return "You can't decide your own request. It's with the commander above you.";
+  const deciders = platoonDecidersFor(r.ownerRoles);
+  if (!deciders.length) return "Only OC, 2IC or CSM can decide this.";
+  if (deciders.length === 1) return `Only ${r.subunitName}'s PC, or OC, 2IC or CSM, can decide a PS's request.`;
+  return `Only ${r.subunitName}'s PC or PS can decide this.`;
+}
+
 /** Whether someone decides anything at all (shows the Approvals screen). */
 export const decidesAnything = (grants: readonly GrantRow[]) =>
   hasGrant(grants, PLATOON_DECIDERS, "any") || hasGrant(grants, COMPANY_DECIDERS, "company");
@@ -183,11 +237,16 @@ export interface Decided {
   state: WbRecordState;
   decidedBy: string | null;
   decidedAt: Date | null;
+  decisionNote?: string | null;
 }
+
+/** Saved approved because its owner needs no approval (OC/2IC/CSM). */
+export const approvedOnSave = (r: { state: WbRecordState; decisionNote?: string | null }) => r.state === "APPROVED" && r.decisionNote === NO_APPROVAL_NOTE;
 
 /** Why this member can't undo this decision now, or null if they can. Checked lazily on tap: no cron. */
 export function undoRefusal(r: Decided, memberId: string, deciderLabel: string, now: Date = new Date()): string | null {
   if (r.state === "PENDING") return "That's already waiting on a decision.";
+  if (approvedOnSave(r)) return "It never needed approval, so there's nothing to take back. Void it instead.";
   if (!nextState(r.state, "undo")) return "That can't be taken back.";
   if (r.decidedBy !== memberId) return `Only ${deciderLabel} can take that back.`;
   if (!r.decidedAt || now.getTime() - r.decidedAt.getTime() > UNDO_WINDOW_MS) return "Too late to undo. Tell them yourself instead.";
@@ -244,14 +303,14 @@ export interface RecordAccess {
 /** What this member may do with this record, for the Mini App's buttons. The decision core re-checks all of it. */
 export function accessTo(
   viewer: { id: string; personId: string | null; grants: readonly GrantRow[] },
-  r: Where & Decided & { personId: string; decisionNote: string | null },
+  r: Request & Decided & { decisionNote: string | null },
   now: Date = new Date(),
 ): RecordAccess {
   const owner = !!viewer.personId && viewer.personId === r.personId;
   const decider = canDecide(viewer.grants, r);
   return {
     view: owner || decider,
-    decide: decider && r.state === "PENDING",
+    decide: r.state === "PENDING" && canDecideRequest(viewer, r),
     undo: decider && undoRefusal(r, viewer.id, "", now) === null,
     sayWhy: r.state === "REJECTED" && r.decidedBy === viewer.id && !r.decisionNote,
     void: decider && nextState(r.state, "void") !== null,

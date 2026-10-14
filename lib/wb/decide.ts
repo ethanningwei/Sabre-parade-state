@@ -5,7 +5,21 @@ import { wbAudit } from "@/lib/wb/audit";
 import { inTx, Refusal, type Actor, type Delivery, type Via } from "@/lib/wb/core";
 import { wbMember, wbRecord, type WbRecordKind } from "@/lib/wb/db/schema";
 import { STATE_LABEL } from "@/lib/wb/domain/describe";
-import { canDecide, initialState, isLive, kinOf, leaveChange, nextState, undoRefusal, type RecordAction } from "@/lib/wb/domain/rules";
+import {
+  canDecide,
+  canDecideRequest,
+  decideRefusalText,
+  initialState,
+  isLive,
+  kinOf,
+  leaveChange,
+  needsApproval,
+  needsNoApproval,
+  nextState,
+  NO_APPROVAL_NOTE,
+  undoRefusal,
+  type RecordAction,
+} from "@/lib/wb/domain/rules";
 import { memberLabel, recordView, recordViews, type Db, type RecordView } from "@/lib/wb/records";
 import { noticeText, outcomeButton } from "@/lib/wb/telegram/cards";
 import type { Courier } from "@/lib/wb/telegram/courier";
@@ -30,12 +44,10 @@ async function moveLeave(tx: Db, personId: string, delta: number, who: string): 
   if (!m) return;
   const left = m.leaveLeft ?? 0;
   if (left + delta < 0) {
-    throw new Refusal(`${who} has only ${left} day${left === 1 ? "" : "s"} of leave left, and this needs ${-delta}.`);
+    throw new Refusal(`${who} ${who === "You" ? "have" : "has"} only ${left} day${left === 1 ? "" : "s"} of leave left, and this needs ${-delta}.`);
   }
   await tx.update(wbMember).set({ leaveLeft: left + delta }).where(eq(wbMember.id, m.id));
 }
-
-const decideRefusal = (r: RecordView) => `Only ${r.subunitName}'s PC or PS can decide this.`;
 
 // ------------------------------------------------------------------ submit
 
@@ -59,16 +71,34 @@ export interface NewRecord {
  * Save new records (PENDING for leave and off, RECORDED otherwise), then put
  * the card in front of the commanders. A trooper's own entry gets a card even
  * when it needs no approval, so his PC knows about the MA; a commander's proxy
- * entries are DMed to each man instead.
+ * entries are DMed to each man instead. OC, 2IC and CSM need no approval:
+ * their own requests are saved approved, and leave is spent there and then.
  */
 export async function submit(courier: Courier, actor: Actor, recs: NewRecord[], via: Via): Promise<{ records: RecordView[]; delivery: Delivery | null }> {
+  const now = new Date();
   const ids = await db.transaction(async (tx) => {
+    const values = recs.map((r) => {
+      const onSave = r.createdVia === "SELF" && needsApproval(r.kind) && needsNoApproval(actor.grants);
+      return onSave
+        ? { ...r, state: "APPROVED" as const, decidedBy: actor.id, decidedAt: now, decisionNote: NO_APPROVAL_NOTE, createdBy: actor.id }
+        : { ...r, state: initialState(r.kind), createdBy: actor.id };
+    });
     const rows = await tx
       .insert(wbRecord)
-      .values(recs.map((r) => ({ ...r, state: initialState(r.kind), createdBy: actor.id })))
-      .returning({ id: wbRecord.id, kind: wbRecord.kind, state: wbRecord.state, personId: wbRecord.personId });
+      .values(values)
+      .returning({ id: wbRecord.id, kind: wbRecord.kind, state: wbRecord.state, personId: wbRecord.personId, leaveDays: wbRecord.leaveDays });
     for (const row of rows) {
-      await wbAudit(tx, { memberId: actor.id, via, action: "submit", entity: "wb_record", entityId: row.id, after: { kind: row.kind, state: row.state, personId: row.personId } });
+      const onSave = row.state === "APPROVED";
+      const delta = onSave ? leaveChange(row.kind, "PENDING", "approve", row.leaveDays) : 0;
+      if (delta) await moveLeave(tx, row.personId, delta, "You");
+      await wbAudit(tx, {
+        memberId: actor.id,
+        via,
+        action: "submit",
+        entity: "wb_record",
+        entityId: row.id,
+        after: { kind: row.kind, state: row.state, personId: row.personId, noApproval: onSave || undefined, leave: delta || undefined },
+      });
     }
     return rows.map((r) => r.id);
   });
@@ -80,7 +110,13 @@ export async function submit(courier: Courier, actor: Actor, recs: NewRecord[], 
     return { records, delivery: null };
   }
   let delivery: Delivery | null = null;
-  for (const r of records) delivery = (await courier.postCard({ record: r })).delivery;
+  for (const r of records) {
+    delivery = (await courier.postCard({ record: r })).delivery;
+    // a report sick approved on save: straight to "Go now" with the outcome button
+    if ((r.kind === "RSI" || r.kind === "RSO") && r.state === "APPROVED") {
+      await courier.send({ telegramId: r.ownerTelegramId }, noticeText(r, { kind: "decided" }), outcomeButton(r.id));
+    }
+  }
   return { records, delivery };
 }
 
@@ -94,7 +130,7 @@ export async function submit(courier: Courier, actor: Actor, recs: NewRecord[], 
 export async function decide(courier: Courier, actor: Actor, recordId: string, action: "approve" | "reject", via: Via, note?: string): Promise<Result> {
   const before = await recordView(recordId);
   if (!before) return { ok: false, error: "That record has gone." };
-  if (!canDecide(actor.grants, before)) return { ok: false, error: decideRefusal(before), record: before };
+  if (!canDecideRequest(actor, before)) return { ok: false, error: decideRefusalText(actor, before), record: before };
   const to = nextState("PENDING", action)!;
   const why = note?.trim().slice(0, NOTE_MAX) || null;
 

@@ -15,7 +15,7 @@ export default async function ApprovalsPage() {
   await requireFeaturePage();
   const member = await requireRegistered();
   if (!decidesAnything(member.grants)) redirect("/tg");
-  const pending = await pendingFor(member.grants);
+  const pending = await pendingFor(member);
 
   return (
     <div className="flex flex-col gap-4">

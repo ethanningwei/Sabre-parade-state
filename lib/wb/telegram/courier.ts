@@ -7,7 +7,7 @@ import { bootstrapAdminIds } from "@/lib/wb/auth";
 import type { Delivery } from "@/lib/wb/core";
 import { wbCard, wbCommanderChat, wbMember, wbRfCard } from "@/lib/wb/db/schema";
 import { rfButtons, rfCardText, type RfRequestView } from "@/lib/wb/domain/rf";
-import { isOutcome } from "@/lib/wb/domain/rules";
+import { isOutcome, onlyCompanyDecides } from "@/lib/wb/domain/rules";
 import { manningFor } from "@/lib/wb/forecast-data";
 import { outcomeBatch, recordView, type RecordView } from "@/lib/wb/records";
 import { rfView } from "@/lib/wb/rf-data";
@@ -106,19 +106,24 @@ export function courierOf(out: Outbound | null): Courier {
   async function postRecord(r: RecordView, replaces?: readonly string[]): Promise<{ delivery: Delivery; chats: number }> {
     const batch = isOutcome(r.kind) ? await outcomeBatch(r) : null;
     const head = batch?.[0] ?? r;
-    const [chat] = await db.select().from(wbCommanderChat).where(eq(wbCommanderChat.subunitId, head.subunitId));
-    if (!chat) return { delivery: "no-chat", chats: 0 };
-    if (!out) return { delivery: "failed", chats: 1 };
-    try {
-      const messageId = batch
-        ? await toChat(chat, outcomeCardText(batch, { replaces }), outcomeKeyboard(batch, out.botUsername))
-        : await toChat(chat, cardText(r, await manningFor(r)), cardKeyboard(r, out.botUsername));
-      await db.insert(wbCard).values({ recordId: head.id, chatId: chat.chatId, threadId: chat.threadId, messageId });
-      return { delivery: "sent", chats: 1 };
-    } catch (e) {
-      console.error("wb card send:", e);
-      return { delivery: "failed", chats: 1 };
+    // a PC's request is decided by OC/2IC/CSM only, so COY HQ's chat gets it too
+    const upToHq = !batch && r.state === "PENDING" && onlyCompanyDecides(r.ownerRoles);
+    const chats = upToHq ? await rfDestinations(head.subunitId) : await db.select().from(wbCommanderChat).where(eq(wbCommanderChat.subunitId, head.subunitId));
+    if (!chats.length) return { delivery: "no-chat", chats: 0 };
+    if (!out) return { delivery: "failed", chats: chats.length };
+    const text = batch ? outcomeCardText(batch, { replaces }) : cardText(r, await manningFor(r));
+    const keyboard = batch ? outcomeKeyboard(batch, out.botUsername) : cardKeyboard(r, out.botUsername);
+    let sent = 0;
+    for (const chat of chats) {
+      try {
+        const messageId = await toChat(chat, text, keyboard);
+        await db.insert(wbCard).values({ recordId: head.id, chatId: chat.chatId, threadId: chat.threadId, messageId });
+        sent++;
+      } catch (e) {
+        console.error("wb card send:", e);
+      }
     }
+    return { delivery: sent ? "sent" : "failed", chats: chats.length };
   }
 
   async function postRf(r: RfRequestView | null): Promise<{ delivery: Delivery; chats: number }> {
@@ -213,7 +218,10 @@ async function telegramOf(personId: string): Promise<number | null> {
   return row?.id ?? null;
 }
 
-/** Where a request's cards go: the camp's own platoon's commanders chat and COY HQ's (decided 2026-10-13), each once. */
+/**
+ * A platoon's commanders chat and COY HQ's, each once, the platoon's first:
+ * where an RF request's cards go (decided 2026-10-13), and a PC's request.
+ */
 async function rfDestinations(subunitId: string): Promise<ChatRow[]> {
   const hq = await db.select({ id: subunit.id }).from(subunit).where(eq(subunit.isHq, true));
   const chats = await db

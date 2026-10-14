@@ -1,14 +1,15 @@
 import "server-only";
-import { and, asc, desc, eq, getTableColumns, gt, inArray, isNull, lt, or, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import { camp, duty, person, subunit } from "@/lib/db/schema";
 import { clashLines } from "@/lib/wb/domain/clash";
 import type { GrantRow } from "@/lib/wb/domain/grants";
 import { outcomeOrder } from "@/lib/wb/domain/describe";
-import { canDecide, canProxy, DEAD_STATES, STANDING_STATES } from "@/lib/wb/domain/rules";
+import type { WbRole } from "@/lib/wb/domain/roles";
+import { canDecide, canDecideRequest, canProxy, DEAD_STATES, STANDING_STATES } from "@/lib/wb/domain/rules";
 import type { Range } from "@/lib/wb/domain/timeline";
-import { wbAssignment, wbMember, wbRecord } from "@/lib/wb/db/schema";
+import { wbAssignment, wbGrant, wbMember, wbRecord } from "@/lib/wb/db/schema";
 
 // Read models for the timeline: one record with who it's about, a person's
 // history, pending requests in a commander's scope, the clash check.
@@ -39,6 +40,8 @@ const viewColumns = {
   ownerId: owner.id,
   ownerTelegramId: owner.telegramUserId,
   ownerLeaveLeft: owner.leaveLeft,
+  // whose request it is decides who may approve it (rules.ts canDecideRequest)
+  ownerRoles: sql<WbRole[]>`coalesce((select array_agg(distinct ${wbGrant.role}::text) from ${wbGrant} where ${wbGrant.memberId} = ${owner.id}), '{}')`,
 };
 
 export type RecordRow = Omit<typeof wbRecord.$inferSelect, "diagnosis" | "evidenceFileId">;
@@ -56,6 +59,8 @@ export interface RecordView extends RecordRow {
   ownerMemberId: string | null;
   ownerTelegramId: number | null;
   ownerLeaveLeft: number | null;
+  /** the roles the trooper's account holds (any scope): a PS's or PC's request goes up a level */
+  ownerRoles: WbRole[];
 }
 
 function views(tx: Db, where: SQL | undefined) {
@@ -85,6 +90,7 @@ const toView = (v: ViewRow): RecordView => ({
   ownerMemberId: v.ownerId,
   ownerTelegramId: v.ownerTelegramId,
   ownerLeaveLeft: v.ownerLeaveLeft,
+  ownerRoles: v.ownerRoles ?? [],
 });
 
 export async function recordView(id: string, tx: Db = db): Promise<RecordView | null> {
@@ -128,10 +134,10 @@ export async function childrenOf(parentIds: readonly string[], tx: Db = db): Pro
   return rows.map(toView);
 }
 
-/** Pending requests this member may decide, oldest first. */
-export async function pendingFor(grants: readonly GrantRow[]): Promise<RecordView[]> {
+/** Pending requests this member may decide, oldest first: never their own (unless ADMIN), and a PS's or PC's only from above. */
+export async function pendingFor(viewer: { personId: string | null; grants: readonly GrantRow[] }): Promise<RecordView[]> {
   const rows = await views(db, eq(wbRecord.state, "PENDING")).orderBy(asc(wbRecord.createdAt));
-  return rows.map(toView).filter((r) => canDecide(grants, r));
+  return rows.map(toView).filter((r) => canDecideRequest(viewer, r));
 }
 
 /** MCs still owed on ONENS that this member decides for, oldest first. */

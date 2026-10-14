@@ -10,9 +10,10 @@ import { Choice, Done, ErrorBox, Field, fieldClass, Header, inputClass, Step, Su
 
 // Report sick (ports Sabre Bot's SICK): where, which day, the clinic for an
 // RSO, and what's wrong. Nearly everyone reports sick for today, so that's the
-// default. His PC or PS approves it before he goes.
+// default. His PC or PS approves it before he goes (a PS's goes to the PC, a
+// PC's to OC/2IC/CSM; OC/2IC/CSM need no approval: `approver` is null).
 
-export function SickForm({ today }: { today: string }) {
+export function SickForm({ today, approver }: { today: string; approver: string | null }) {
   const [where, setWhere] = useState<"RSI" | "RSO" | null>(null);
   const [date, setDate] = useState(today);
   const [clinic, setClinic] = useState("");
@@ -20,6 +21,9 @@ export function SickForm({ today }: { today: string }) {
   const [result, setResult] = useState<Submitted | null>(null);
   const { pending, error, call } = useAction();
 
+  if (result?.approved) {
+    return <Done title="Recorded" delivery={result.delivery} subunitName={result.subunitName} needsApproval={false} note="No approval needed. Go now, then tap Update outcome in the bot's message." />;
+  }
   if (result) {
     return <Done title="Sent to your commanders" delivery={result.delivery} subunitName={result.subunitName} needsApproval note="Go only after one of them approves it." />;
   }
@@ -28,7 +32,7 @@ export function SickForm({ today }: { today: string }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <Header title="Report sick" hint="Your PC or PS approves it. Go only after they do." />
+      <Header title="Report sick" hint={approver ? `${approver[0].toUpperCase()}${approver.slice(1)} approves it. Go only after they do.` : "No approval needed: it's recorded as soon as you send it."} />
       <form
         className="flex flex-col gap-6"
         onSubmit={(e) => {

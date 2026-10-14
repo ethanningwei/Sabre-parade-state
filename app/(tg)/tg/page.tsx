@@ -26,7 +26,7 @@ export default async function TgHome() {
   const [me, self] = await Promise.all([profileOf(member), rosterSelf(member)]);
   const { current, next } = self ? await nowAndNext(self.personId) : { current: null, next: null };
   const decides = decidesAnything(member.grants);
-  const [waiting, owed] = decides ? await Promise.all([pendingFor(member.grants).then((p) => p.length), onensOwedFor(member.grants).then((o) => o.length)]) : [0, 0];
+  const [waiting, owed] = decides ? await Promise.all([pendingFor(member).then((p) => p.length), onensOwedFor(member.grants).then((o) => o.length)]) : [0, 0];
 
   const hoto = hotosAnything(member.grants);
   const shifts = editsShiftsAnything(member.grants);
