@@ -15,9 +15,10 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { camp, person, subunit } from "../../db/schema";
+import { absence, camp, duty, person, subunit } from "../../db/schema";
 import { WB_ROLES, type WbRole } from "../domain/roles";
 import { RF_ROLES, WB_ASSIGNMENT_STATES, WB_ASSIGNMENT_TYPES, WB_RF_STATES } from "../domain/rf";
+import { WB_PROJECTION_CLOSES, WB_PROJECTION_KINDS } from "../domain/projection-kinds";
 import { WB_SHIFT_KINDS, type WbShiftKind } from "../domain/shifts";
 import { WB_ONENS, WB_RECORD_KINDS, WB_RECORD_STATES, WB_SEEN_BY, type WbRecordKind, type WbRecordState } from "../domain/rules";
 
@@ -408,4 +409,49 @@ export const wbRfCard = pgTable(
     sentAt: tstz("sent_at").defaultNow().notNull(),
   },
   (t) => [index("wb_rf_card_request_idx").on(t.rfRequestId)],
+);
+
+// ---------------------------------------------------------------- Phase 6
+
+export const wbProjectionKind = pgEnum("wb_projection_kind", WB_PROJECTION_KINDS);
+export const wbProjectionClose = pgEnum("wb_projection_close", WB_PROJECTION_CLOSES);
+
+/**
+ * Which v1 rows the projector wrote (FEATURE_PROJECTION), so it only ever
+ * changes its own: an ABSENCE (from a wb_record), a DUTY (from a
+ * wb_assignment) or a SHIFT (a HOTO flipping camp.on_shift). Open while the
+ * projector owns the v1 row; `closed_at` + `close` say how that ended. A row
+ * closed BY_HAND (a GC marked him back or ended the duty in the web app) stops
+ * the projector reopening it for the same record or assignment.
+ */
+export const wbProjection = pgTable(
+  "wb_projection",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: wbProjectionKind("kind").notNull(),
+    personId: uuid("person_id").references(() => person.id, { onDelete: "cascade" }),
+    recordId: uuid("record_id").references(() => wbRecord.id, { onDelete: "set null" }),
+    assignmentId: uuid("assignment_id").references(() => wbAssignment.id, { onDelete: "set null" }),
+    shiftEventId: uuid("shift_event_id").references(() => wbShiftEvent.id, { onDelete: "cascade" }),
+    absenceId: uuid("absence_id").references(() => absence.id, { onDelete: "set null" }),
+    dutyId: uuid("duty_id").references(() => duty.id, { onDelete: "set null" }),
+    campId: uuid("camp_id").references(() => camp.id, { onDelete: "cascade" }),
+    wroteAt: tstz("wrote_at").defaultNow().notNull(),
+    updatedAt: tstz("updated_at").defaultNow().notNull(),
+    closedAt: tstz("closed_at"),
+    close: wbProjectionClose("close"),
+    /** what the projector last wrote to the v1 row; if the row no longer says this, a GC changed it (BY_HAND) */
+    wrote: jsonb("wrote"),
+    /** the evening "X's MC ended. Back?" tap: the projector closes the v1 row once it has ended */
+    backConfirmedAt: tstz("back_confirmed_at"),
+    backConfirmedBy: uuid("back_confirmed_by").references(() => wbMember.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    index("wb_projection_record_idx").on(t.recordId),
+    index("wb_projection_assignment_idx").on(t.assignmentId),
+    index("wb_projection_shift_event_idx").on(t.shiftEventId),
+    // one owner per v1 row
+    uniqueIndex("wb_projection_absence_uq").on(t.absenceId).where(sql`${t.closedAt} is null`),
+    uniqueIndex("wb_projection_duty_uq").on(t.dutyId).where(sql`${t.closedAt} is null`),
+  ],
 );

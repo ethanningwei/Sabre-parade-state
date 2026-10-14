@@ -6,20 +6,13 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { absence, camp, person } from "@/lib/db/schema";
 import { UserError } from "@/lib/errors";
-import { DATED_ABSENCE_TYPES, type AbsenceType } from "@/lib/parade";
+import { DATED_ABSENCE_TYPES } from "@/lib/parade";
 import { writeAudit, type Tx } from "./audit";
+import { statusFields, type StatusFieldsInput } from "./status-fields";
 
 /** setStatus's input once parsed: trimmed strings, dates YYYY-MM-DD, times HHMM. */
-export interface StatusValues {
+export interface StatusValues extends StatusFieldsInput {
   personIds: string[];
-  status: "PRESENT" | AbsenceType;
-  otherReason: string;
-  startDate: string | null;
-  startTime: string | null;
-  endDate: string | null;
-  endTime: string | null;
-  maTiming: string;
-  maLocation: string;
 }
 
 type Absence = typeof absence.$inferSelect;
@@ -64,19 +57,7 @@ export async function setStatusCore(tx: Tx, actorId: string | null, input: Statu
     }
   }
 
-  const fields =
-    status === "PRESENT"
-      ? null
-      : {
-          type: status,
-          otherReason: status === "OTHERS" ? input.otherReason.trim() : "",
-          startDate: input.startDate,
-          startTime: input.startDate ? input.startTime : null,
-          endDate: status === "MA" ? null : input.endDate,
-          endTime: status === "MA" || !input.endDate ? null : input.endTime,
-          maTiming: status === "MA" ? input.maTiming.trim() : "",
-          maLocation: status === "MA" ? input.maLocation.trim() : "",
-        };
+  const fields = statusFields(input);
 
   const results: StatusResult[] = [];
   for (const personId of input.personIds) {
