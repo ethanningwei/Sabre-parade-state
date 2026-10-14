@@ -180,7 +180,7 @@ Decide-once is enforced in the database (`UPDATE … WHERE state='PENDING'`). Th
 ## 5. Screens
 **Mini App** (`app/(tg)/tg/…`, its own layout, no v1 password):
 - **Everyone:** Home (where I am now and what's next) · My records (one card per visit, update outcome, withdraw) · Apply (sick, MA, AL, OL, off, event, claim) · Profile.
-- **GC:** Camp check (expected people at CAA; tap only the differences) · HOTO · Raise RF.
+- **GC:** Camp check (expected people at CAA; tap only the differences; Phase 8, after claims: status §3c) · HOTO · Raise RF.
 - **PS/PC:** Approvals · Today and Day (platoon) · Forecast grid · Person history · Add for several men · Void · RF board · Gaps · ONENS owed.
 - **OC/2IC/CSM/ASA:** company Forecast · Claims (OC decides) · Grants and commander-chat admin · a link to the v1 parade-state web app.
 
