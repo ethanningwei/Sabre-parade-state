@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { camp, coy, subunit } from "@/lib/db/schema";
 import { loadSnapshot } from "@/lib/data/snapshot";
 import { toSgt } from "@/lib/parade/time";
-import { wbAssignment, wbMinManning, wbRecord, wbShiftPattern } from "@/lib/wb/db/schema";
+import { wbAssignment, wbMinManning, wbRecord, wbShiftOverride, wbShiftPattern } from "@/lib/wb/db/schema";
 import {
   forecastGrid,
   manningLine,
@@ -22,9 +22,9 @@ import {
 } from "@/lib/wb/domain/forecast";
 import type { GrantRow } from "@/lib/wb/domain/grants";
 import { canForecast } from "@/lib/wb/domain/rules";
-import { minimumLabel, stintAround, usable, type Minimum, type ShiftPattern } from "@/lib/wb/domain/shifts";
+import { minimumLabel, onShiftAt, overrideLabel, overrideWindow, stintAround, usable, type Minimum, type ShiftPattern } from "@/lib/wb/domain/shifts";
 import { addDays, dayMonth, dayRange, rangeLabel, todaySgt, type Range } from "@/lib/wb/domain/timeline";
-import type { Db, RecordView } from "@/lib/wb/records";
+import { memberLabel, type Db, type RecordView } from "@/lib/wb/records";
 
 // Shifts, minimum manning and the forecast: the reads. The rules are pure
 // (lib/wb/domain/shifts.ts, forecast.ts); this loads what they need. Writes
@@ -76,7 +76,7 @@ export function postsOf(camps: readonly CampInfo[]): PostInfo[] {
 }
 
 type PatternRow = typeof wbShiftPattern.$inferSelect;
-const toPattern = (r: PatternRow): ShiftPattern => ({
+export const toPattern = (r: PatternRow): ShiftPattern => ({
   campId: r.campId,
   kind: r.kind,
   onDays: r.onDays,
@@ -310,3 +310,56 @@ export async function shortTomorrow(now: Date = new Date()): Promise<Map<string,
   return out;
 }
 
+
+// ------------------------------------------------------------------ weekday camps (Admin › Projection)
+
+export interface WeekdayCamp {
+  id: string;
+  name: string;
+  subunitName: string;
+  /** what the parade state says now */
+  onShift: boolean;
+  /** what the pattern says now */
+  patternOn: boolean | null;
+  /** the override in force or to come, if any */
+  override: { id: string; label: string } | null;
+  /** the two overrides on offer: on, and off */
+  offers: { on: boolean; label: string }[];
+}
+
+/** Every camp with a WEEKLY pattern (the RG camps, COY HQ), in roster order, for the admin's override. */
+export async function weekdayCamps(now: Date = new Date()): Promise<WeekdayCamp[]> {
+  const rows = await db
+    .select({ p: wbShiftPattern, name: camp.name, subunitName: subunit.name, onShift: camp.onShift })
+    .from(wbShiftPattern)
+    .innerJoin(camp, eq(camp.id, wbShiftPattern.campId))
+    .innerJoin(subunit, eq(subunit.id, camp.subunitId))
+    .where(eq(wbShiftPattern.kind, "WEEKLY"))
+    .orderBy(subunit.sortOrder, camp.sortOrder);
+  if (!rows.length) return [];
+  const overrides = await db
+    .select()
+    .from(wbShiftOverride)
+    .where(and(isNull(wbShiftOverride.clearedAt), gt(wbShiftOverride.untilAt, now), inArray(wbShiftOverride.campId, rows.map((r) => r.p.campId))));
+  return Promise.all(
+    rows.map(async (r) => {
+      const p = toPattern(r.p);
+      const o = overrides.find((x) => x.campId === r.p.campId);
+      const offers = [true, false].flatMap((on) => {
+        const w = overrideWindow(p, now, on);
+        return w ? [{ on, label: overrideLabel(w, on, now) }] : [];
+      });
+      return {
+        id: r.p.campId,
+        name: r.name,
+        subunitName: r.subunitName,
+        onShift: r.onShift,
+        patternOn: onShiftAt(p, now),
+        override: o
+          ? { id: o.id, label: `${overrideLabel({ startAt: o.fromAt, endAt: o.untilAt }, o.on, now).replace(/^Keep/, "Kept")}${o.by ? ` · ${await memberLabel(o.by)}` : ""}` }
+          : null,
+        offers,
+      };
+    }),
+  );
+}

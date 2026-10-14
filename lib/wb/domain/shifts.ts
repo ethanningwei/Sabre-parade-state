@@ -1,7 +1,7 @@
 import { sgtToInstant, toSgt } from "@/lib/parade/time";
 import { holidayOn } from "./holidays";
 import { roleOf, ROLES_GUARDROOM } from "./roles";
-import { addDays, dayRange, type Range } from "./timeline";
+import { addDays, dayMonth, dayRange, type Range } from "./timeline";
 
 // Which team stands where, and what a guardroom can't go under. Pure: no I/O.
 //
@@ -94,6 +94,52 @@ export function onDuring(p: ShiftPattern, r: Range): boolean | null {
 }
 
 export const onDay = (p: ShiftPattern, date: string) => onDuring(p, dayRange(date));
+
+// ------------------------------------------------------------------ weekday camps (projector, 2026-10-14)
+
+/** The next SGT midnight after t when a WEEKLY camp's day flips on↔off, or null if it doesn't within a year. */
+export function nextFlipAt(p: ShiftPattern, t: Date): Date | null {
+  if (p.kind !== "WEEKLY") return null;
+  const today = toSgt(t).date;
+  const on = weeklyOnDay(p, today);
+  for (let d = addDays(today, 1), i = 0; i < 366; d = addDays(d, 1), i++) if (weeklyOnDay(p, d) !== on) return dayRange(d).startAt;
+  return null;
+}
+
+/**
+ * An admin keeping a weekday camp on (or off) against its pattern: the stretch
+ * where the pattern says otherwise, from now if it already does (a Saturday:
+ * until Monday), else the next one (on a Friday, "keep it on" covers the
+ * weekend). Null for a camp that isn't WEEKLY or never flips.
+ */
+export function overrideWindow(p: ShiftPattern, t: Date, on: boolean): Range | null {
+  if (p.kind !== "WEEKLY") return null;
+  const startAt = weeklyOnDay(p, toSgt(t).date) === on ? nextFlipAt(p, t) : t;
+  const endAt = startAt && nextFlipAt(p, startAt);
+  return startAt && endAt ? { startAt, endAt } : null;
+}
+
+/** "Keep on until Mon 20/10" (from now) or "Keep on Sat 18/10–Sun 19/10" (a stretch to come). */
+export function overrideLabel(w: Range, on: boolean, now: Date): string {
+  const day = (date: string) => `${WEEKDAY_NAMES[weekdayOf(date)]} ${dayMonth(date)}`;
+  const verb = on ? "Keep on" : "Keep off";
+  const last = addDays(toSgt(w.endAt!).date, -1);
+  if (w.startAt.getTime() <= now.getTime()) return `${verb} until ${day(toSgt(w.endAt!).date)}`;
+  const first = toSgt(w.startAt).date;
+  return first === last ? `${verb} ${day(first)}` : `${verb} ${day(first)}–${day(last)}`;
+}
+
+export interface ShiftOverride {
+  on: boolean;
+  fromAt: Date;
+  untilAt: Date;
+}
+
+/** What a weekday camp should be at t: an admin's override in force, else its pattern. */
+export function weeklyWant(p: ShiftPattern, overrides: readonly ShiftOverride[], t: Date): boolean | null {
+  const o = overrides.find((x) => x.fromAt.getTime() <= t.getTime() && t.getTime() < x.untilAt.getTime());
+  return o ? o.on : onShiftAt(p, t);
+}
 
 /** The current or next stint of a CYCLE team, for "on until 16/10 2100" / "next on 16/10 2100". */
 export function stintAround(p: ShiftPattern, t: Date): Range | null {

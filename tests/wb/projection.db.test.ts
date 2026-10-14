@@ -12,7 +12,8 @@ import { getCoyByKey, loadSnapshot } from "@/lib/data/snapshot";
 import { db } from "@/lib/db";
 import { absence, auditLog, camp, duty, person, user } from "@/lib/db/schema";
 import { sgtToInstant } from "@/lib/parade/time";
-import { wbAssignment, wbMember, wbProjection, wbRecord, wbShiftEvent } from "@/lib/wb/db/schema";
+import { wbAssignment, wbAudit, wbMember, wbProjection, wbRecord, wbShiftEvent, wbShiftOverride, wbShiftPattern } from "@/lib/wb/db/schema";
+import { WEEKDAYS } from "@/lib/wb/domain/shifts";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
@@ -25,6 +26,9 @@ const { inTx } = await import("@/lib/wb/core");
 const { confirmBack, dueBack, paradeStatuses } = await import("@/lib/wb/projection");
 const { eveningRound } = await import("@/lib/wb/evening");
 const { recordingCourier } = await import("./recording-courier");
+const { revertedSince, projectionReport } = await import("@/lib/wb/projection");
+const { keepShift } = await import("@/lib/wb/shifts");
+const { setCampShiftCore } = await import("@/lib/core/attendance");
 
 const at = (date: string, time = "0000") => sgtToInstant({ date, time });
 const NOW = at("2026-10-14", "1000");
@@ -52,6 +56,8 @@ beforeEach(async () => {
   await db.delete(wbMember).where(eq(wbMember.telegramUserId, TG));
   await db.delete(wbAssignment);
   await db.delete(wbShiftEvent);
+  await db.delete(wbShiftOverride);
+  await db.delete(wbShiftPattern);
   await db.delete(wbRecord);
   await writeCoy(db, { ...exampleSnapshot(), telegram: { chatId: null, threadId: null } });
   const campId = async (name: string) => (await db.select({ id: camp.id }).from(camp).where(eq(camp.name, name)))[0].id;
@@ -345,5 +351,50 @@ describe("live (FEATURE_PROJECTION on)", () => {
       setStatusCore(tx, GC, { personIds: [t1], status: "AL", otherReason: "", startDate: "2026-10-13", startTime: null, endDate: "2026-10-20", endTime: null, maTiming: "", maLocation: "" }),
     );
     expect(await openOf(t1)).toMatchObject({ type: "AL", endDate: "2026-10-20" });
+  });
+});
+
+describe("weekday camps (2026-10-14)", () => {
+  const SAT = at("2026-10-17", "0900");
+  const onShift = async (campId: string) => (await db.select({ on: camp.onShift }).from(camp).where(eq(camp.id, campId)))[0].on;
+
+  it("off at the weekend, a GC's toggle switched back, an admin's override kept, on again on Monday", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await db.delete(wbAudit).where(eq(wbAudit.action, "revert-shift"));
+    await db.insert(wbShiftPattern).values({ campId: ids.bdk, kind: "WEEKLY", weekdayMask: WEEKDAYS, holidaysOff: true });
+    await db.update(camp).set({ onShift: true }).where(eq(camp.id, ids.bdk));
+    live();
+    await syncProjection(at("2026-10-16", "1200"));
+    expect(await onShift(ids.bdk)).toBe(true);
+
+    const res = await syncProjection(SAT);
+    expect(res.failed).toEqual([]);
+    expect(await onShift(ids.bdk)).toBe(false);
+    const [row] = await db.select().from(wbProjection).where(and(eq(wbProjection.kind, "SHIFT"), eq(wbProjection.campId, ids.bdk), isNull(wbProjection.closedAt)));
+    expect(row.wrote).toEqual({ on: false });
+
+    // a GC switches it on in the web app: the next sync switches it back, and the admins hear of it
+    await db.transaction((tx) => setCampShiftCore(tx, GC, ids.bdk, true));
+    await syncProjection(at("2026-10-17", "1000"));
+    expect(await onShift(ids.bdk)).toBe(false);
+    const reverted = await revertedSince(new Date(0));
+    expect(reverted).toEqual([expect.objectContaining({ campId: ids.bdk, on: false })]);
+    expect(await projectionReport({ plan: { writes: [], marks: [], notes: [] }, live: true, applied: 0, failed: [] }, new Date(0))).toContain("BDK was switched on in the web app; back off");
+
+    // only an admin overrides; kept on for the rest of the weekend
+    vi.stubEnv("FEATURE_PROJECTION", ""); // keepShift's own sync would run at the real time
+    const [m] = await db.insert(wbMember).values({ telegramUserId: TG, registeredAt: new Date() }).returning();
+    const gc = { id: m.id, personId: null, grants: [{ role: "GC" as const, subunitId: null, campId: ids.bdk }] };
+    expect(await keepShift(gc, ids.bdk, true, "MINIAPP", SAT)).toMatchObject({ ok: false });
+    const admin = { id: m.id, personId: null, grants: [{ role: "ADMIN" as const, subunitId: null, campId: null }] };
+    expect(await keepShift(admin, ids.bdk, true, "MINIAPP", SAT)).toMatchObject({ ok: true });
+    live();
+    await syncProjection(at("2026-10-18", "1000"));
+    expect(await onShift(ids.bdk)).toBe(true);
+    expect((await db.select().from(wbAudit).where(eq(wbAudit.action, "revert-shift"))).length).toBe(1);
+
+    // Monday: the override is over and the pattern says on anyway
+    await syncProjection(at("2026-10-19", "0700"));
+    expect(await onShift(ids.bdk)).toBe(true);
   });
 });

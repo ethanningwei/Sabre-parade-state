@@ -197,7 +197,7 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
         summary.back += await courier.send({ platoon: rows[0].subunitId }, text, buttons);
       }
     }
-    if (bootstrapAdminIds().length) summary.projection = await courier.send({ admins: true }, await projectionReport(res));
+    if (bootstrapAdminIds().length) summary.projection = await courier.send({ admins: true }, await projectionReport(res, new Date(now.getTime() - 24 * 60 * 60 * 1000)));
   } catch (e) {
     console.error("wb evening projection:", e);
   }

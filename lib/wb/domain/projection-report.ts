@@ -25,6 +25,8 @@ export interface ReportInput {
   camps: ReadonlyMap<string, string>;
   applied?: number;
   failed?: readonly { write: Write; error: string }[];
+  /** weekday camps a GC toggled in the web app since the last round, switched back by the projector */
+  reverted?: readonly { campId: string; on: boolean; at: Date }[];
 }
 
 /** Telegram's limit is 4096; leave room for the tail line. */
@@ -95,7 +97,9 @@ export function formatProjection(r: ReportInput): string {
     const line = noteLine(n);
     if (line) add(n.personId, line);
   }
-  const shifts = plan.writes.filter((w): w is Extract<Write, { op: "shift" }> => w.op === "shift");
+  const allShifts = plan.writes.filter((w): w is Extract<Write, { op: "shift" }> => w.op === "shift");
+  const shifts = allShifts.filter((w) => !w.weekly);
+  const weekly = allShifts.filter((w) => w.weekly);
   const agrees = plan.notes.filter((n) => n.op === "agrees").length;
 
   const head =
@@ -105,7 +109,7 @@ export function formatProjection(r: ReportInput): string {
         ? "🔍 Projection is on\n\nThis is what the next sync writes to the parade state (any page load or whereabouts write)."
         : "🔍 Shadow diff\n\nProjection is off: this is what it would write to the parade state now. Nothing was written.";
   const parts: string[] = [head];
-  if (!byCamp.size && !shifts.length) {
+  if (!byCamp.size && !allShifts.length) {
     parts.push("Nothing to change: the parade state already agrees with the timeline.");
   }
   for (const [campId, name] of [...camps, ["", "Not on the roster"] as const]) {
@@ -113,6 +117,18 @@ export function formatProjection(r: ReportInput): string {
     if (lines) parts.push([name, ...lines.map((l) => `• ${l}`)].join("\n"));
   }
   if (shifts.length) parts.push(`Shifts (HOTO): ${shifts.map((s) => `${camps.get(s.campId) ?? "?"} ${s.onShift ? "on" : "off"}`).join(", ")}`);
+  if (weekly.length) {
+    const why = { pattern: "", override: " (an admin's override)", "undo-hand": " (switched in the web app: switched back)" } as const;
+    parts.push(`Weekday camps: ${weekly.map((s) => `${camps.get(s.campId) ?? "?"} ${s.onShift ? "on" : "off"}${why[s.weekly!.why]}`).join(", ")}`);
+  }
+  if (r.reverted?.length) {
+    parts.push(
+      [
+        "↩️ Switched back since the last round (only admins override, in Admin › Projection):",
+        ...r.reverted.map((x) => `• ${camps.get(x.campId) ?? "?"} was switched ${x.on ? "off" : "on"} in the web app; back ${x.on ? "on" : "off"} ${when(toSgt(x.at).date, toSgt(x.at).time)}`),
+      ].join("\n"),
+    );
+  }
   if (agrees) parts.push(`${agrees} already as the GCs typed them.`);
 
   let text = parts.join("\n\n");

@@ -301,6 +301,30 @@ export const wbShiftEvent = pgTable(
   (t) => [index("wb_shift_event_camp_at_idx").on(t.campId, t.at)],
 );
 
+/**
+ * An admin keeping a weekday camp (WEEKLY pattern: RG camps, COY HQ) on or off
+ * against its pattern, from `from_at` until `until_at`: the stretch where the
+ * pattern says the opposite. The projector honours it; nothing else changes
+ * the weekend switch (a GC's toggle in the web app is switched back).
+ */
+export const wbShiftOverride = pgTable(
+  "wb_shift_override",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    campId: uuid("camp_id")
+      .notNull()
+      .references(() => camp.id, { onDelete: "cascade" }),
+    on: boolean("on").notNull(),
+    fromAt: tstz("from_at").notNull(),
+    untilAt: tstz("until_at").notNull(),
+    by: uuid("by").references(() => wbMember.id, { onDelete: "set null" }),
+    createdAt: tstz("created_at").defaultNow().notNull(),
+    clearedAt: tstz("cleared_at"),
+    clearedBy: uuid("cleared_by").references(() => wbMember.id, { onDelete: "set null" }),
+  },
+  (t) => [index("wb_shift_override_camp_idx").on(t.campId, t.untilAt)],
+);
+
 /** What a guardroom (one team) can't go under: GC:ST CBT:ST SVC, or a bare total (roles null). */
 export const wbMinManning = pgTable("wb_min_manning", {
   id: uuid("id").primaryKey().defaultRandom(),

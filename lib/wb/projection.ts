@@ -9,9 +9,11 @@ import { absence, camp, duty, person, subunit, user } from "@/lib/db/schema";
 import { UserError } from "@/lib/errors";
 import { isEnabled } from "@/lib/flags";
 import { wbAudit } from "@/lib/wb/audit";
+import { wbAudit as wbAuditTable } from "@/lib/wb/db/schema";
 import type { Actor, Via } from "@/lib/wb/core";
-import { wbAssignment, wbProjection, wbRecord, wbShiftEvent } from "@/lib/wb/db/schema";
+import { wbAssignment, wbProjection, wbRecord, wbShiftEvent, wbShiftOverride, wbShiftPattern } from "@/lib/wb/db/schema";
 import { hasGrant } from "@/lib/wb/domain/grants";
+import { toPattern } from "@/lib/wb/forecast-data";
 import {
   absenceRow,
   dutyRow,
@@ -56,7 +58,9 @@ type Reader = Pick<Tx, "select">;
 
 /** Everything the plan needs, read in one go. */
 export async function loadPlanInput(tx: Reader, now: Date): Promise<PlanInput> {
-  const projections = await tx.select().from(wbProjection).where(isNull(wbProjection.closedAt));
+  const open = await tx.select().from(wbProjection).where(isNull(wbProjection.closedAt));
+  // an open SHIFT row is a weekday camp's "what I last set it to"; HOTO rows are closed when written
+  const projections = open.filter((p) => p.kind !== "SHIFT");
   const ownedRecords = projections.flatMap((p) => (p.recordId ? [p.recordId] : []));
   const ownedAssignments = projections.flatMap((p) => (p.assignmentId ? [p.assignmentId] : []));
 
@@ -127,6 +131,24 @@ export async function loadPlanInput(tx: Reader, now: Date): Promise<PlanInput> {
     .leftJoin(wbProjection, eq(wbProjection.shiftEventId, wbShiftEvent.id))
     .where(and(isNull(wbProjection.id), lte(wbShiftEvent.at, now)));
 
+  const weeklyPatterns = await tx.select().from(wbShiftPattern).where(eq(wbShiftPattern.kind, "WEEKLY"));
+  const overrides = weeklyPatterns.length
+    ? await tx
+        .select({ campId: wbShiftOverride.campId, on: wbShiftOverride.on, fromAt: wbShiftOverride.fromAt, untilAt: wbShiftOverride.untilAt })
+        .from(wbShiftOverride)
+        .where(and(isNull(wbShiftOverride.clearedAt), gt(wbShiftOverride.untilAt, now)))
+    : [];
+  const weekly = weeklyPatterns.map((r) => {
+    const row = open.find((p) => p.kind === "SHIFT" && p.campId === r.campId);
+    const on = (row?.wrote as { on?: unknown } | null)?.on;
+    return {
+      campId: r.campId,
+      pattern: toPattern(r),
+      overrides: overrides.filter((o) => o.campId === r.campId),
+      wrote: row && typeof on === "boolean" ? { projectionId: row.id, on } : null,
+    };
+  });
+
   const camps = await tx.select({ id: camp.id, name: camp.name, post: camp.post, subunitId: camp.subunitId, onShift: camp.onShift }).from(camp);
   const people = await tx.select({ id: person.id, campId: person.campId }).from(person).where(eq(person.active, true));
   const absences = await tx
@@ -178,6 +200,7 @@ export async function loadPlanInput(tx: Reader, now: Date): Promise<PlanInput> {
     records,
     assignments,
     shiftEvents,
+    weekly,
     absences,
     duties,
     camps: camps.map((c) => ({ ...c, post: c.post ?? c.name })),
@@ -240,6 +263,13 @@ async function apply(tx: Tx, w: Write, now: Date) {
     case "shift": {
       await setCampShiftCore(tx, ME, w.campId, w.onShift);
       if (w.events.length) await markShifts(tx, w.events, w.campId, now);
+      if (w.weekly) {
+        await weeklyWrote(tx, w.campId, w.onShift, w.weekly.projectionId, now);
+        // a GC toggled a weekday camp in the web app: switched back, and the admins hear about it in the evening
+        if (w.weekly.why === "undo-hand") {
+          await wbAudit(tx, { memberId: null, via: "SYSTEM", action: "revert-shift", entity: "camp", entityId: w.campId, before: { onShift: !w.onShift }, after: { onShift: w.onShift } });
+        }
+      }
       return;
     }
   }
@@ -249,8 +279,15 @@ async function markShifts(tx: Tx, events: string[], campId: string | null, now: 
   await tx.insert(wbProjection).values(events.map((shiftEventId) => ({ kind: "SHIFT" as const, shiftEventId, campId, wroteAt: now, updatedAt: now, closedAt: now, close: "DONE" as const })));
 }
 
+/** Remember what a weekday camp was set to (one open SHIFT row per camp), so a GC's toggle can be told from a switch-over. */
+async function weeklyWrote(tx: Tx, campId: string, on: boolean, projectionId: string | null, now: Date) {
+  if (projectionId) await tx.update(wbProjection).set({ wrote: { on }, updatedAt: now }).where(eq(wbProjection.id, projectionId));
+  else await tx.insert(wbProjection).values({ kind: "SHIFT", campId, wrote: { on }, wroteAt: now, updatedAt: now });
+}
+
 async function applyMark(tx: Tx, m: Mark, now: Date) {
   if (m.op === "by-hand") await closeProjection(tx, m.projection.id, "BY_HAND", now);
+  else if (m.op === "weekly-seen") await weeklyWrote(tx, m.campId, m.on, m.projectionId, now);
   else await markShifts(tx, m.events, null, now);
 }
 
@@ -306,9 +343,20 @@ async function reportNames(): Promise<{ people: Map<string, Who>; camps: Map<str
   return { people: new Map(people.map((p) => [p.id, p])), camps: new Map(camps.map((c) => [c.id, c.name])) };
 }
 
-/** A sync's result in words: the admin's "🔍 Shadow diff" or "🔁 Projection". */
-export async function projectionReport(res: Pick<SyncResult, "plan" | "live" | "applied" | "failed">): Promise<string> {
-  return formatProjection({ ...res, mode: res.live ? "applied" : "shadow", ...(await reportNames()) });
+/** Weekday camps the projector switched back after a GC toggled them in the web app, since `since`. */
+export async function revertedSince(since: Date): Promise<{ campId: string; on: boolean; at: Date }[]> {
+  const rows = await db
+    .select({ campId: wbAuditTable.entityId, after: wbAuditTable.after, at: wbAuditTable.at })
+    .from(wbAuditTable)
+    .where(and(eq(wbAuditTable.action, "revert-shift"), gt(wbAuditTable.at, since)))
+    .orderBy(wbAuditTable.at);
+  return rows.map((r) => ({ campId: r.campId ?? "", on: !!(r.after as { onShift?: boolean } | null)?.onShift, at: r.at }));
+}
+
+/** A sync's result in words: the admin's "🔍 Shadow diff" or "🔁 Projection", with the weekday camps switched back since `since`. */
+export async function projectionReport(res: Pick<SyncResult, "plan" | "live" | "applied" | "failed">, since?: Date): Promise<string> {
+  const reverted = since ? await revertedSince(since) : [];
+  return formatProjection({ ...res, mode: res.live ? "applied" : "shadow", reverted, ...(await reportNames()) });
 }
 
 /** The report for now without writing anything (`wb:setup -- diff`, Admin › Projection). */

@@ -1,12 +1,24 @@
 import "server-only";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { toSgt } from "@/lib/parade/time";
 import { wbAudit } from "@/lib/wb/audit";
 import { inTx, Refusal, type Actor, type Via } from "@/lib/wb/core";
-import { wbMinManning, wbShiftEvent, wbShiftPattern } from "@/lib/wb/db/schema";
+import { wbMinManning, wbShiftEvent, wbShiftOverride, wbShiftPattern } from "@/lib/wb/db/schema";
+import { hasGrant } from "@/lib/wb/domain/grants";
 import { canEditShifts, canHoto } from "@/lib/wb/domain/rules";
-import { hotoEffect, minimumLabel, pairProblem, parseMinimum, partnerPattern, stintAround, type Minimum, type ShiftPattern, type WbShiftKind } from "@/lib/wb/domain/shifts";
+import {
+  hotoEffect,
+  minimumLabel,
+  overrideWindow,
+  pairProblem,
+  parseMinimum,
+  partnerPattern,
+  stintAround,
+  type Minimum,
+  type ShiftPattern,
+  type WbShiftKind,
+} from "@/lib/wb/domain/shifts";
 import { dayMonth } from "@/lib/wb/domain/timeline";
 import { campsInfo, loadPatterns } from "@/lib/wb/forecast-data";
 import { memberLabel } from "@/lib/wb/records";
@@ -185,4 +197,43 @@ export async function logHoto(courier: Courier, actor: Actor, input: { campId: s
 export async function recentHotos(campIds: readonly string[], limit = 5) {
   if (!campIds.length) return [];
   return db.select().from(wbShiftEvent).where(inArray(wbShiftEvent.campId, [...campIds])).orderBy(desc(wbShiftEvent.at)).limit(limit);
+}
+
+// ------------------------------------------------------------------ weekday camps: an admin's override (2026-10-14)
+
+/**
+ * Keep a weekday camp on (or off) against its pattern, for the stretch where
+ * the pattern says otherwise (overrideWindow). ADMIN only: the projector
+ * switches a GC's own toggle in the web app back. A new override replaces any
+ * not yet over for that camp.
+ */
+export async function keepShift(actor: Actor, campId: string, on: boolean, via: Via, now: Date = new Date()) {
+  if (!hasGrant(actor.grants, ["ADMIN"], "any")) return { ok: false as const, error: "Only an admin can keep a camp on or off." };
+  const p = (await loadPatterns()).get(campId);
+  if (p?.kind !== "WEEKLY") return { ok: false as const, error: "Only a weekday camp (Monday to Friday) can be kept on or off here. Teams that take turns follow their HOTO." };
+  const w = overrideWindow(p, now, on);
+  if (!w) return { ok: false as const, error: "Its pattern never changes, so there's nothing to override. Change the pattern in Shifts instead." };
+  return inTx(async (tx) => {
+    await tx
+      .update(wbShiftOverride)
+      .set({ clearedAt: now, clearedBy: actor.id })
+      .where(and(eq(wbShiftOverride.campId, campId), isNull(wbShiftOverride.clearedAt), gt(wbShiftOverride.untilAt, now)));
+    const [row] = await tx.insert(wbShiftOverride).values({ campId, on, fromAt: w.startAt, untilAt: w.endAt!, by: actor.id }).returning();
+    await wbAudit(tx, { memberId: actor.id, via, action: "keep-shift", entity: "wb_shift_override", entityId: row.id, after: { campId, on, fromAt: w.startAt, untilAt: w.endAt } });
+    return row;
+  });
+}
+
+/** Back to the pattern: the override ends now. */
+export async function clearShiftOverride(actor: Actor, overrideId: string, via: Via, now: Date = new Date()) {
+  if (!hasGrant(actor.grants, ["ADMIN"], "any")) return { ok: false as const, error: "Only an admin can change that." };
+  return inTx(async (tx) => {
+    const [row] = await tx
+      .update(wbShiftOverride)
+      .set({ clearedAt: now, clearedBy: actor.id })
+      .where(and(eq(wbShiftOverride.id, overrideId), isNull(wbShiftOverride.clearedAt)))
+      .returning({ id: wbShiftOverride.id });
+    if (!row) throw new Refusal("That's already been cleared.");
+    await wbAudit(tx, { memberId: actor.id, via, action: "clear-keep-shift", entity: "wb_shift_override", entityId: overrideId });
+  });
 }

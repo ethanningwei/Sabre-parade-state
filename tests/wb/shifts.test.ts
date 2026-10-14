@@ -4,9 +4,12 @@ import {
   gaps,
   hotoEffect,
   minimumLabel,
+  nextFlipAt,
   onDay,
   onDuring,
   onShiftAt,
+  overrideLabel,
+  overrideWindow,
   pairProblem,
   parseMinimum,
   partnerPattern,
@@ -14,6 +17,7 @@ import {
   strengthLabel,
   strengthOf,
   WEEKDAYS,
+  weeklyWant,
   type ShiftPattern,
 } from "@/lib/wb/domain/shifts";
 import { addDays, dayRange } from "@/lib/wb/domain/timeline";
@@ -112,6 +116,45 @@ describe("pairs", () => {
     // both-on allowed tolerates an overlap, but still not a gap
     expect(pairProblem(srfB, { ...srfA, onDays: 8, offDays: 6 }, ["SRF B", "SRF A"])).toBeNull();
     expect(pairProblem(srfB, { ...srfA, anchorDate: "2026-10-20" }, ["SRF B", "SRF A"])).toMatch(/Nobody/);
+  });
+});
+
+describe("weekday camps: the projector's switch and an admin's override (2026-10-14)", () => {
+  const slr = weekly("SLR");
+  const midnight = (date: string) => dayRange(date).startAt;
+
+  it("flips at SGT midnight: off on Saturday, on again on Monday, or after a public holiday", () => {
+    expect(nextFlipAt(slr, at("2026-10-14"))).toEqual(midnight("2026-10-17"));
+    expect(nextFlipAt(slr, at("2026-10-17"))).toEqual(midnight("2026-10-19"));
+    // Deepavali in lieu, Monday 9/11: back on Tuesday
+    expect(nextFlipAt(slr, at("2026-11-07"))).toEqual(midnight("2026-11-10"));
+    expect(nextFlipAt(always("HQ"), at("2026-10-14"))).toBeNull();
+  });
+
+  it("an override covers the stretch where the pattern says otherwise: from now, or the next one", () => {
+    // Saturday, keep it on: now until Monday
+    expect(overrideWindow(slr, at("2026-10-17"), true)).toEqual({ startAt: at("2026-10-17"), endAt: midnight("2026-10-19") });
+    // Friday, keep it on: the weekend
+    expect(overrideWindow(slr, at("2026-10-16"), true)).toEqual({ startAt: midnight("2026-10-17"), endAt: midnight("2026-10-19") });
+    // Wednesday, keep it off: now until the weekend (when it's off anyway)
+    expect(overrideWindow(slr, at("2026-10-14"), false)).toEqual({ startAt: at("2026-10-14"), endAt: midnight("2026-10-17") });
+    expect(overrideWindow(cycle("SFT B", "2026-10-10"), at("2026-10-14"), true)).toBeNull();
+  });
+
+  it("labels say how long", () => {
+    const now = at("2026-10-16");
+    expect(overrideLabel(overrideWindow(slr, now, true)!, true, now)).toBe("Keep on Sat 17/10–Sun 18/10");
+    expect(overrideLabel(overrideWindow(slr, now, false)!, false, now)).toBe("Keep off until Sat 17/10");
+    const sat = at("2026-10-17");
+    expect(overrideLabel(overrideWindow(slr, sat, true)!, true, sat)).toBe("Keep on until Mon 19/10");
+  });
+
+  it("what a camp should be: an override in force wins, else the pattern", () => {
+    const keepOn = [{ on: true, fromAt: midnight("2026-10-17"), untilAt: midnight("2026-10-19") }];
+    expect(weeklyWant(slr, keepOn, at("2026-10-17"))).toBe(true);
+    expect(weeklyWant(slr, keepOn, at("2026-10-16"))).toBe(true);
+    expect(weeklyWant(slr, [], at("2026-10-18"))).toBe(false);
+    expect(weeklyWant(slr, keepOn, at("2026-10-19"))).toBe(true);
   });
 });
 

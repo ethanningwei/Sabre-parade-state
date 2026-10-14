@@ -294,3 +294,41 @@ describe("planning HOTOs", () => {
     expect(p.writes.map((w) => w.op)).toEqual(["shift", "shift", "absence"]);
   });
 });
+
+describe("planning weekday camps (2026-10-14)", () => {
+  // BDK runs Monday to Friday; NOW is Wednesday 14/10 1000
+  const bdk = { campId: "bdk", pattern: { campId: "bdk", kind: "WEEKLY" as const, onDays: 1, offDays: 0, anchorDate: null, hotoTime: "2100", weekdayMask: 0b0011111, holidaysOff: true, bothOnAllowed: false } };
+  const SAT = at("2026-10-17", "0900");
+  const withBdk = (onShift: boolean) => camps.map((c) => (c.id === "bdk" ? { ...c, onShift } : c));
+
+  it("switches it off at the weekend and on again on Monday", () => {
+    const p = plan({ now: SAT, camps: withBdk(true), weekly: [{ ...bdk, overrides: [], wrote: { projectionId: "w1", on: true } }] });
+    expect(p.writes).toEqual([{ op: "shift", campId: "bdk", onShift: false, events: [], weekly: { why: "pattern", projectionId: "w1" } }]);
+    const mon = plan({ now: at("2026-10-19", "0700"), camps: withBdk(false), weekly: [{ ...bdk, overrides: [], wrote: { projectionId: "w1", on: false } }] });
+    expect(mon.writes).toEqual([{ op: "shift", campId: "bdk", onShift: true, events: [], weekly: { why: "pattern", projectionId: "w1" } }]);
+  });
+
+  it("switches a GC's toggle back, and says so", () => {
+    const p = plan({ camps: withBdk(false), weekly: [{ ...bdk, overrides: [], wrote: { projectionId: "w1", on: true } }] });
+    expect(p.writes).toEqual([{ op: "shift", campId: "bdk", onShift: true, events: [], weekly: { why: "undo-hand", projectionId: "w1" } }]);
+  });
+
+  it("an admin's override wins", () => {
+    const keepOn = [{ on: true, fromAt: at("2026-10-17"), untilAt: at("2026-10-19") }];
+    expect(plan({ now: SAT, camps: withBdk(true), weekly: [{ ...bdk, overrides: keepOn, wrote: { projectionId: "w1", on: true } }] }).writes).toEqual([]);
+    const p = plan({ now: SAT, camps: withBdk(false), weekly: [{ ...bdk, overrides: keepOn, wrote: { projectionId: "w1", on: false } }] });
+    expect(p.writes).toEqual([{ op: "shift", campId: "bdk", onShift: true, events: [], weekly: { why: "override", projectionId: "w1" } }]);
+  });
+
+  it("remembers what it already says, so a later toggle shows; writes nothing", () => {
+    const p = plan({ camps: withBdk(true), weekly: [{ ...bdk, overrides: [], wrote: null }] });
+    expect(p).toEqual({ writes: [], marks: [{ op: "weekly-seen", campId: "bdk", on: true, projectionId: null }], notes: [] });
+  });
+
+  it("an absence at a camp switched off waits, like an off-shift team", () => {
+    const al = rec({ kind: "AL", personId: "p4", startAt: at("2026-10-16"), endAt: at("2026-10-20") });
+    const p = plan({ now: SAT, camps: withBdk(true), records: [al], weekly: [{ ...bdk, overrides: [], wrote: null }] });
+    expect(p.writes.map((w) => w.op)).toEqual(["shift"]);
+    expect(p.notes).toContainEqual(expect.objectContaining({ op: "waiting", personId: "p4" }));
+  });
+});

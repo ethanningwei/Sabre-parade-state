@@ -7,7 +7,7 @@ import { parseHhmm, sgtToInstant } from "@/lib/parade/time";
 import { actionMember, type Member } from "@/lib/wb/auth";
 import type { Actor } from "@/lib/wb/core";
 import { WB_SHIFT_KINDS } from "@/lib/wb/domain/shifts";
-import { logHoto, saveShift } from "@/lib/wb/shifts";
+import { clearShiftOverride, keepShift, logHoto, saveShift } from "@/lib/wb/shifts";
 import { courier } from "@/lib/wb/telegram/courier";
 
 // The Mini App's shift actions: a camp's pattern and minimum manning, and the
@@ -62,5 +62,30 @@ export async function recordHoto(input: z.input<typeof hotoInput>) {
     const res = await logHoto(await courier(), actorOf(member), { campId: a.campId, on: a.on, at: sgtToInstant({ date: a.date, time: a.time }) });
     if (!res.ok) throw new UserError(res.error);
     return { matched: res.value.matched, alerted: !!res.value.alert };
+  });
+}
+
+const keepInput = z.object({ campId: z.string().uuid(), on: z.boolean() });
+
+/** Admin › Projection: keep a weekday camp on or off against its pattern. */
+export async function keepCampShift(input: z.input<typeof keepInput>) {
+  requireFeature();
+  return run(async () => {
+    const member = await actionMember();
+    const a = keepInput.parse(input);
+    const res = await keepShift(actorOf(member), a.campId, a.on, "MINIAPP");
+    if (!res.ok) throw new UserError(res.error);
+    return undefined;
+  });
+}
+
+/** Back to the pattern. */
+export async function clearCampShift(overrideId: string) {
+  requireFeature();
+  return run(async () => {
+    const member = await actionMember();
+    const res = await clearShiftOverride(actorOf(member), z.string().uuid().parse(overrideId), "MINIAPP");
+    if (!res.ok) throw new UserError(res.error);
+    return undefined;
   });
 }

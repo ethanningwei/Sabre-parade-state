@@ -22,10 +22,15 @@
 //   waits for "Back" like an absence.
 // - A HOTO flips camp.on_shift for its team and the other way for the team it
 //   pairs with; only the latest HOTO per post counts.
+// - A weekday camp (WEEKLY pattern: the RG camps and COY HQ) is on or off as
+//   its pattern says (off at weekends and on public holidays), or as an
+//   admin's override in the Mini App says. A GC's toggle in the web app is
+//   switched back (the user, 2026-10-14): only admins override.
 
 import { statusFields, type AbsenceFields } from "@/lib/core/status-fields";
 import { toSgt } from "@/lib/parade/time";
 import type { AbsenceType, DutyType } from "@/lib/parade/types";
+import { weeklyWant, type ShiftOverride, type ShiftPattern } from "./shifts";
 import { addDays } from "./timeline";
 import type { WbProjectionClose } from "./projection-kinds";
 import type { WbAssignmentState, WbAssignmentType } from "./rf";
@@ -98,6 +103,15 @@ export interface PCamp {
   onShift: boolean;
 }
 
+export interface PWeekly {
+  campId: string;
+  pattern: ShiftPattern;
+  /** admins' overrides not cleared and not over */
+  overrides: readonly ShiftOverride[];
+  /** what the projector last set this camp to (an open SHIFT projection), to spot a GC's toggle */
+  wrote: { projectionId: string; on: boolean } | null;
+}
+
 export interface PProjection {
   id: string;
   kind: "ABSENCE" | "DUTY" | "SHIFT";
@@ -121,6 +135,8 @@ export interface PlanInput {
   assignments: readonly PAssignment[];
   /** HOTOs not yet projected, at or before now */
   shiftEvents: readonly PShiftEvent[];
+  /** weekday camps (WEEKLY patterns); optional so older callers work */
+  weekly?: readonly PWeekly[];
   /** the coy's open v1 absences and duties */
   absences: readonly V1Absence[];
   duties: readonly V1Duty[];
@@ -165,15 +181,23 @@ export type Write =
   | { op: "close-absence"; personId: string; projection: PProjection; why: "VOID" | "BACK" }
   | { op: "duty"; personId: string; assignmentId: string; values: DutyValues; projection: PProjection | null; why: "open" | "update" }
   | { op: "end-duty"; personId: string; assignmentId: string | null; projection: PProjection; why: "STOOD_DOWN" | "BACK" | "VOID" }
-  /** flip camp.on_shift; events lists every HOTO it settles */
-  | { op: "shift"; campId: string; onShift: boolean; events: string[] };
+  /**
+   * flip camp.on_shift; events lists every HOTO it settles. `weekly` is set for
+   * a weekday camp: why (its pattern, an admin's override, or switching back a
+   * GC's toggle) and the SHIFT projection that remembers what was written
+   */
+  | { op: "shift"; campId: string; onShift: boolean; events: string[]; weekly?: { why: WeeklyWhy; projectionId: string | null } };
+
+export type WeeklyWhy = "pattern" | "override" | "undo-hand";
 
 /** Bookkeeping only: no v1 write, but wb_projection changes. */
 export type Mark =
   /** the projector's row was closed or changed by a GC: stop owning it */
   | { op: "by-hand"; projection: PProjection }
   /** HOTOs that need no write (v1 already agrees, or a later one wins) */
-  | { op: "shift-done"; events: string[] };
+  | { op: "shift-done"; events: string[] }
+  /** a weekday camp already says what it should: remember it, so a later GC toggle shows */
+  | { op: "weekly-seen"; campId: string; on: boolean; projectionId: string | null };
 
 export type Note =
   /** a GC's own absence or duty disagrees: left alone */
@@ -329,6 +353,21 @@ export function planProjection(input: PlanInput): Plan {
       wrote = true;
     }
     if (!wrote) plan.marks.push({ op: "shift-done", events });
+  }
+  for (const w of input.weekly ?? []) {
+    const c = campById.get(w.campId);
+    const want = weeklyWant(w.pattern, w.overrides, now);
+    if (!c || want === null) continue;
+    const projectionId = w.wrote?.projectionId ?? null;
+    if (c.onShift === want) {
+      if (w.wrote?.on !== want) plan.marks.push({ op: "weekly-seen", campId: c.id, on: want, projectionId });
+      continue;
+    }
+    const handFlipped = !!w.wrote && w.wrote.on !== c.onShift;
+    const overridden = want !== (weeklyWant(w.pattern, [], now) ?? want);
+    const why: WeeklyWhy = handFlipped ? "undo-hand" : overridden ? "override" : "pattern";
+    plan.writes.push({ op: "shift", campId: c.id, onShift: want, events: [], weekly: { why, projectionId } });
+    onShift.set(c.id, want);
   }
 
   // ---- indexes
