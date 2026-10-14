@@ -30,7 +30,7 @@ export function ShiftOverride({
           Back to its pattern
         </BigButton>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="flex flex-col gap-2">
           {offers.map((o) => (
             <BigButton key={String(o.on)} variant="outline" pending={pending} onClick={() => call(() => keepCampShift({ campId, on: o.on }), done(o.label.replace(/^Keep/, "Kept")))}>
               {o.label}

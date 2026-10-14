@@ -144,9 +144,11 @@ describe("weekday camps: the projector's switch and an admin's override (2026-10
   it("labels say how long", () => {
     const now = at("2026-10-16");
     expect(overrideLabel(overrideWindow(slr, now, true)!, true, now)).toBe("Keep on Sat 17/10–Sun 18/10");
-    expect(overrideLabel(overrideWindow(slr, now, false)!, false, now)).toBe("Keep off until Sat 17/10");
+    expect(overrideLabel(overrideWindow(slr, now, false)!, false, now)).toBe("Keep off today");
+    const wed = at("2026-10-14");
+    expect(overrideLabel(overrideWindow(slr, wed, false)!, false, wed)).toBe("Keep off through Fri 16/10");
     const sat = at("2026-10-17");
-    expect(overrideLabel(overrideWindow(slr, sat, true)!, true, sat)).toBe("Keep on until Mon 19/10");
+    expect(overrideLabel(overrideWindow(slr, sat, true)!, true, sat)).toBe("Keep on through Sun 18/10");
   });
 
   it("what a camp should be: an override in force wins, else the pattern", () => {

@@ -119,12 +119,12 @@ export function overrideWindow(p: ShiftPattern, t: Date, on: boolean): Range | n
   return startAt && endAt ? { startAt, endAt } : null;
 }
 
-/** "Keep on until Mon 20/10" (from now) or "Keep on Sat 18/10–Sun 19/10" (a stretch to come). */
+/** "Keep on through Sun 18/10" (from now), "Keep off today", or "Keep on Sat 17/10–Sun 18/10" (a stretch to come). */
 export function overrideLabel(w: Range, on: boolean, now: Date): string {
   const day = (date: string) => `${WEEKDAY_NAMES[weekdayOf(date)]} ${dayMonth(date)}`;
   const verb = on ? "Keep on" : "Keep off";
   const last = addDays(toSgt(w.endAt!).date, -1);
-  if (w.startAt.getTime() <= now.getTime()) return `${verb} until ${day(toSgt(w.endAt!).date)}`;
+  if (w.startAt.getTime() <= now.getTime()) return last === toSgt(now).date ? `${verb} today` : `${verb} through ${day(last)}`;
   const first = toSgt(w.startAt).date;
   return first === last ? `${verb} ${day(first)}` : `${verb} ${day(first)}–${day(last)}`;
 }
