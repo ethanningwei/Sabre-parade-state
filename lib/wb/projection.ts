@@ -44,6 +44,8 @@ import { STANDING_STATES, type WbRecordKind, type WbRecordState } from "@/lib/wb
 /** The projector's v1 user. Inactive, so signing in with its name gets you nowhere. */
 export const PROJECTOR_USER = { id: "wb-projector", name: "Sabre (whereabouts)" } as const;
 const LOCK_KEY = 0x5ab4e6; // any constant: one projector at a time
+/** A sync left idle this long (its function frozen) is ended by Postgres, releasing LOCK_KEY. A real sync never pauses this long. */
+const IDLE_TIMEOUT_S = 10;
 
 export interface SyncResult {
   live: boolean;
@@ -302,6 +304,11 @@ export async function syncProjection(now: Date = new Date()): Promise<SyncResult
   if (!live) return { live, busy: false, plan: await planNow(now), applied: 0, failed: [] };
 
   return db.transaction(async (tx) => {
+    // A serverless function can be frozen mid-sync (a page whose response has
+    // already gone), leaving this transaction open and the lock held, so every
+    // later sync would be "busy" for good. Postgres never times an idle
+    // transaction out by default: this one ends itself, lock and all.
+    await tx.execute(sql.raw(`set local idle_in_transaction_session_timeout = '${IDLE_TIMEOUT_S}s'`));
     const [{ locked }] = (await tx.execute(sql`select pg_try_advisory_xact_lock(${LOCK_KEY}) as locked`)).rows as { locked: boolean }[];
     if (!locked) return { live, busy: true, plan: { writes: [], marks: [], notes: [] }, applied: 0, failed: [] };
     await ensureProjectorUser(tx);
