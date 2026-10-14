@@ -93,6 +93,7 @@ The parade-state engine is `lib/parade/` (pure TypeScript, no I/O). Its output m
   - Users and history are kept.
   - The physical-camp grouping is re-derived from the camp names, so a manual edit in Structure is lost.
   - After cutover the app is the source of truth: never use `--with-absences` then.
+- **Whereabouts projection** (the `whereabouts` branch, 2026-10-14): with `FEATURE_WHEREABOUTS` and `FEATURE_PROJECTION` on, `currentSnapshot` and `generateParadeState` first sync the Telegram timeline into `absence`/`duty`/`camp.on_shift` through `lib/core` (the extracted bodies of `setStatus`, `setCampShift`, `saveDuty`, `endDuty`). With the flags off (production today) it does nothing. A GC's own entries are never overwritten; see `docs/whereabouts-status.md`.
 - **Imported RFs aren't linked to roster people.** Their home absences stay as typed in the Sheets ("RF BDK (…)"). New RFs created in the app are linked.
 - **No per-person history screen yet.** Closed `absence` rows and `audit_log` hold the data.
 - **iPhone Safari wasn't tested in an emulator:** Playwright WebKit segfaults on this Mac when emulating a phone. The iOS date-field fix in `app/globals.css` is based on documented Safari behaviour. Confirm on a real phone.
