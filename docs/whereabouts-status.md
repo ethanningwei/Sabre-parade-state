@@ -220,7 +220,7 @@
 3. Give the second account **PC** instead → it applies for Off → the card reaches **COY HQ's** chat as well as PLATOON 6's; your Approve (a PS) says "Only OC, 2IC or CSM can decide this."
 4. Admin › Projection → **Weekday camps**: SLR/BDK/HDN/PRC/TFT/COY HQ listed. On a weekday tap **Keep on Sat–Sun** for one → "Kept on …"; then **Back to its pattern**.
 5. On Saturday, open the v1 web app on the preview: the RG camps and COY HQ show off shift. Switch one on in the web app, reload: it's off again; that evening's admin report says "↩️ Switched back".
-6. Raise an RF for an hour ago (or let one lapse), run `npm run wb:setup -- evening` → every copy of its card says "⌛ EXPIRED", no Deploy/Close; the heartbeat counts "1 RF expired".
+6. Raise an RF that ends a few minutes from now (the form refuses an end already passed), let it lapse, then run `npm run wb:setup -- evening` → every copy of its card says "⌛ EXPIRED", no Deploy/Close; the heartbeat counts "1 RF expired".
 
 **Gotchas (Phases 1–6):**
 - Never add `diagnosis` or `evidence_file_id` to a select that feeds a `RecordView`, a card or a DM. Read them only through `lib/wb/medical.ts`.
@@ -253,6 +253,7 @@
 - The projector's v1 rows are known by `wb_projection` **and** `wrote`: if a GC edits one, it's theirs from then on (BY_HAND). Any new projected field must go into `absenceRow`/`dutyRow`, or every sync will think a GC changed it.
 - `syncQuietly()` is on v1's hot path (every page load). Keep it a no-op with the flags off (no queries) and keep `loadPlanInput` to a handful of indexed reads.
 - `paradeStatuses` syncs first (it's called from Mini App pages), so it writes when projection is on. Don't call it from a read-only path you don't want writing.
+- **A Vercel function can be frozen mid-sync** (found on the preview 2026-10-14, twice in ten minutes: likely an abandoned render or prefetch), leaving the sync's transaction "idle in transaction" with the projector's advisory lock held, so every later sync returns `busy` and nothing reaches the parade state. Since 03dd76b the sync sets `idle_in_transaction_session_timeout` (10 s) so Postgres ends it. Spot it with `select * from pg_locks where locktype='advisory'` (objid 5944550). A busy sync is silent: the Mini App then says "his other record shows instead".
 - A weekday camp's open SHIFT `wb_projection` row is the projector's memory of what it set; `loadPlanInput` keeps SHIFT rows out of `projections`. Don't close it, or the next GC toggle won't be told from a switch-over. DB tests that touch on-shift must clear `wb_shift_pattern` (projection.db.test.ts does), or a leftover WEEKLY pattern flips camps under them.
 - Who may approve is `canDecideRequest` (needs the request's `ownerRoles`), not `canDecide` (scope only). Use the latter only for viewing, void, medical access and the forecast.
 - `writeCoy` defaults to `"full"` (the seed and tests); the import passes `"roster"` unless `--with-absences`. DB-test lookups by name must filter on `active` (inactive people stay behind).
