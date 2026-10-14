@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { coy, paradeState } from "@/lib/db/schema";
 import { renderParadeState, validate, type Issue } from "@/lib/parade";
 import { sendToTelegram, TelegramError } from "@/lib/telegram";
+import { syncQuietly } from "@/lib/wb/projection";
 import { audit, run, UserError } from "./shared";
 
 const caaInput = z.object({
@@ -23,6 +24,7 @@ export async function generateParadeState(caa: { date: string; time: string }) {
     const viewer = await actionViewer();
     const parsed = caaInput.parse(caa);
     const coyRow = await getCoy();
+    await syncQuietly(); // FEATURE_PROJECTION: the timeline first; a no-op when off
     const snapshot = await loadSnapshot(coyRow);
     const issues = validate(snapshot, parsed);
     if (issues.length) return { issues };
