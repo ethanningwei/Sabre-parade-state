@@ -450,4 +450,27 @@ describe("assignments in the forecast and on cards (DB)", () => {
     expect(digest(CHAT_HQ)).toMatch(/🚌 1 RF request still open, company-wide\n• SLR .+: short 2 of 2 \(PLATOON 6\)/);
     expect(digest(CHAT7)).toBe("");
   });
+
+  it("the evening round expires an open request whose shift has passed: every card copy says so (2026-10-14)", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await setup();
+    await as(GC_SLR);
+    await raise();
+    const [r] = await db.select().from(wbRfRequest);
+    const past = new Date(Date.now() - 60 * 60 * 1000);
+    await db.update(wbRfRequest).set({ startAt: new Date(past.getTime() - 12 * 60 * 60 * 1000), endAt: past }).where(eq(wbRfRequest.id, r.id));
+    tg.calls = [];
+    const summary = await eveningRound(courierOf(await outbound()), new Date(), { force: true });
+    expect(summary).toMatchObject({ rfExpired: 1, rf: 0 });
+    expect((await db.select().from(wbRfRequest))[0].state).toBe("EXPIRED");
+    const cardEdits = edits().filter((c) => String(c.payload.text).startsWith("🚌 RF REQUEST"));
+    expect(cardEdits).toHaveLength(3); // PL6, COY HQ and the raiser's own copy
+    for (const e of cardEdits) {
+      expect(String(e.payload.text)).toContain("⌛ EXPIRED — the shift has passed, nobody was sent");
+      expect(JSON.stringify(e.payload.reply_markup)).not.toMatch(/Deploy|Close/);
+    }
+    const { board } = await import("@/lib/wb/rf-data");
+    expect((await board()).settled.map((x) => x.id)).toContain(r.id);
+    expect((await eveningRound(courierOf(await outbound()), new Date(), { force: true })).rfExpired).toBe(0);
+  });
 });

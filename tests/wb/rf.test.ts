@@ -81,6 +81,7 @@ describe("an RF request", () => {
     expect(stateAfter("FILLED", 2, 1)).toBe("OPEN");
     expect(stateAfter("CLOSED", 2, 0)).toBe("CLOSED");
     expect(stateAfter("CLOSED", 2, 2)).toBe("CLOSED");
+    expect(stateAfter("EXPIRED", 2, 2)).toBe("EXPIRED");
   });
 
   it("is over once its end has passed", () => {
@@ -108,6 +109,9 @@ describe("an RF request", () => {
     expect(rfCardText(request({ state: "CLOSED", closedBy: "2SG LIM" }), NOW)).toContain("❌ CLOSED — no longer needed (2SG LIM)");
     expect(rfCardText(request(), sgtToInstant({ date: "2026-10-03", time: "0000" }))).toContain("⌛ Over, still short 2 of 2");
     expect(rfCardText(request(), NOW)).not.toContain("Manpower deployed");
+    expect(rfCardText(request({ state: "EXPIRED" }), NOW)).toContain("⌛ EXPIRED — the shift has passed, nobody was sent");
+    expect(rfCardText(request({ state: "EXPIRED", deployed: sent(1) }), NOW)).toContain("⌛ EXPIRED — the shift has passed, still short 1 of 2");
+    expect(rfButtons(request({ state: "EXPIRED" }), false)).toEqual([[{ text: "Open", route: `rf/${request().id}` }]]);
   });
 
   it("buttons: Deploy and Close for everyone, Close only on the raiser's copy, Open only once settled", () => {

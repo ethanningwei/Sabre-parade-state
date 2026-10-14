@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { camp } from "@/lib/db/schema";
 import { wbAudit } from "@/lib/wb/audit";
@@ -125,12 +125,37 @@ export async function closeRf(courier: Courier, actor: Actor, requestId: string,
       .set({ state: "CLOSED", closedBy: actor.id, closedAt: new Date() })
       .where(and(eq(wbRfRequest.id, requestId), eq(wbRfRequest.state, "OPEN")))
       .returning({ id: wbRfRequest.id });
-    if (!row) throw new Refusal(before.state === "FILLED" ? "It's already filled. Stand the men down from the request first." : "It's already closed.");
+    if (!row) {
+      throw new Refusal(
+        before.state === "FILLED" ? "It's already filled. Stand the men down from the request first." : before.state === "EXPIRED" ? "Its shift has passed: it's expired." : "It's already closed.",
+      );
+    }
     await wbAudit(tx, { memberId: actor.id, via, action: "close-rf", entity: "wb_rf_request", entityId: requestId, before: { state: "OPEN" }, after: { state: "CLOSED" } });
   });
   await courier.redraw({ rf: requestId });
   if (!res.ok) return res;
   return { ok: true as const, value: (await rfView(requestId))! };
+}
+
+/**
+ * The evening round: a request whose shift passed while still OPEN is
+ * EXPIRED, and every copy of its card says so (the user, 2026-10-14: that
+ * edited card is the notice). Men already sent stay as they are.
+ */
+export async function expireRfRequests(courier: Courier, now: Date = new Date()): Promise<number> {
+  const expired = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(wbRfRequest)
+      .set({ state: "EXPIRED", closedAt: now })
+      .where(and(eq(wbRfRequest.state, "OPEN"), lte(wbRfRequest.endAt, now)))
+      .returning({ id: wbRfRequest.id });
+    for (const r of rows) {
+      await wbAudit(tx, { memberId: null, via: "SYSTEM", action: "expire-rf", entity: "wb_rf_request", entityId: r.id, before: { state: "OPEN" }, after: { state: "EXPIRED" } });
+    }
+    return rows.map((r) => r.id);
+  });
+  for (const id of expired) await courier.redraw({ rf: id });
+  return expired.length;
 }
 
 // ------------------------------------------------------------------ stand down

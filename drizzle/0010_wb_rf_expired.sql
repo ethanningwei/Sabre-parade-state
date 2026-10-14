@@ -1,0 +1,1 @@
+ALTER TYPE "public"."wb_rf_state" ADD VALUE 'EXPIRED';

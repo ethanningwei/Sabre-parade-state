@@ -11,6 +11,7 @@ const CHIP = {
   OPEN: { label: "Open", cls: "bg-amber-500/15 text-amber-700 dark:text-amber-400", Icon: Hourglass },
   FILLED: { label: "Filled", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400", Icon: CircleCheck },
   CLOSED: { label: "Closed", cls: "bg-muted text-muted-foreground", Icon: Ban },
+  EXPIRED: { label: "Expired", cls: "bg-muted text-muted-foreground", Icon: TimerOff },
   OVER: { label: "Over", cls: "bg-muted text-muted-foreground", Icon: TimerOff },
 } as const;
 
@@ -28,6 +29,7 @@ export function RfChip({ r, now }: { r: RfRequestView; now: Date }) {
 export function shortLine(r: RfRequestView): string {
   if (r.state === "FILLED") return `Filled · ${r.deployed.length} of ${r.need}`;
   if (r.state === "CLOSED") return `Closed${r.closedBy ? ` by ${r.closedBy}` : ""} · ${r.deployed.length} of ${r.need} sent`;
+  if (r.state === "EXPIRED") return `Expired unfilled · ${r.deployed.length} of ${r.need} sent`;
   return `Still short ${shortBy(r)} of ${r.need}`;
 }
 

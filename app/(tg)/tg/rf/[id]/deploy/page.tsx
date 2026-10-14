@@ -22,7 +22,7 @@ export default async function DeployPage({ params }: { params: Promise<{ id: str
 
   if (r.state !== "OPEN" || isOver(r, now)) {
     return (
-      <DoneScreen title={r.state === "FILLED" ? "Already filled" : r.state === "CLOSED" ? "Closed" : "Over"} tone="warn" line={`${r.campName} isn't asking for anyone now.`}>
+      <DoneScreen title={r.state === "FILLED" ? "Already filled" : r.state === "CLOSED" ? "Closed" : r.state === "EXPIRED" ? "Expired" : "Over"} tone="warn" line={`${r.campName} isn't asking for anyone now.`}>
         <BigLink href={`/tg/rf/${r.id}`}>Open the request</BigLink>
         <BigLink href="/tg/rf" outline>
           RF board

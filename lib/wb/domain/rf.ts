@@ -15,7 +15,8 @@ import { overlaps, rangeLabel, type Range } from "./timeline";
 export const RF_ROLES = ["GC", "ST CBT", "ST SVC", "ANY"] as const;
 export type RfRole = (typeof RF_ROLES)[number];
 
-export const WB_RF_STATES = ["OPEN", "FILLED", "CLOSED"] as const;
+/** EXPIRED: its shift passed while still OPEN; the evening round settles it (the user, 2026-10-14). */
+export const WB_RF_STATES = ["OPEN", "FILLED", "CLOSED", "EXPIRED"] as const;
 export type WbRfState = (typeof WB_RF_STATES)[number];
 
 /** The three things that move a man between guardrooms without changing where he's posted. */
@@ -97,9 +98,9 @@ export const isOver = (r: Range, now: Date) => r.endAt !== null && r.endAt.getTi
 /** "1x GC", "2x any role" */
 export const wants = (r: { need: number; role: RfRole }) => `${r.need}x ${r.role === "ANY" ? "any role" : r.role}`;
 
-/** What a request's state should be after a man is sent or stood down. CLOSED stays CLOSED. */
+/** What a request's state should be after a man is sent or stood down. CLOSED and EXPIRED stay so. */
 export function stateAfter(state: WbRfState, need: number, live: number): WbRfState {
-  if (state === "CLOSED") return "CLOSED";
+  if (state === "CLOSED" || state === "EXPIRED") return state;
   return live >= need ? "FILLED" : "OPEN";
 }
 
@@ -110,6 +111,7 @@ export const deployedLabel = (d: Pick<RfDeployed, "rank" | "name" | "campName">)
 export function rfStateLine(r: RfRequestView, now: Date = new Date()): string {
   if (r.state === "FILLED") return "✅ FILLED";
   if (r.state === "CLOSED") return `❌ CLOSED — no longer needed${r.closedBy ? ` (${r.closedBy})` : ""}`;
+  if (r.state === "EXPIRED") return `⌛ EXPIRED — the shift has passed, ${r.deployed.length ? `still short ${shortBy(r)} of ${r.need}` : "nobody was sent"}`;
   if (isOver(r, now)) return `⌛ Over, still short ${shortBy(r)} of ${r.need}`;
   return `⏳ Still short ${shortBy(r)} of ${r.need}`;
 }
@@ -190,6 +192,7 @@ export const assignmentLine = (a: Pick<LiveAssignment, "type" | "campName"> & Ra
  */
 export function deployRefusal(r: RfRequestView, man: Man, assignments: readonly LiveAssignment[], now: Date = new Date()): string | null {
   if (r.state === "CLOSED") return "That request has been closed.";
+  if (r.state === "EXPIRED") return "That RF is already over.";
   if (r.state === "FILLED" || shortBy(r) === 0) return "Somebody got there first: that request is already filled.";
   if (isOver(r, now)) return "That RF is already over.";
   if (man.campId === r.campId) return `${man.rank} ${man.name} is ${r.campName}'s own. RF is served at another camp.`;

@@ -11,6 +11,7 @@ import { addDays, dayRange, todaySgt } from "@/lib/wb/domain/timeline";
 import { shortTomorrow } from "@/lib/wb/forecast-data";
 import { rangeLabel } from "@/lib/wb/domain/timeline";
 import { shortBy } from "@/lib/wb/domain/rf";
+import { expireRfRequests } from "@/lib/wb/rf";
 import { openRequests } from "@/lib/wb/rf-data";
 import { findViews } from "@/lib/wb/records";
 import { backData } from "@/lib/wb/domain/projection-kinds";
@@ -47,6 +48,8 @@ export interface RoundSummary {
   short: number;
   /** RF requests still open */
   rf: number;
+  /** RF requests whose shift passed unfilled, settled tonight */
+  rfExpired: number;
   /** "Back?" messages sent to commanders chats (Phase 6, projection on) */
   back: number;
   /** the admin's shadow diff / projection report sent (Phase 6) */
@@ -79,7 +82,7 @@ async function claim(date: string, force: boolean): Promise<boolean> {
 
 export async function eveningRound(courier: Courier, now: Date = new Date(), { force = false } = {}): Promise<RoundSummary> {
   const today = todaySgt(now);
-  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, back: 0, projection: 0 };
+  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, rfExpired: 0, back: 0, projection: 0 };
   if (!(await claim(today, force))) return { ...summary, skipped: true };
 
   const todayStart = dayRange(today).startAt;
@@ -158,6 +161,7 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
   // ---------------------------------------------------------------- RF requests still open (Phase 5)
   // each platoon hears about its own camps' requests; COY HQ about all of them
   try {
+    summary.rfExpired = await expireRfRequests(courier, now);
     const open = await openRequests(now);
     summary.rf = open.length;
     const line = (r: (typeof open)[number]) => `• ${r.campName} ${rangeLabel(r)}: short ${shortBy(r)} of ${r.need}`;
@@ -227,7 +231,7 @@ async function heartbeat(courier: Courier, now: Date, s: RoundSummary): Promise<
     `${roster.n} on the roster · ${registered.n} registered\n` +
     `${pending.n} waiting on a decision · ${today.n} recorded today\n` +
     `${linked.n} commanders chats linked (${platoons.n} platoons)\n` +
-    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.digests} digests, ${s.back} Back? messages\n\n` +
+    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.rfExpired} RF expired, ${s.digests} digests, ${s.back} Back? messages\n\n` +
     "Sent every evening. If an evening goes by without one, the bot isn't running.";
   return courier.send({ admins: true }, text);
 }
