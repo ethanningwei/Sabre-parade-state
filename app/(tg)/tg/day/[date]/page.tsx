@@ -2,6 +2,7 @@ import { CalendarX, ChevronLeft, ChevronRight, Hourglass } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Header } from "@/components/tg/form-bits";
+import { ParadeStatusLine } from "@/components/tg/parade-status";
 import { EmptyState, enter, Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
@@ -9,6 +10,7 @@ import { decidesAnything } from "@/lib/wb/domain/rules";
 import { minimumLabel, WEEKDAY_NAMES, weekdayOf } from "@/lib/wb/domain/shifts";
 import { addDays, dayMonthYear, todaySgt } from "@/lib/wb/domain/timeline";
 import { campsInfo, dayView, forecastScope, type DayCamp } from "@/lib/wb/forecast-data";
+import { paradeStatusesOf, type ParadeStatus } from "@/lib/wb/projection";
 
 // One day for a commander's camps: who's on shift, strength against the
 // minimum, who's away and why (from the timeline and Extra/RF/SOL; never a
@@ -25,6 +27,9 @@ export default async function DayPage({ params, searchParams }: { params: Promis
 
   const scoped = forecastScope(member.grants, await campsInfo()).filter((c) => !only || c.id === only);
   const days = scoped.length ? await dayView(scoped.map((c) => c.id), date) : [];
+  // today, projection on: whether each standing record has reached the parade state
+  const parade =
+    date === today ? await paradeStatusesOf(days.flatMap((d) => d.away.flatMap((a) => (a.recordId && !a.pending ? [a.recordId] : [])))) : new Map<string, ParadeStatus>();
   const platoons = [...new Map(days.map((d) => [d.info.subunitId, d.info.subunitName]))];
   const q = only ? `?camp=${only}` : "";
   const nav = "tg-press flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-primary active:bg-muted";
@@ -56,7 +61,7 @@ export default async function DayPage({ params, searchParams }: { params: Promis
           {days
             .filter((d) => d.info.subunitId === subunitId)
             .map((d, i) => (
-              <CampCard key={d.info.id} d={d} i={i} />
+              <CampCard key={d.info.id} d={d} i={i} parade={parade} />
             ))}
         </Group>
       ))}
@@ -64,7 +69,7 @@ export default async function DayPage({ params, searchParams }: { params: Promis
   );
 }
 
-function CampCard({ d, i }: { d: DayCamp; i: number }) {
+function CampCard({ d, i, parade }: { d: DayCamp; i: number; parade: ReadonlyMap<string, ParadeStatus> }) {
   const on = d.manning.on;
   return (
     <article className="tg-enter flex flex-col gap-3 rounded-2xl bg-card p-4" style={enter(i)}>
@@ -106,6 +111,11 @@ function CampCard({ d, i }: { d: DayCamp; i: number }) {
                   {a.pending && (
                     <span className="ml-1 inline-flex items-center gap-0.5 text-xs text-amber-700 dark:text-amber-400">
                       <Hourglass className="size-3" aria-hidden /> pending
+                    </span>
+                  )}
+                  {a.recordId && parade.get(a.recordId) && (
+                    <span className="block">
+                      <ParadeStatusLine s={parade.get(a.recordId)!} compact />
                     </span>
                   )}
                 </>

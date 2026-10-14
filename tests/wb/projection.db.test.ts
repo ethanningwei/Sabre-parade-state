@@ -22,7 +22,7 @@ const { PROJECTOR_USER, syncProjection } = await import("@/lib/wb/projection");
 const { currentSnapshot } = await import("@/lib/data/current");
 const { generateParadeState } = await import("@/lib/actions/parade");
 const { inTx } = await import("@/lib/wb/core");
-const { confirmBack, dueBack } = await import("@/lib/wb/projection");
+const { confirmBack, dueBack, paradeStatuses } = await import("@/lib/wb/projection");
 const { eveningRound } = await import("@/lib/wb/evening");
 const { recordingCourier } = await import("./recording-courier");
 
@@ -93,6 +93,29 @@ const v1Counts = async () => ({
   duties: (await db.select({ id: duty.id }).from(duty).where(isNull(duty.closedAt))).length,
   onShift: (await db.select({ id: camp.id }).from(camp).where(eq(camp.onShift, true))).length,
   audit: (await db.select({ id: auditLog.id }).from(auditLog)).length,
+});
+
+describe("the Mini App's 'on the parade state?'", () => {
+  it("says on, or why not; nothing while projection is off", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const day = 86_400_000;
+    const t = Date.now();
+    const al = await record({ kind: "AL", personId: t1, startAt: new Date(t - day), endAt: new Date(t + day) });
+    expect((await paradeStatuses([al])).size).toBe(0);
+
+    live();
+    await db.transaction((tx) =>
+      setStatusCore(tx, GC, { personIds: [t2], status: "OTHERS", otherReason: "COURSE", startDate: null, startTime: null, endDate: null, endTime: null, maTiming: "", maLocation: "" }),
+    );
+    const off = await record({ kind: "OFF", personId: t2, startAt: new Date(t - day), endAt: new Date(t + day) });
+    const later = await record({ kind: "OL", personId: t1, startAt: new Date(t + 3 * day), endAt: new Date(t + 5 * day) });
+    const ma = await record({ kind: "MA", personId: t1, state: "RECORDED", startAt: new Date(t - day), endAt: new Date(t + day), maTiming: "1300" });
+    const got = await paradeStatuses([al, off, later, ma]);
+    expect(got.get(al.id)).toEqual({ on: true });
+    expect(got.get(off.id)).toEqual({ on: false, why: "the GC has him as COURSE" });
+    expect(got.get(later.id)).toEqual({ on: false, why: "goes on when it starts" });
+    expect(got.get(ma.id)).toEqual({ on: false, why: "his other record shows instead" });
+  });
 });
 
 describe("Back?", () => {

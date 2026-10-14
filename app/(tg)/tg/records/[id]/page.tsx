@@ -2,6 +2,7 @@ import { SearchX } from "lucide-react";
 import { Header } from "@/components/tg/form-bits";
 import { RecordActions } from "@/components/tg/record-actions";
 import { RecordSummary } from "@/components/tg/record-summary";
+import { ParadeStatusLine } from "@/components/tg/parade-status";
 import { EmptyState } from "@/components/tg/ui";
 import { VisitSection } from "@/components/tg/visit-section";
 import { requireFeaturePage } from "@/lib/flags";
@@ -9,6 +10,7 @@ import { requireRegistered } from "@/lib/wb/auth";
 import { KIND_LABEL } from "@/lib/wb/domain/describe";
 import { accessTo, canDecide, canSeeMedical, isOutcome, outcomeParentRefusal, VISIT_KINDS } from "@/lib/wb/domain/rules";
 import { photoIds, readDiagnoses } from "@/lib/wb/medical";
+import { paradeStatuses } from "@/lib/wb/projection";
 import { recordView } from "@/lib/wb/records";
 import { visitOf } from "@/lib/wb/visits";
 
@@ -42,6 +44,8 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
     !!visit && owner && (visit.parentKind ? outcomeParentRefusal(visit.anchor, member.personId!) === null : visit.outcome.length > 0);
   // a pending or rejected report sick has nothing to show yet
   const showVisit = !!visit && (canOutcome || visit.outcome.length > 0 || !!visit.anchor.outcomeAt);
+  // projection on: is it on the parade state yet?
+  const parade = (await paradeStatuses([r])).get(r.id);
 
   return (
     <div className="flex flex-col gap-4">
@@ -50,6 +54,11 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
         {/* once he's recorded what the doctor gave, the approval can only be voided (decide.ts undo refuses too) */}
         <RecordActions recordId={r.id} can={visit && r.id === visit.anchor.id && visit.outcome.length ? { ...can, undo: false } : can} />
       </RecordSummary>
+      {parade && (
+        <p className="px-1">
+          <ParadeStatusLine s={parade} />
+        </p>
+      )}
       {visit && showVisit && (
         <VisitSection
           outcome={visit.outcome}

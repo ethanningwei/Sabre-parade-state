@@ -16,6 +16,7 @@ import {
   absenceRow,
   dutyRow,
   planProjection,
+  v1TypeOf,
   type Mark,
   type Plan,
   type PlanInput,
@@ -24,7 +25,7 @@ import {
 } from "@/lib/wb/domain/projection";
 import { formatProjection, type Who } from "@/lib/wb/domain/projection-report";
 import type { WbRole } from "@/lib/wb/domain/roles";
-import { STANDING_STATES } from "@/lib/wb/domain/rules";
+import { STANDING_STATES, type WbRecordKind, type WbRecordState } from "@/lib/wb/domain/rules";
 
 // The projector: the timeline into the parade state (status §3b, plan §4f).
 // planNow() works out what v1 should say now (lib/wb/domain/projection.ts);
@@ -307,13 +308,14 @@ async function reportNames(): Promise<{ people: Map<string, Who>; camps: Map<str
 
 /** A sync's result in words: the admin's "🔍 Shadow diff" or "🔁 Projection". */
 export async function projectionReport(res: Pick<SyncResult, "plan" | "live" | "applied" | "failed">): Promise<string> {
-  return formatProjection({ ...res, ...(await reportNames()) });
+  return formatProjection({ ...res, mode: res.live ? "applied" : "shadow", ...(await reportNames()) });
 }
 
-/** The report for now without writing anything, whatever the flag says (`wb:setup -- diff`). */
+/** The report for now without writing anything (`wb:setup -- diff`, Admin › Projection). */
 export async function diffNow(now: Date = new Date()): Promise<string> {
   const plan = await planNow(now);
-  return projectionReport({ plan, live: false, applied: 0, failed: [] });
+  const live = isEnabled("WHEREABOUTS") && isEnabled("PROJECTION");
+  return formatProjection({ plan, mode: live ? "pending" : "shadow", ...(await reportNames()) });
 }
 
 // ------------------------------------------------------------------ "Back?"
@@ -404,4 +406,70 @@ export async function confirmBack(actor: Actor, projectionId: string, via: Via):
   await syncQuietly();
   const [after] = await db.select({ closedAt: wbProjection.closedAt }).from(wbProjection).where(eq(wbProjection.id, projectionId));
   return { ok: true, label, closed: !!after?.closedAt };
+}
+
+// ------------------------------------------------------------------ the Mini App
+
+/** Whether a record is on the parade state, and if not, why. */
+export type ParadeStatus = { on: true; note?: string } | { on: false; why: string };
+
+/**
+ * For the record page and today's Day view, while projection is on (an empty
+ * map while it's off: nothing to say). Syncs first, so what's left in the
+ * plan is what really isn't there.
+ */
+export async function paradeStatuses(
+  records: readonly { id: string; personId: string; kind: WbRecordKind; state: WbRecordState; absent: boolean; startAt: Date; endAt: Date | null }[],
+  now: Date = new Date(),
+): Promise<Map<string, ParadeStatus>> {
+  const out = new Map<string, ParadeStatus>();
+  if (!(isEnabled("WHEREABOUTS") && isEnabled("PROJECTION")) || !records.length) return out;
+  await syncQuietly();
+  const ids = records.map((r) => r.id);
+  const [owned, plan] = await Promise.all([
+    db
+      .select({ recordId: wbProjection.recordId, backConfirmedAt: wbProjection.backConfirmedAt })
+      .from(wbProjection)
+      .where(and(isNull(wbProjection.closedAt), inArray(wbProjection.recordId, ids))),
+    planNow(now),
+  ]);
+  const ownedBy = new Map(owned.map((o) => [o.recordId!, o]));
+  const noteOf = new Map(plan.notes.flatMap((n) => ("recordId" in n && n.recordId ? [[n.recordId, n] as const] : [])));
+  for (const r of records) {
+    if (!STANDING_STATES.includes(r.state) || !v1TypeOf(r)) continue;
+    const mine = ownedBy.get(r.id);
+    if (mine) {
+      out.set(r.id, mine.backConfirmedAt ? { on: true, note: "Back confirmed: marked present when it ends" } : { on: true });
+      continue;
+    }
+    const n = noteOf.get(r.id);
+    if (n?.op === "agrees") out.set(r.id, { on: true, note: "as the GC typed it" });
+    else if (n?.op === "conflict") out.set(r.id, { on: false, why: `the GC has him as ${n.has}` });
+    else if (n?.op === "waiting") out.set(r.id, { on: false, why: n.reason });
+    else if (n?.op === "closed-by-hand") out.set(r.id, { on: false, why: "a GC took it off by hand" });
+    else if (r.startAt.getTime() > now.getTime()) out.set(r.id, { on: false, why: "goes on when it starts" });
+    else if (r.endAt === null || r.endAt.getTime() > now.getTime()) out.set(r.id, { on: false, why: "his other record shows instead" });
+  }
+  return out;
+}
+
+/** paradeStatuses by record id (the Day view has ids, not rows). */
+export async function paradeStatusesOf(recordIds: readonly string[], now: Date = new Date()): Promise<Map<string, ParadeStatus>> {
+  if (!(isEnabled("WHEREABOUTS") && isEnabled("PROJECTION")) || !recordIds.length) return new Map();
+  const rows = await db
+    .select({ id: wbRecord.id, personId: wbRecord.personId, kind: wbRecord.kind, state: wbRecord.state, absent: wbRecord.absent, startAt: wbRecord.startAt, endAt: wbRecord.endAt })
+    .from(wbRecord)
+    .where(inArray(wbRecord.id, [...recordIds]));
+  return paradeStatuses(rows, now);
+}
+
+/** How many v1 absences and duties the projector owns now (Admin › Projection). */
+export async function projectedCounts(): Promise<{ absences: number; duties: number }> {
+  const rows = await db
+    .select({ kind: wbProjection.kind, n: sql<number>`count(*)::int` })
+    .from(wbProjection)
+    .where(isNull(wbProjection.closedAt))
+    .groupBy(wbProjection.kind);
+  const n = (k: string) => rows.find((r) => r.kind === k)?.n ?? 0;
+  return { absences: n("ABSENCE"), duties: n("DUTY") };
 }

@@ -46,7 +46,7 @@ describe("projection report", () => {
         { op: "agrees", personId: "p2", recordId: "r3" },
       ],
     };
-    expect(formatProjection({ plan, live: false, people, camps })).toBe(
+    expect(formatProjection({ plan, mode: "shadow", people, camps })).toBe(
       [
         "🔍 Shadow diff\n\nProjection is off: this is what it would write to the parade state now. Nothing was written.",
         "TFT\n• PTE TAN: + RF @ BDK 13/10 2100–16/10 2100\n• PTE TAN: ⚠️ the GC has COURSE, the timeline says AL: left as the GC has it",
@@ -59,13 +59,14 @@ describe("projection report", () => {
 
   it("live: counts, failures inline, and an empty plan says so", () => {
     const w = { op: "close-absence" as const, personId: "p1", projection: proj, why: "BACK" as const };
-    const text = formatProjection({ plan: { writes: [w], marks: [], notes: [] }, live: true, people, camps, applied: 0, failed: [{ write: w, error: "TFT is off shift." }] });
+    const text = formatProjection({ plan: { writes: [w], marks: [], notes: [] }, mode: "applied", people, camps, applied: 0, failed: [{ write: w, error: "TFT is off shift." }] });
     expect(text).toContain("🔁 Projection\n\nWritten to the parade state: 0 · not written: 1");
     expect(text).toContain("• PTE TAN: − back, present (Back confirmed) ✖ not written: TFT is off shift.");
-    expect(formatProjection({ plan: { writes: [], marks: [], notes: [] }, live: true, people, camps, applied: 0 })).toContain("Nothing to change");
+    expect(formatProjection({ plan: { writes: [], marks: [], notes: [] }, mode: "applied", people, camps, applied: 0 })).toContain("Nothing to change");
+    expect(formatProjection({ plan: { writes: [], marks: [], notes: [] }, mode: "pending", people, camps })).toMatch(/^🔍 Projection is on\n\nThis is what the next sync writes/);
     const due = formatProjection({
       plan: { writes: [], marks: [], notes: [{ op: "due-back", personId: "p2", projection: proj, what: "MC", endedAt: sgtToInstant({ date: "2026-10-14", time: "0900" }) }] },
-      live: true,
+      mode: "applied",
       people,
       camps,
     });
@@ -74,7 +75,7 @@ describe("projection report", () => {
 
   it("stays under Telegram's limit", () => {
     const many = Array.from({ length: 300 }, (_, i) => ({ op: "conflict" as const, personId: "p1", recordId: `r${i}`, want: "AL", has: "A LONG REASON TYPED BY A GC" }));
-    const text = formatProjection({ plan: { writes: [], marks: [], notes: many }, live: false, people, camps });
+    const text = formatProjection({ plan: { writes: [], marks: [], notes: many }, mode: "shadow", people, camps });
     expect(text.length).toBeLessThan(4096);
     expect(text).toMatch(/… and \d+ more \(npm run wb:setup -- diff\)$/);
   });

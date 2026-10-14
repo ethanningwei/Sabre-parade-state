@@ -14,7 +14,12 @@ export interface Who {
 
 export interface ReportInput {
   plan: Plan;
-  live: boolean;
+  /**
+   * shadow   projection off: what it would write, nothing written
+   * applied  on: what a sync just wrote
+   * pending  on: what the next sync will write (read-only look)
+   */
+  mode: "shadow" | "applied" | "pending";
   people: ReadonlyMap<string, Who>;
   /** campId -> name, in roster order */
   camps: ReadonlyMap<string, string>;
@@ -93,9 +98,12 @@ export function formatProjection(r: ReportInput): string {
   const shifts = plan.writes.filter((w): w is Extract<Write, { op: "shift" }> => w.op === "shift");
   const agrees = plan.notes.filter((n) => n.op === "agrees").length;
 
-  const head = r.live
-    ? `🔁 Projection\n\nWritten to the parade state: ${r.applied ?? 0}${r.failed?.length ? ` · not written: ${r.failed.length}` : ""}`
-    : "🔍 Shadow diff\n\nProjection is off: this is what it would write to the parade state now. Nothing was written.";
+  const head =
+    r.mode === "applied"
+      ? `🔁 Projection\n\nWritten to the parade state: ${r.applied ?? 0}${r.failed?.length ? ` · not written: ${r.failed.length}` : ""}`
+      : r.mode === "pending"
+        ? "🔍 Projection is on\n\nThis is what the next sync writes to the parade state (any page load or whereabouts write)."
+        : "🔍 Shadow diff\n\nProjection is off: this is what it would write to the parade state now. Nothing was written.";
   const parts: string[] = [head];
   if (!byCamp.size && !shifts.length) {
     parts.push("Nothing to change: the parade state already agrees with the timeline.");
