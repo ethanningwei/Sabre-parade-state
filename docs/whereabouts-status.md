@@ -346,11 +346,12 @@
 | 2026-10-14 | A row the projector wrote that a GC then **edits or closes** in the web app is the GC's from then on (`wrote` no longer matches → BY_HAND) and is never reopened for that record |
 | 2026-10-14 | A HOTO flips v1 `camp.on_shift` for its team and the other way for the other team of its post; only the latest unprojected HOTO per post counts. The shift **patterns** (e.g. RG camps off at weekends) are not projected: only HOTOs |
 | 2026-10-14 | The Mini App's "On the parade state?" shows on a record's page and on **today's** Day view only (other days aren't on the parade state yet), and only while projection is on |
+| 2026-10-14 | **Sabre Bot is retired** (the user). Troopers report only through @sabreopsbot and the Mini App from now on |
 
 ---
 
 ## 6. Open questions
-- Sabre Bot's token is in plaintext in `sabre-bot/temp.txt`. Rotate it or delete the file. Don't reuse it.
+- Sabre Bot is retired (2026-10-14), but its token is still in plaintext in `sabre-bot/temp.txt`: revoke it in @BotFather (`/revoke`, or `/deletebot`) and delete the file.
 - The preview branch's `neondb_owner` password is the same as production's and was pasted into a chat on 2026-10-12: reset it on both branches when convenient (production needs its Vercel `DATABASE_URL`/`POSTGRES_*` updated).
 - `setChatMenuButton` returns ok but `getChatMenuButton` still reports `commands`; if the ☰ button doesn't open Sabre, set it in BotFather (Bot Settings › Menu Button).
 - Is Vercel's `TELEGRAM_BOT_TOKEN` (production) still the old parade-state bot? Locally it had been set to @sabreopsbot. If production has it too, the v1 Send button posts as @sabreopsbot.
