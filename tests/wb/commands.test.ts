@@ -23,3 +23,12 @@ describe("/here argument", () => {
 
   it.each(["", "7", "PLATOON", "ALPHA"])("%s -> nothing", (arg) => expect(matchSubunit(arg, subs)).toBeNull());
 });
+
+describe("privateCommands", () => {
+  it("lists /claim only while FEATURE_CLAIMS is on", async () => {
+    const { privateCommands, QUICK_COMMANDS } = await import("@/lib/wb/telegram/commands");
+    expect(privateCommands(false).map((c) => c.command)).not.toContain("claim");
+    expect(privateCommands(true).map((c) => c.command)).toContain("claim");
+    expect(QUICK_COMMANDS.claim.buttons.map((b) => b.route)).toEqual(["apply/claim", "claims"]);
+  });
+});

@@ -18,6 +18,7 @@ import {
 import { absence, camp, duty, person, subunit } from "../../db/schema";
 import { WB_ROLES, type WbRole } from "../domain/roles";
 import { RF_ROLES, WB_ASSIGNMENT_STATES, WB_ASSIGNMENT_TYPES, WB_RF_STATES } from "../domain/rf";
+import { VEHICLE_TYPES, WB_CLAIM_STATES } from "../domain/claims";
 import { WB_PROJECTION_CLOSES, WB_PROJECTION_KINDS } from "../domain/projection-kinds";
 import { WB_SHIFT_KINDS, type WbShiftKind } from "../domain/shifts";
 import { WB_ONENS, WB_RECORD_KINDS, WB_RECORD_STATES, WB_SEEN_BY, type WbRecordKind, type WbRecordState } from "../domain/rules";
@@ -477,5 +478,58 @@ export const wbProjection = pgTable(
     // one owner per v1 row
     uniqueIndex("wb_projection_absence_uq").on(t.absenceId).where(sql`${t.closedAt} is null`),
     uniqueIndex("wb_projection_duty_uq").on(t.dutyId).where(sql`${t.closedAt} is null`),
+  ],
+);
+
+// ---------------------------------------------------------------- Phase 7
+
+export const wbClaimVehicle = pgEnum("wb_claim_vehicle", VEHICLE_TYPES);
+export const wbClaimState = pgEnum("wb_claim_state", WB_CLAIM_STATES);
+
+/**
+ * A transport claim (FEATURE_CLAIMS): one row per day, as the OC's sheet holds
+ * them; `batch_id` ties one request's days together. The OC decides on his
+ * Google Sheet, not here: Sabre appends the row (`exported_at`, `sheet_row`)
+ * and reads his verdict back once a day (`state`, `remarks`, `decided_at`),
+ * then DMs the trooper (`told_at`). `sheet_name` and `requested` are what was
+ * written to NAME and DATE OF REQUEST: with the trip date, they find the row
+ * again after the OC's script has moved it to another tab.
+ */
+export const wbClaim = pgTable(
+  "wb_claim",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id").notNull(),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => person.id, { onDelete: "cascade" }),
+    memberId: uuid("member_id").references(() => wbMember.id, { onDelete: "set null" }),
+    vehicle: wbClaimVehicle("vehicle").notNull(),
+    tripDate: date("trip_date").notNull(),
+    startPlace: text("start_place").notNull(),
+    endPlace: text("end_place").notNull(),
+    reason: text("reason").notNull(),
+    roundTrip: boolean("round_trip").notNull(),
+    /** as written to the sheet */
+    rank: text("rank").notNull(),
+    sheetName: text("sheet_name").notNull(),
+    platoon: text("platoon").notNull(),
+    requested: text("requested").notNull(),
+    state: wbClaimState("state").default("PENDING").notNull(),
+    /** the OC's remarks, as read back */
+    remarks: text("remarks").default("").notNull(),
+    decidedAt: tstz("decided_at"),
+    toldAt: tstz("told_at"),
+    /** null: not on the sheet yet (not configured, or Google failed; retried at the evening round) */
+    exportedAt: tstz("exported_at"),
+    sheetTab: text("sheet_tab"),
+    sheetRow: integer("sheet_row"),
+    exportError: text("export_error"),
+    createdAt: tstz("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("wb_claim_person_idx").on(t.personId, t.tripDate),
+    index("wb_claim_state_idx").on(t.state, t.tripDate),
+    index("wb_claim_batch_idx").on(t.batchId),
   ],
 );

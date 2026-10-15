@@ -11,8 +11,12 @@ export const PRIVATE_COMMANDS = [
   { command: "me", description: "My records" },
   { command: "hoto", description: "Log a handover (GC, PC, PS)" },
   { command: "rf", description: "RF: what's short, ask for manpower, assign Extra/RF/SOL" },
+  { command: "claim", description: "Transport claim, for the OC to approve before the trip" },
   { command: "whoami", description: "Your Telegram id" },
 ];
+
+/** The DM menu: /claim only while FEATURE_CLAIMS is on. */
+export const privateCommands = (claims: boolean) => PRIVATE_COMMANDS.filter((c) => claims || c.command !== "claim");
 
 /** Quick commands: each is a button straight to a Mini App screen. */
 export const QUICK_COMMANDS: Record<string, { text: string; buttons: { label: string; route: string }[] }> = {
@@ -35,6 +39,13 @@ export const QUICK_COMMANDS: Record<string, { text: string; buttons: { label: st
   event: { text: "Report a course, brief, IPPT or anything else:", buttons: [{ label: "📚 Event", route: "apply/event" }] },
   me: { text: "Everything you've applied for and reported:", buttons: [{ label: "📋 My records", route: "records" }] },
   hoto: { text: "Log the handover when it happens:", buttons: [{ label: "🔄 HOTO", route: "hoto" }] },
+  claim: {
+    text: "A transport claim is asked for before the trip. The OC approves it on his sheet.",
+    buttons: [
+      { label: "🚕 Transport claim", route: "apply/claim" },
+      { label: "📋 My claims", route: "claims" },
+    ],
+  },
   rf: {
     text: "Manpower: what the company is still short of, asking for more, and putting men on Extra, RF or SOL.",
     buttons: [

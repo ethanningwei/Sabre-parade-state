@@ -1,11 +1,11 @@
-import { ArrowLeftRight, Bus, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock, CloudUpload, History, ListChecks, Settings, UserPen, UserPlus, UsersRound } from "lucide-react";
+import { ArrowLeftRight, Bus, CalendarDays, Car, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock, CloudUpload, History, ListChecks, Settings, UserPen, UserPlus, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ParadeStateTile } from "@/components/tg/parade-state-tile";
 import { StateChip } from "@/components/tg/record-summary";
 import { Tile } from "@/components/tg/tile";
 import { Group } from "@/components/tg/ui";
-import { requireFeaturePage } from "@/lib/flags";
+import { isEnabled, requireFeaturePage } from "@/lib/flags";
 import { getMember, hasGrant } from "@/lib/wb/auth";
 import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
 import { rfAnything } from "@/lib/wb/domain/rf";
@@ -76,6 +76,7 @@ export default async function TgHome() {
           <Group title="You" rows>
             <Tile href="/tg/apply" icon={<CalendarPlus />} title="Apply or report" hint={`Report sick, MC, leave, off, MA, courses · ${member.leaveLeft ?? 0} days of leave left`} />
             <Tile href="/tg/records" icon={<ListChecks />} title="My records" hint="Everything you've applied for and reported" />
+            {isEnabled("CLAIMS") && self && <Tile href="/tg/claims" icon={<Car />} title="Transport claims" hint="Ask before the trip; see what the OC decided" />}
           </Group>
         )}
         {commands && (

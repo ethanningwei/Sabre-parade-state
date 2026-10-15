@@ -3,7 +3,9 @@ import { and, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { person, subunit } from "@/lib/db/schema";
 import { wbAudit } from "@/lib/wb/audit";
+import { isEnabled } from "@/lib/flags";
 import { bootstrapAdminIds } from "@/lib/wb/auth";
+import { claimsWaiting, exportClaims, readVerdicts, tellVerdicts } from "@/lib/wb/claims";
 import { wbAudit as wbAuditTable, wbCommanderChat, wbMember, wbRecord } from "@/lib/wb/db/schema";
 import { recordWhat } from "@/lib/wb/domain/describe";
 import { isLive } from "@/lib/wb/domain/rules";
@@ -14,6 +16,7 @@ import { shortBy } from "@/lib/wb/domain/rf";
 import { expireRfRequests } from "@/lib/wb/rf";
 import { openRequests } from "@/lib/wb/rf-data";
 import { findViews } from "@/lib/wb/records";
+import { claimSheet, claimSheetUrl } from "@/lib/wb/sheets";
 import { backData } from "@/lib/wb/domain/projection-kinds";
 import { v1End } from "@/lib/wb/domain/projection";
 import { dayMonth } from "@/lib/wb/domain/timeline";
@@ -54,6 +57,10 @@ export interface RoundSummary {
   back: number;
   /** the admin's shadow diff / projection report sent (Phase 6) */
   projection: number;
+  /** transport claims whose verdict was read back from the OC's sheet tonight (Phase 7) */
+  claimsDecided: number;
+  /** men told what the OC decided (Phase 7) */
+  claimsTold: number;
 }
 
 const groupBy = <T, K>(rows: readonly T[], key: (r: T) => K) => {
@@ -82,7 +89,7 @@ async function claim(date: string, force: boolean): Promise<boolean> {
 
 export async function eveningRound(courier: Courier, now: Date = new Date(), { force = false } = {}): Promise<RoundSummary> {
   const today = todaySgt(now);
-  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, rfExpired: 0, back: 0, projection: 0 };
+  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, rfExpired: 0, back: 0, projection: 0, claimsDecided: 0, claimsTold: 0 };
   if (!(await claim(today, force))) return { ...summary, skipped: true };
 
   const todayStart = dayRange(today).startAt;
@@ -174,6 +181,26 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
     console.error("wb evening rf:", e);
   }
 
+  // ---------------------------------------------------------------- transport claims (Phase 7)
+  // The OC decides on his sheet: send what it didn't take, read his verdicts
+  // back, tell each man, and remind COY HQ what's still waiting there.
+  if (isEnabled("CLAIMS")) {
+    try {
+      const sheet = claimSheet();
+      await exportClaims(sheet, undefined, now);
+      summary.claimsDecided = await readVerdicts(sheet, now);
+      summary.claimsTold = await tellVerdicts(courier, now);
+      const waiting = await claimsWaiting(now);
+      if (waiting.n) {
+        const [hq] = await db.select({ id: subunit.id, name: subunit.name }).from(subunit).where(eq(subunit.isHq, true));
+        const url = claimSheetUrl();
+        if (hq) addPart({ subunitId: hq.id, subunitName: hq.name }, `🚕 ${plural(waiting.n, "transport claim")} waiting on the OC's sheet more than 12 hours${url ? `\n${url}` : ""}`);
+      }
+    } catch (e) {
+      console.error("wb evening claims:", e);
+    }
+  }
+
   // ---------------------------------------------------------------- one digest per commanders chat
   for (const [subunitId, d] of digest) {
     const buttons: Button[][] = [...(d.approvals ? [[{ text: "Open Approvals", route: "approvals" }]] : []), ...(d.rf ? [[{ text: "Open the RF board", route: "rf" }]] : [])];
@@ -231,7 +258,7 @@ async function heartbeat(courier: Courier, now: Date, s: RoundSummary): Promise<
     `${roster.n} on the roster · ${registered.n} registered\n` +
     `${pending.n} waiting on a decision · ${today.n} recorded today\n` +
     `${linked.n} commanders chats linked (${platoons.n} platoons)\n` +
-    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.rfExpired} RF expired, ${s.digests} digests, ${s.back} Back? messages\n\n` +
+    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.rfExpired} RF expired, ${s.digests} digests, ${s.back} Back? messages${isEnabled("CLAIMS") ? `, ${s.claimsDecided} claims decided, ${s.claimsTold} told` : ""}\n\n` +
     "Sent every evening. If an evening goes by without one, the bot isn't running.";
   return courier.send({ admins: true }, text);
 }

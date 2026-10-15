@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { Bot, type Context, InlineKeyboard, type NextFunction } from "grammy";
 import type { UserFromGetMe } from "grammy/types";
 import { db } from "@/lib/db";
+import { isEnabled } from "@/lib/flags";
 import { subunit } from "@/lib/db/schema";
 import { wbAudit } from "@/lib/wb/audit";
 import { hasGrant, type GrantRow } from "@/lib/wb/auth";
@@ -114,6 +115,10 @@ async function quick(ctx: Context) {
   const name = (ctx.msg?.text ?? "").split(/[\s@]/)[0].slice(1).toLowerCase();
   const q = QUICK_COMMANDS[name];
   if (!q) return;
+  if (name === "claim" && !isEnabled("CLAIMS")) {
+    await ctx.reply("Transport claims aren't on in Sabre yet. Use the Form SG for now.", { message_thread_id: topicOf(ctx) ?? undefined });
+    return;
+  }
   const dm = ctx.chat?.type === "private";
   const kb = InlineKeyboard.from(
     q.buttons.map((b) => [dm ? InlineKeyboard.webApp(b.label, miniAppUrl(appUrl(), b.route)) : InlineKeyboard.url(b.label, miniAppLink(ctx.me.username, b.route))]),

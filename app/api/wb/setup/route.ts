@@ -1,9 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 import { Api } from "grammy";
-import { featureOff } from "@/lib/flags";
+import { featureOff, isEnabled } from "@/lib/flags";
 import { eveningRound } from "@/lib/wb/evening";
 import { diffNow } from "@/lib/wb/projection";
-import { ALLOWED_UPDATES, GROUP_COMMANDS, PRIVATE_COMMANDS } from "@/lib/wb/telegram/commands";
+import { ALLOWED_UPDATES, GROUP_COMMANDS, privateCommands } from "@/lib/wb/telegram/commands";
 import { miniAppUrl } from "@/lib/wb/telegram/links";
 import { courierOf } from "@/lib/wb/telegram/courier";
 
@@ -46,7 +46,7 @@ export async function POST(request: Request): Promise<Response> {
         await api.setChatMenuButton({ menu_button: { type: "web_app", text: "Open Sabre", web_app: { url: miniAppUrl(base) } } });
         break;
       case "commands":
-        await api.setMyCommands(PRIVATE_COMMANDS, { scope: { type: "all_private_chats" } });
+        await api.setMyCommands(privateCommands(isEnabled("CLAIMS")), { scope: { type: "all_private_chats" } });
         await api.setMyCommands(GROUP_COMMANDS, { scope: { type: "all_group_chats" } });
         break;
       case "evening": {

@@ -122,6 +122,26 @@ describe("every whereabouts entry point is guarded", () => {
     expect(readFileSync(join(root, "lib/wb/actions/parade.ts"), "utf8")).toMatch(/requireFeature\(\);\n\s+return run/);
   });
 
+  // Transport claims sit behind FEATURE_CLAIMS as well (Phase 7)
+  it.each(files(join(root, "app/(tg)")).filter((f) => /\/(apply\/claim|claims)\/page\.tsx$/.test(f)))("%s awaits requireFeaturePage(\"CLAIMS\")", (f) => {
+    expect(readFileSync(f, "utf8")).toMatch(/await requireFeaturePage\(\);\n\s+await requireFeaturePage\("CLAIMS"\);/);
+  });
+
+  it("every claims action also calls requireFeature(\"CLAIMS\"), and Apply/Home link to claims only with the flag", () => {
+    const src = readFileSync(join(root, "lib/wb/actions/claims.ts"), "utf8");
+    const actions = src.match(/^export async function \w+/gm) ?? [];
+    const guarded = src.match(/^export async function \w+\([^)]*\)[^{]*\{\n\s+requireFeature\(\);\n\s+requireFeature\("CLAIMS"\);/gm) ?? [];
+    expect(actions.length).toBeGreaterThan(0);
+    expect(guarded.length).toBe(actions.length);
+    for (const page of ["app/(tg)/tg/apply/page.tsx", "app/(tg)/tg/page.tsx"]) {
+      const src = readFileSync(join(root, page), "utf8");
+      const at = [...src.matchAll(/\/tg\/(apply\/claim|claims)"/g)].map((m) => m.index);
+      expect(at.length).toBeGreaterThan(0);
+      // each link sits inside an isEnabled("CLAIMS") && (…) a line or two above it
+      for (const i of at) expect(src.slice(Math.max(0, i - 200), i)).toMatch(/isEnabled\("CLAIMS"\) &&/);
+    }
+  });
+
   it.each(files(join(root, "lib/wb/actions")))("every action in %s calls requireFeature()", (f) => {
     const src = readFileSync(f, "utf8");
     const actions = src.match(/^export async function \w+/gm) ?? [];

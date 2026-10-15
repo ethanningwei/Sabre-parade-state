@@ -1,9 +1,9 @@
-import { BookOpen, FileHeart, Home, Palmtree, Plane, Stethoscope, Thermometer } from "lucide-react";
+import { BookOpen, Car, FileHeart, Home, Palmtree, Plane, Stethoscope, Thermometer } from "lucide-react";
 import { Header } from "@/components/tg/form-bits";
 import { NotOnRoster } from "@/components/tg/not-on-roster";
 import { Tile } from "@/components/tg/tile";
 import { Group } from "@/components/tg/ui";
-import { requireFeaturePage } from "@/lib/flags";
+import { isEnabled, requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
 import { approverOf } from "@/lib/wb/domain/rules";
 import { rosterSelf } from "@/lib/wb/me";
@@ -36,6 +36,11 @@ export default async function ApplyPage() {
           <Group title="Anything else" rows>
             <Tile href="/tg/apply/event" icon={<BookOpen />} title="Course, brief, IPPT, anything else" hint="Recorded, no approval needed" />
           </Group>
+          {isEnabled("CLAIMS") && (
+            <Group title="Transport" rows>
+              <Tile href="/tg/apply/claim" icon={<Car />} title="Transport claim" hint="Before the trip. The OC approves it on his sheet" />
+            </Group>
+          )}
         </nav>
       )}
     </div>
