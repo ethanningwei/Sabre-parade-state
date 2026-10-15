@@ -14,7 +14,8 @@ import { claimSheet, claimSheetUrl } from "@/lib/wb/sheets";
 
 // My claims (FEATURE_CLAIMS): what's still with the OC, then the last month's
 // verdicts. The OC decides on his sheet; opening this reads it first, so a
-// man needn't wait for the evening message.
+// man needn't wait for the evening message. A row deleted on the sheet is
+// gone here too: the sheet is the record.
 
 /** Long enough for Google on a good day; the page never waits on a bad one. */
 const READ_MS = 4000;
@@ -74,6 +75,11 @@ export default async function MyClaimsPage() {
       <Link href="/tg/apply/claim" className={buttonVariants({ size: "lg", className: bigButtonClass })}>
         <Car aria-hidden /> New transport claim
       </Link>
+      {url && (
+        <a href={url} target="_blank" rel="noreferrer" className={buttonVariants({ size: "lg", variant: "outline", className: bigButtonClass })}>
+          <ExternalLink aria-hidden /> Open the OC&apos;s sheet
+        </a>
+      )}
       {claims.length === 0 ? (
         <EmptyState icon={<Car />} title="No claims yet">
           <p>Ask for a claim before the trip, and the OC&apos;s verdict shows up here.</p>
@@ -96,17 +102,7 @@ export default async function MyClaimsPage() {
           )}
         </>
       )}
-      <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-        Made a mistake? Ask your PS to delete the row on the OC&apos;s sheet, then send it again.
-        {url && (
-          <>
-            {" "}
-            <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-primary">
-              The sheet <ExternalLink className="size-3" aria-hidden />
-            </a>
-          </>
-        )}
-      </p>
+      <p className="px-1 text-xs leading-relaxed text-muted-foreground">Made a mistake? Ask your PS to delete the row on the OC&apos;s sheet (it disappears here too), then send it again.</p>
     </div>
   );
 }

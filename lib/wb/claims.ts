@@ -30,8 +30,6 @@ import type { Courier } from "@/lib/wb/telegram/courier";
 
 /** Keep reading a row back this long after its trip; after that the OC has stopped looking. */
 const WATCH_DAYS = 30;
-/** A row just written may not be readable for a moment; it's only "removed" after this. */
-const REMOVED_GRACE_MS = 10 * 60 * 1000;
 
 export type SheetDelivery = "sent" | "not-set" | "failed";
 
@@ -137,7 +135,8 @@ export async function exportClaims(sheet: ClaimSheet | null, ids?: readonly stri
  * Read the OC's verdicts back. Every exported claim still pending, whose trip
  * was in the last month, is looked for in every tab by whose, which day and
  * when asked. Found with APPROVED/REJECTED: decided. Found blank: still
- * pending. Not found at all: a PS deleted it (REMOVED). Returns how many changed.
+ * pending. Not found at all: deleted on the sheet (REMOVED), and gone from the
+ * Mini App too: the sheet is the record. Returns how many changed.
  */
 export async function readVerdicts(sheet: ClaimSheet | null, now: Date = new Date()): Promise<number> {
   if (!sheet) return 0;
@@ -154,7 +153,7 @@ export async function readVerdicts(sheet: ClaimSheet | null, now: Date = new Dat
     const queue = found.get(claimKey(c.sheetName, slashDate(c.tripDate), c.requested));
     let next: { state: "APPROVED" | "REJECTED" | "REMOVED"; remarks: string } | null = null;
     if (!queue?.length) {
-      if (c.exportedAt!.getTime() < now.getTime() - REMOVED_GRACE_MS) next = { state: "REMOVED", remarks: "" };
+      next = { state: "REMOVED", remarks: "" };
     } else {
       const v = queue.shift();
       if (v) next = v;
@@ -169,7 +168,7 @@ export async function readVerdicts(sheet: ClaimSheet | null, now: Date = new Dat
   return changed;
 }
 
-/** DM each man what the OC decided, one message per request. Returns how many messages went. */
+/** DM each man what the OC decided, one message per request. A deleted row is just gone: no message. Returns how many messages went. */
 export async function tellVerdicts(courier: Courier, now: Date = new Date()): Promise<number> {
   const decided = await db
     .select()
@@ -180,7 +179,8 @@ export async function tellVerdicts(courier: Courier, now: Date = new Date()): Pr
   for (const c of decided) batches.set(c.batchId, [...(batches.get(c.batchId) ?? []), c]);
   let sent = 0;
   for (const rows of batches.values()) {
-    sent += await courier.send({ person: rows[0].personId }, verdictText(rows), [[{ text: "My claims", route: "claims" }]]);
+    const decided = rows.filter((r) => r.state !== "REMOVED");
+    if (decided.length) sent += await courier.send({ person: rows[0].personId }, verdictText(decided), [[{ text: "My claims", route: "claims" }]]);
     // told even if the DM failed: the Mini App shows it, and a retry every evening would nag
     await db.update(wbClaim).set({ toldAt: now }).where(inArray(wbClaim.id, rows.map((r) => r.id)));
   }
@@ -198,12 +198,12 @@ export async function claimsWaiting(now: Date = new Date(), hours = 12): Promise
 
 export type ClaimView = typeof wbClaim.$inferSelect;
 
-/** His claims: undecided first, then the last month's, newest trip first. */
+/** His claims: undecided first, then the last month's, newest trip first. Deleted on the sheet: not shown. */
 export async function myClaims(personId: string, now: Date = new Date()): Promise<ClaimView[]> {
   const rows = await db
     .select()
     .from(wbClaim)
-    .where(and(eq(wbClaim.personId, personId), gte(wbClaim.tripDate, addDays(todaySgt(now), -WATCH_DAYS))))
+    .where(and(eq(wbClaim.personId, personId), ne(wbClaim.state, "REMOVED"), gte(wbClaim.tripDate, addDays(todaySgt(now), -WATCH_DAYS))))
     .orderBy(asc(wbClaim.tripDate));
   return [...rows.filter((r) => r.state === "PENDING"), ...rows.filter((r) => r.state !== "PENDING").reverse()];
 }

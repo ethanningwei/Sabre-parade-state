@@ -16,7 +16,7 @@ export type Vehicle = (typeof VEHICLE_TYPES)[number];
 
 /**
  * PENDING until the OC's verdict is read back from the sheet. REMOVED: the row
- * is gone from every tab (a PS's CONFIRM DELETE strikes a wrong entry).
+ * is gone from every tab (CONFIRM DELETE), so the Mini App stops showing it.
  */
 export const WB_CLAIM_STATES = ["PENDING", "APPROVED", "REJECTED", "REMOVED"] as const;
 export type WbClaimState = (typeof WB_CLAIM_STATES)[number];
@@ -256,21 +256,19 @@ export interface ClaimLine {
 /** One line per claim: "TAXI 19/10 · HOME → SELARANG CAMP (round trip) · CT SCAN" */
 export const claimLine = (c: ClaimLine) => `${c.vehicle} ${dayMonth(c.tripDate)} · ${c.startPlace} → ${c.endPlace}${roundLabel(c.roundTrip)} · ${c.reason}`;
 
-const VERDICT_HEAD: Record<Exclude<WbClaimState, "PENDING">, string> = {
+const VERDICT_HEAD = {
   APPROVED: "✅ Transport claim approved",
   REJECTED: "❌ Transport claim rejected",
-  REMOVED: "🗑 Transport claim removed",
 };
 
-/** The trooper's DM once the OC has decided (or a PS has struck the row). */
+/** The trooper's DM once the OC has decided. */
 export function verdictText(rows: readonly (ClaimLine & { state: WbClaimState; remarks: string })[]): string {
   const parts: string[] = [];
-  for (const state of ["APPROVED", "REJECTED", "REMOVED"] as const) {
+  for (const state of ["APPROVED", "REJECTED"] as const) {
     const these = rows.filter((r) => r.state === state);
     if (!these.length) continue;
     const lines = these.map((r) => `• ${claimLine(r)}${r.remarks ? `\n  OC: ${r.remarks}` : ""}`);
-    const tail = state === "REMOVED" ? "\n\nIt was deleted from the OC's sheet. If you didn't expect that, ask your PS." : "";
-    parts.push(`${VERDICT_HEAD[state]}${these.length > 1 ? ` (${these.length})` : ""}\n\n${lines.join("\n")}${tail}`);
+    parts.push(`${VERDICT_HEAD[state]}${these.length > 1 ? ` (${these.length})` : ""}\n\n${lines.join("\n")}`);
   }
   return parts.join("\n\n");
 }

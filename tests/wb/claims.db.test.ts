@@ -200,7 +200,7 @@ describe("submitting a claim (DB)", () => {
 });
 
 describe("the OC's verdicts (DB)", () => {
-  it("read back from any tab: approved, rejected with remarks, deleted; the man told once", async (ctx) => {
+  it("read back from any tab: approved, rejected with remarks, deleted (gone, untold); the man told once", async (ctx) => {
     if (!reachable) ctx.skip();
     await setup();
     await as(MAN);
@@ -213,24 +213,23 @@ describe("the OC's verdicts (DB)", () => {
     moved[1] = "Take the bus";
     sheetState.tabs!["Processed Requests"].push(moved);
     pending.splice(2, 2);
-    // a row only just written isn't "deleted" yet: it may not be readable
-    expect(await claims.readVerdicts(new ClaimSheet(memorySheet(sheetState.tabs!), "Pending Requests"))).toBe(2);
-    let rows = await db.select().from(wbClaim).orderBy(wbClaim.tripDate);
+    // the sheet is the record: the deleted row is gone from the Mini App at once, with no message
+    expect(await claims.readVerdicts(new ClaimSheet(memorySheet(sheetState.tabs!), "Pending Requests"))).toBe(3);
+    const rows = await db.select().from(wbClaim).orderBy(wbClaim.tripDate);
     expect(rows.map((r) => [r.state, r.remarks])).toEqual([
       ["APPROVED", ""],
       ["REJECTED", "Take the bus"],
-      ["PENDING", ""],
+      ["REMOVED", ""],
     ]);
+    expect((await claims.myClaims(ids.man)).map((c) => c.state)).toEqual(["REJECTED", "APPROVED"]);
 
-    await db.update(wbClaim).set({ exportedAt: new Date(Date.now() - 60 * 60 * 1000) });
     const s = await eveningRound(await courier(), new Date(), { force: true });
-    expect(s.claimsDecided).toBe(1);
+    expect(s.claimsDecided).toBe(0);
     expect(s.claimsTold).toBe(1);
-    rows = await db.select().from(wbClaim).orderBy(wbClaim.tripDate);
-    expect(rows.map((r) => r.state)).toEqual(["APPROVED", "REJECTED", "REMOVED"]);
     const told = dms().filter((c) => c.payload.chat_id === MAN);
     expect(told).toHaveLength(1);
-    expect(String(told[0].payload.text)).toMatch(/^✅ Transport claim approved\n\n• TAXI .+ · HOME → BEDOK CAMP · CT SCAN\n\n❌ Transport claim rejected\n\n.+\n  OC: Take the bus\n\n🗑 Transport claim removed/);
+    expect(String(told[0].payload.text)).toMatch(/^✅ Transport claim approved\n\n• TAXI .+ · HOME → BEDOK CAMP · CT SCAN\n\n❌ Transport claim rejected\n\n.+\n  OC: Take the bus$/);
+    expect((await db.select().from(wbClaim)).every((r) => r.toldAt)).toBe(true);
 
     tg.calls = [];
     const again = await eveningRound(await courier(), new Date(), { force: true });

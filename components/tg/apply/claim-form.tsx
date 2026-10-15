@@ -1,12 +1,13 @@
 "use client";
 
-import { Building2, House, MapPin } from "lucide-react";
+import { Building2, ExternalLink, House, MapPin } from "lucide-react";
 import { useState } from "react";
+import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { sendClaim } from "@/lib/wb/actions/claims";
 import { claimDays, MAX_PLACE, MAX_REASON, VEHICLE_TYPES, type Place, type Vehicle } from "@/lib/wb/domain/claims";
 import { addDays, dayMonth } from "@/lib/wb/domain/timeline";
-import { BigLink, Choice, DoneScreen, ErrorBox, Field, fieldClass, Header, inputClass, Step, Submit, useAction, YesNo } from "../form-bits";
+import { bigButtonClass, BigLink, Choice, DoneScreen, ErrorBox, Field, fieldClass, Header, inputClass, Step, Submit, useAction, YesNo } from "../form-bits";
 
 // Transport claim (ports Sabre Bot's CLAIM, which replaced the Form SG): six
 // questions, four of them taps. Rank, name and platoon come from the roster.
@@ -74,13 +75,18 @@ export function ClaimForm({ today, office, sheetReady }: { today: string; office
         tone={ok ? "ok" : "warn"}
         line={
           ok
-            ? `${what} ${n === 1 ? "is" : "are"} on the OC's sheet. He decides there, and you'll get a message in the evening once he has.`
+            ? `${what} ${n === 1 ? "is" : "are"} on the OC's sheet. He decides there; you'll see it in My claims, and get a message in the evening.`
             : done.sheet === "not-set"
               ? `${what} ${n === 1 ? "is" : "are"} saved, but the OC's sheet isn't connected to Sabre yet. Tell an ASA.`
               : `${what} ${n === 1 ? "is" : "are"} saved, but the OC's sheet couldn't be reached. Sabre tries again this evening.`
         }
       >
         <BigLink href="/tg/claims">My claims</BigLink>
+        {done.url && done.sheet === "sent" && (
+          <a href={done.url} target="_blank" rel="noreferrer" className={buttonVariants({ size: "lg", variant: "outline", className: bigButtonClass })}>
+            <ExternalLink aria-hidden /> Open the OC&apos;s sheet
+          </a>
+        )}
         <BigLink href="/tg" outline>
           Home
         </BigLink>
