@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { Api } from "grammy";
 import { featureOff, isEnabled } from "@/lib/flags";
 import { eveningRound } from "@/lib/wb/evening";
+import { claimSheet } from "@/lib/wb/sheets";
 import { diffNow } from "@/lib/wb/projection";
 import { ALLOWED_UPDATES, GROUP_COMMANDS, privateCommands } from "@/lib/wb/telegram/commands";
 import { miniAppUrl } from "@/lib/wb/telegram/links";
@@ -18,6 +19,8 @@ import { courierOf } from "@/lib/wb/telegram/courier";
 //             crons only fire on production, so this is how a preview runs it
 //   diff      what the projector would write to the parade state now (read-only,
 //             whatever FEATURE_PROJECTION says)
+//   claims    can this deployment reach the OC's claim sheet? (read-only: the
+//             service account signs in, the tabs, the columns Sabre writes)
 export async function POST(request: Request): Promise<Response> {
   const off = featureOff();
   if (off) return off;
@@ -55,10 +58,19 @@ export async function POST(request: Request): Promise<Response> {
       }
       case "diff":
         return Response.json({ projection: process.env.FEATURE_PROJECTION === "1" ? "on" : "off (shadow)", diff: (await diffNow()).split("\n") });
+      case "claims": {
+        const sheet = claimSheet();
+        if (!sheet) {
+          const set = { WB_GOOGLE_SERVICE_ACCOUNT: !!process.env.WB_GOOGLE_SERVICE_ACCOUNT, WB_CLAIMS_SHEET_ID: !!process.env.WB_CLAIMS_SHEET_ID };
+          const why = set.WB_GOOGLE_SERVICE_ACCOUNT && set.WB_CLAIMS_SHEET_ID ? "WB_GOOGLE_SERVICE_ACCOUNT is not a service account's JSON key" : "not set";
+          return Response.json({ claims: isEnabled("CLAIMS") ? "on" : "off", sheet: why, set });
+        }
+        return Response.json({ claims: isEnabled("CLAIMS") ? "on" : "off", sheet: await sheet.check() });
+      }
       case "status":
         break;
       default:
-        return Response.json({ error: "action must be status, webhook, menu, commands, evening or diff" }, { status: 400 });
+        return Response.json({ error: "action must be status, webhook, menu, commands, evening, diff or claims" }, { status: 400 });
     }
     const [me, hook, menu] = await Promise.all([api.getMe(), api.getWebhookInfo(), api.getChatMenuButton()]);
     return Response.json({

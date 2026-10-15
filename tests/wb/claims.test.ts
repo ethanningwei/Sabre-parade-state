@@ -138,6 +138,12 @@ describe("ClaimSheet over a sheet in memory", () => {
     expect(v.get(claimKey("XU CHENXI", "21/10/2026", "14/10/2026 14:21"))).toEqual([{ state: "APPROVED", remarks: "ok" }]);
     expect(v.get(claimKey("XU CHENXI", "19/10/2026", "14/10/2026 14:21"))).toEqual([null]);
   });
+  it("check() reports the tabs and whether the columns are there, and writes nothing", async () => {
+    const mem = memorySheet({ "Pending Requests": [[...CLAIM_HEADERS], ["x"]], Other: [["A"]] });
+    expect(await new ClaimSheet(mem, "Pending Requests").check()).toEqual({ tab: "Pending Requests", tabs: ["Pending Requests", "Other"], rows: 1, headersOk: true });
+    expect(await new ClaimSheet(mem, "Other").check()).toMatchObject({ headersOk: false, error: expect.stringMatching(/no RANK/) });
+    expect(mem.tabs["Pending Requests"]).toHaveLength(2);
+  });
   it("refuses a tab with no header row", async () => {
     await expect(new ClaimSheet(memorySheet({}), "Pending Requests").add([row()])).rejects.toThrow(/no header row/);
   });

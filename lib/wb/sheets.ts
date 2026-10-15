@@ -50,6 +50,18 @@ export class ClaimSheet {
     return updates.map((u) => u.row);
   }
 
+  /** Read-only health check: the tabs, and whether this tab has every column Sabre writes. Never writes. */
+  async check(): Promise<{ tab: string; tabs: string[]; rows: number; headersOk: boolean; error?: string }> {
+    const tabs = await this.b.tabTitles();
+    const [values] = await this.b.read([this.tab]);
+    try {
+      headerIndex(values?.[0] ?? []);
+      return { tab: this.tab, tabs, rows: Math.max(0, (values?.length ?? 0) - 1), headersOk: true };
+    } catch (e) {
+      return { tab: this.tab, tabs, rows: Math.max(0, (values?.length ?? 0) - 1), headersOk: false, error: (e as Error).message };
+    }
+  }
+
   /** Every row in every tab by key (see claimKey): the OC's verdict, or null while he hasn't given one. */
   async verdicts(): Promise<Map<string, (Verdict | null)[]>> {
     const titles = await this.b.tabTitles();
@@ -62,7 +74,13 @@ export function claimSheet(): ClaimSheet | null {
   const id = process.env.WB_CLAIMS_SHEET_ID;
   const key = process.env.WB_GOOGLE_SERVICE_ACCOUNT;
   if (!id || !key) return null;
-  return new ClaimSheet(googleSheet(id, key), process.env.WB_CLAIMS_TAB || "Pending Requests");
+  try {
+    return new ClaimSheet(googleSheet(id, key), process.env.WB_CLAIMS_TAB || "Pending Requests");
+  } catch (e) {
+    // a bad key must not break the claim pages: claims save, and wb:setup -- claims says why
+    console.error("wb claims sheet: WB_GOOGLE_SERVICE_ACCOUNT is not a service account's JSON key:", (e as Error).message);
+    return null;
+  }
 }
 
 /** Where a trooper can see the sheet, if it's configured. */
@@ -110,6 +128,7 @@ async function accessToken(sa: ServiceAccount): Promise<string> {
 
 export function googleSheet(spreadsheetId: string, keyJson: string): SheetBackend {
   const sa = JSON.parse(keyJson) as ServiceAccount;
+  if (!sa.client_email || !sa.private_key) throw new Error("no client_email or private_key");
   const base = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}`;
   async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     const res = await fetch(`${base}${path}`, {
