@@ -79,7 +79,7 @@ These reference the v1 tables `person`, `camp` and `subunit` but never modify th
 | `wb_shift_pattern` | Per camp: `kind` (`CYCLE` with `on_days`/`off_days`/`anchor_date`/`hoto_time`; `WEEKLY` mask, for RG 5-in-2-out; `ALWAYS`). Also `both_on_allowed` for SRF |
 | `wb_shift_event` | A HOTO log entry: camp, time, on/off, who. Confirms the cycle or re-anchors it |
 | `wb_min_manning` | Per camp: minimum `gc`, `st_cbt`, `st_svc` (Sabre Bot's `1:4:3`) |
-| `wb_claim` | Transport claim: member, vehicle type, date, start/end location, reason, round trip, state, OC decision and remarks |
+| `wb_claim` | Transport claim, one row per day: person, vehicle type, date, start/end location, reason, round trip; the OC's verdict and remarks as read back from his sheet |
 | `wb_projection` | Link table: `record_id` or `assignment_id` → the v1 `absence_id` or `duty_id` it created. This is how the projector knows which v1 rows it owns |
 | `wb_conversation` | Bot flow state: user, chat, flow, step, `answers` (jsonb), `ctx` (jsonb), `updated_at` |
 | `wb_card` | Every approval or RF card sent: record or request id → `chat_id`, `message_id`. Used to edit cards after a decision |
@@ -180,9 +180,9 @@ Decide-once is enforced in the database (`UPDATE … WHERE state='PENDING'`). Th
 ## 5. Screens
 **Mini App** (`app/(tg)/tg/…`, its own layout, no v1 password):
 - **Everyone:** Home (where I am now and what's next) · My records (one card per visit, update outcome, withdraw) · Apply (sick, MA, AL, OL, off, event, claim) · Profile.
-- **GC:** Camp check (expected people at CAA; tap only the differences; Phase 8, after claims: status §3c) · HOTO · Raise RF.
+- **GC:** Camp check (expected people at CAA; tap only the differences; Phase 8: status §3b) · HOTO · Raise RF.
 - **PS/PC:** Approvals · Today and Day (platoon) · Forecast grid · Person history · Add for several men · Void · RF board · Gaps · ONENS owed.
-- **OC/2IC/CSM/ASA:** company Forecast · Claims (OC decides) · Grants and commander-chat admin · a link to the v1 parade-state web app.
+- **OC/2IC/CSM/ASA:** company Forecast · Grants and commander-chat admin · a link to the v1 parade-state web app.
 
 **Which chats the bot is in** (full table in whereabouts-status.md §4):
 - each trooper's DM;
@@ -244,7 +244,8 @@ app/api/wb/file/[id]/route.ts      photo proxy, grant-checked, audited
 4. **Shifts and forecast:** patterns, HOTO, per-role minimum manning, `snapshotAt`, forecast grid, manning impact on cards, Today/Day/Camp check.
 5. **RF requests and deploy:** requests, board, deploy, assignments.
 6. **Projection:** extract the v1 cores (no behaviour change, v1 tests green), then build `syncProjection`. Run in shadow for 1–2 weeks: a nightly diff report of projected vs GC-entered absences goes to the admin. Turn `FEATURE_PROJECTION` on once the diff is clean.
-7. **Transport claims:** flow, OC decision card, optional Sheets export for the OC.
+7. **Transport claims:** the Mini App replaces the Form SG; rows go onto the OC's Google Sheet, where he still decides; his verdicts are read back and each man is DMed (built 2026-10-15, status §3a).
+8. **GC Camp check** (status §3b).
 
 Later: stats and S1 return from `mc_category`, stay-out in the night parade state, broadcast, ORD auto-deactivation, Telegram login for the v1 web app.
 
