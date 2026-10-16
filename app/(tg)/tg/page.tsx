@@ -1,15 +1,20 @@
 import { ArrowLeftRight, Bus, Car, CalendarPlus, CalendarRange, ClipboardList, History, Inbox, ListChecks, Settings, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { NeedsYou } from "@/components/tg/needs-you";
 import { ParadeStateTile } from "@/components/tg/parade-state-tile";
 import { StateChip } from "@/components/tg/record-summary";
 import { Tile } from "@/components/tg/tile";
 import { Group } from "@/components/tg/ui";
 import { isEnabled, requireFeaturePage } from "@/lib/flags";
-import { getMember, hasGrant } from "@/lib/wb/auth";
+import { getMember, hasGrant, type GrantRow } from "@/lib/wb/auth";
 import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
+import type { GridRow } from "@/lib/wb/domain/forecast";
+import { needsYou } from "@/lib/wb/domain/needs-you";
 import { rfAnything } from "@/lib/wb/domain/rf";
-import { decidesAnything, forecastsAnything, hotosAnything, proxiesAnything } from "@/lib/wb/domain/rules";
+import { COMPANY_DECIDERS, decidesAnything, forecastsAnything, hotosAnything, PLATOON_DECIDERS, proxiesAnything } from "@/lib/wb/domain/rules";
+import { todaySgt } from "@/lib/wb/domain/timeline";
+import { campsInfo, forecastScope, grid } from "@/lib/wb/forecast-data";
 import { place } from "@/lib/wb/format";
 import { rosterSelf } from "@/lib/wb/me";
 import { profileOf } from "@/lib/wb/members";
@@ -17,22 +22,33 @@ import { GAPS_ROLES, PARADE_STATE_ROLES } from "@/lib/wb/permissions";
 import { nowAndNext, onensOwedFor, pendingFor, type RecordView } from "@/lib/wb/records";
 import { assignmentsOf, openRequests } from "@/lib/wb/rf-data";
 
-// Home: who you are, where you are now and what's next, and the screens you
-// can reach. Settings (Shifts, Admin, My details) sit behind the gear.
+// Home: who you are, what needs you (only what you should act on soon; see
+// lib/wb/domain/needs-you.ts), where you are now and what's next, and the
+// screens you can reach. Settings (Shifts, Admin, My details) sit behind the gear.
 export default async function TgHome() {
   await requireFeaturePage();
   const member = await getMember();
   if (!member) return null; // the layout is signing them in
   if (!member.registeredAt) redirect("/tg/register");
-  const [me, self] = await Promise.all([profileOf(member), rosterSelf(member)]);
-  const { current, next } = self ? await nowAndNext(self.personId) : { current: null, next: null };
   const decides = decidesAnything(member.grants);
-  const [waiting, owed] = decides ? await Promise.all([pendingFor(member).then((p) => p.length), onensOwedFor(member.grants).then((o) => o.length)]) : [0, 0];
-
   const hoto = hotosAnything(member.grants);
   const manpower = forecastsAnything(member.grants);
   const rf = rfAnything(member.grants);
-  const [openRf, duties] = await Promise.all([rf ? openRequests().then((o) => o.length) : 0, self ? assignmentsOf(self.personId) : []]);
+  const now = new Date();
+  const today = todaySgt(now);
+  const [[me, self], pending, owed, openRf, short] = await Promise.all([
+    Promise.all([profileOf(member), rosterSelf(member)]),
+    decides ? pendingFor(member) : Promise.resolve([] as RecordView[]),
+    decides ? onensOwedFor(member.grants) : Promise.resolve([] as RecordView[]),
+    rf ? openRequests(now) : Promise.resolve([]),
+    manpower ? shortSoon(member.grants, today, now) : Promise.resolve([] as GridRow[]),
+  ]);
+  const [{ current, next }, duties] = await Promise.all([
+    self ? nowAndNext(self.personId) : { current: null, next: null },
+    self ? assignmentsOf(self.personId) : [],
+  ]);
+  const companyOnly = hasGrant(member.grants, COMPANY_DECIDERS, "company") && !hasGrant(member.grants, PLATOON_DECIDERS, "any");
+  const needs = needsYou({ pending, short, companyOnly, now, today });
   const parade = hasGrant(member.grants, PARADE_STATE_ROLES, "any");
   const commands = parade || decides || manpower || hoto || rf || proxiesAnything(member.grants) || hasGrant(member.grants, GAPS_ROLES, "any");
 
@@ -61,6 +77,8 @@ export default async function TgHome() {
           </p>
         )}
       </header>
+
+      <NeedsYou lines={needs} />
 
       {self && (
         <section className="tg-enter grid grid-cols-2 gap-2.5" style={{ "--i": 1 } as React.CSSProperties}>
@@ -94,9 +112,9 @@ export default async function TgHome() {
           <Group title="Commander" rows>
             {parade && <ParadeStateTile />}
             {manpower && <Tile href="/tg/manpower" icon={<CalendarRange />} title="Manpower" hint="Who's on shift and who's away, today and the next 14 days" />}
-            {decides && <Tile href="/tg/inbox" icon={<Inbox />} title="Inbox" badge={waiting + owed} hint="Approvals and ONENS owed" />}
+            {decides && <Tile href="/tg/inbox" icon={<Inbox />} title="Inbox" badge={pending.length + owed.length} hint={inboxHint(pending, owed.length, now)} />}
             {hoto && <Tile href="/tg/hoto" icon={<ArrowLeftRight />} title="HOTO" hint="Log a handover" />}
-            {rf && <Tile href="/tg/rf" icon={<Bus />} title="RF and duties" badge={openRf} hint="Camps short of men; ask, deploy, or assign Extra, RF or SOL" />}
+            {rf && <Tile href="/tg/rf" icon={<Bus />} title="RF and duties" badge={openRf.length} hint={rfHint(openRf.map((r) => r.campName))} />}
             {decides && <Tile href="/tg/people" icon={<History />} title="Person history" hint="Anyone's records; void a mistake" />}
             {proxiesAnything(member.grants) && <Tile href="/tg/add" icon={<UsersRound />} title="Add for several men" hint="A course or duty they've been detailed for" />}
             {hasGrant(member.grants, GAPS_ROLES, "any") && <Tile href="/tg/gaps" icon={<ClipboardList />} title="Gaps" hint="Who isn't registered or isn't on the roster" />}
@@ -134,4 +152,32 @@ function Slot({ label, r, empty }: { label: string; r: RecordView | null; empty:
   ) : (
     <div className={cls}>{inner}</div>
   );
+}
+
+/** Today's and tomorrow's strength for the member's guardrooms, for the Needs you card. Never breaks Home. */
+async function shortSoon(grants: readonly GrantRow[], today: string, now: Date): Promise<GridRow[]> {
+  const ids = forecastScope(grants, await campsInfo())
+    .filter((c) => !c.isHq)
+    .map((c) => c.id);
+  return ids.length ? grid(ids, today, 2, now).catch(() => []) : [];
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** "3 to approve · oldest 2 days · 1 ONENS owed": only what's there; else what the screen is for. */
+function inboxHint(pending: readonly RecordView[], owed: number, now: Date): string {
+  const parts: string[] = [];
+  if (pending.length) {
+    const days = Math.floor((now.getTime() - Math.min(...pending.map((r) => r.createdAt.getTime()))) / DAY_MS);
+    parts.push(`${pending.length} to approve`, days === 0 ? "oldest today" : `oldest ${days} day${days === 1 ? "" : "s"}`);
+  }
+  if (owed) parts.push(`${owed} ONENS owed`);
+  return parts.length ? parts.join(" · ") : "Approvals and ONENS owed";
+}
+
+/** "SLR and BDK asking for men", "SLR +2 asking for men"; else what the screen is for. */
+function rfHint(camps: readonly string[]): string {
+  const names = [...new Set(camps)];
+  if (!names.length) return "Camps short of men; ask, deploy, or assign Extra, RF or SOL";
+  return `${names.length <= 2 ? names.join(" and ") : `${names[0]} +${names.length - 1}`} asking for men`;
 }
