@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { wbGrant, wbMember, type WbRole } from "@/lib/wb/db/schema";
 import { wbAudit } from "@/lib/wb/audit";
 import { hasGrant, type GrantRow, type GrantScope } from "@/lib/wb/domain/grants";
+import { isWaiting } from "@/lib/wb/domain/roster-flow";
 
 // Mini App sign-in. Telegram signs `initData` with the bot token; we check it,
 // then hand out our own stateless cookie so later requests don't need it.
@@ -204,10 +205,15 @@ export async function requireMember(): Promise<Member> {
   return m;
 }
 
-/** For pages past registration. */
+/**
+ * For pages past registration. Someone registered but not on the parade state
+ * and holding no grant can only wait (lib/wb/domain/roster-flow isWaiting):
+ * /tg/register and /tg/waiting use requireMember, so they stay reachable.
+ */
 export async function requireRegistered(): Promise<Member> {
   const m = await requireMember();
   if (!m.registeredAt) redirect("/tg/register");
+  if (isWaiting(m)) redirect("/tg/waiting");
   return m;
 }
 

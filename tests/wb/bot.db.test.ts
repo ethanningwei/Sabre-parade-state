@@ -443,4 +443,17 @@ describe("evening round (fake Telegram)", () => {
       ],
     });
   });
+
+  it("a waiting account (registered, not on the roster, no grant) is told so, with no button; a grant holder isn't", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await member(71);
+    for (const cmd of ["/sick", "/leave", "/me"]) {
+      const c = await send(command(cmd, { from: 71 }));
+      expect(c[0].payload.text).toBe("You're not on the parade state yet. Your PS can see you on Gaps.");
+      expect(c[0].payload.reply_markup).toBeUndefined();
+    }
+    await member(72, [{ role: "ADMIN" }]);
+    const c = await send(command("/leave", { from: 72 }));
+    expect(c[0].payload.text).toBe("Which leave?");
+  });
 });

@@ -10,6 +10,7 @@ import { wbAudit as wbAuditTable, wbCommanderChat, wbMember, wbRecord } from "@/
 import { recordWhat } from "@/lib/wb/domain/describe";
 import { isLive } from "@/lib/wb/domain/rules";
 import { addDays, dayRange, todaySgt } from "@/lib/wb/domain/timeline";
+import { waitingByPlatoon } from "@/lib/wb/admin-data";
 import { shortTomorrow } from "@/lib/wb/forecast-data";
 import { rangeLabel } from "@/lib/wb/domain/timeline";
 import { shortBy } from "@/lib/wb/domain/rf";
@@ -35,6 +36,8 @@ import type { Button, Courier } from "@/lib/wb/telegram/courier";
 
 const STALE_MS = 12 * 60 * 60 * 1000;
 const CHASE_MS = 24 * 60 * 60 * 1000;
+/** A self-registered account is mentioned in the digest once it has waited this long. */
+const WAITING_MS = 24 * 60 * 60 * 1000;
 /** Stop chasing an outcome after this: by then the PS has asked in person. */
 const CHASE_GIVE_UP_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -61,6 +64,8 @@ export interface RoundSummary {
   claimsDecided: number;
   /** men told what the OC decided (Phase 7) */
   claimsTold: number;
+  /** accounts waiting more than a day to be added to the roster (Gaps) */
+  waiting: number;
 }
 
 const groupBy = <T, K>(rows: readonly T[], key: (r: T) => K) => {
@@ -69,7 +74,7 @@ const groupBy = <T, K>(rows: readonly T[], key: (r: T) => K) => {
   return m;
 };
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
 /** Claim tonight's round. False if it has already run today. */
 async function claim(date: string, force: boolean): Promise<boolean> {
@@ -89,15 +94,15 @@ async function claim(date: string, force: boolean): Promise<boolean> {
 
 export async function eveningRound(courier: Courier, now: Date = new Date(), { force = false } = {}): Promise<RoundSummary> {
   const today = todaySgt(now);
-  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, rfExpired: 0, back: 0, projection: 0, claimsDecided: 0, claimsTold: 0 };
+  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, rfExpired: 0, back: 0, projection: 0, claimsDecided: 0, claimsTold: 0, waiting: 0 };
   if (!(await claim(today, force))) return { ...summary, skipped: true };
 
   const todayStart = dayRange(today).startAt;
   const tomorrow = dayRange(addDays(today, 1));
   /** one message per platoon, not five: subunitId -> parts */
-  const digest = new Map<string, { name: string; parts: string[]; approvals: boolean; rf: boolean }>();
-  const addPart = (r: { subunitId: string; subunitName: string }, part: string, button: "approvals" | "rf" | null = null) => {
-    const d = digest.get(r.subunitId) ?? { name: r.subunitName, parts: [], approvals: false, rf: false };
+  const digest = new Map<string, { name: string; parts: string[]; approvals: boolean; rf: boolean; gaps: boolean }>();
+  const addPart = (r: { subunitId: string; subunitName: string }, part: string, button: "approvals" | "rf" | "gaps" | null = null) => {
+    const d = digest.get(r.subunitId) ?? { name: r.subunitName, parts: [], approvals: false, rf: false, gaps: false };
     d.parts.push(part);
     if (button) d[button] = true;
     digest.set(r.subunitId, d);
@@ -109,7 +114,7 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
   );
   for (const r of ending) if (await courier.send({ telegramId: r.ownerTelegramId }, noticeText(r, { kind: "ending" }))) summary.ending++;
   for (const rows of groupBy(ending, (r) => r.subunitId).values()) {
-    addPart(rows[0], [`✅ ${plural(rows.length, "man")} back to full duty tomorrow`, ...rows.map((r) => `• ${r.rank} ${r.name} (${r.campName}): ${recordWhat(r)}`)].join("\n"));
+    addPart(rows[0], [`✅ ${plural(rows.length, "man", "men")} back to full duty tomorrow`, ...rows.map((r) => `• ${r.rank} ${r.name} (${r.campName}): ${recordWhat(r)}`)].join("\n"));
   }
 
   // ---------------------------------------------------------------- an MA or event tomorrow
@@ -152,6 +157,13 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
   const stale = await findViews(and(eq(wbRecord.state, "PENDING"), lt(wbRecord.createdAt, new Date(now.getTime() - STALE_MS)))!);
   for (const rows of groupBy(stale, (r) => r.subunitId).values()) {
     addPart(rows[0], `⏳ ${plural(rows.length, "request")} waiting more than 12 hours`, "approvals");
+  }
+
+  // ---------------------------------------------------------------- waiting to be added to the roster
+  // his own platoon only (the camp he registered with), and only after a day: a PS adds most the same day
+  for (const w of await waitingByPlatoon(new Date(now.getTime() - WAITING_MS))) {
+    addPart(w, `👤 ${plural(w.n, "man", "men")} waiting to be added to the roster`, "gaps");
+    summary.waiting += w.n;
   }
 
   // ---------------------------------------------------------------- camps below minimum tomorrow (Phase 4)
@@ -203,7 +215,7 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
 
   // ---------------------------------------------------------------- one digest per commanders chat
   for (const [subunitId, d] of digest) {
-    const buttons: Button[][] = [...(d.approvals ? [[{ text: "Open Inbox", route: "inbox" }]] : []), ...(d.rf ? [[{ text: "Open the RF board", route: "rf" }]] : [])];
+    const buttons: Button[][] = [...(d.approvals ? [[{ text: "Open Inbox", route: "inbox" }]] : []), ...(d.rf ? [[{ text: "Open the RF board", route: "rf" }]] : []), ...(d.gaps ? [[{ text: "Open Gaps", route: "gaps" }]] : [])];
     summary.digests += await courier.send({ platoon: subunitId }, `🌙 Tonight · ${d.name}\n\n${d.parts.join("\n\n")}`, buttons.length ? buttons : undefined);
   }
 
@@ -258,7 +270,7 @@ async function heartbeat(courier: Courier, now: Date, s: RoundSummary): Promise<
     `${roster.n} on the roster · ${registered.n} registered\n` +
     `${pending.n} waiting on a decision · ${today.n} recorded today\n` +
     `${linked.n} commanders chats linked (${platoons.n} platoons)\n` +
-    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.rfExpired} RF expired, ${s.digests} digests, ${s.back} Back? messages${isEnabled("CLAIMS") ? `, ${s.claimsDecided} claims decided, ${s.claimsTold} told` : ""}\n\n` +
+    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.rfExpired} RF expired, ${s.waiting} waiting for the roster, ${s.digests} digests, ${s.back} Back? messages${isEnabled("CLAIMS") ? `, ${s.claimsDecided} claims decided, ${s.claimsTold} told` : ""}\n\n` +
     "Sent every evening. If an evening goes by without one, the bot isn't running.";
   return courier.send({ admins: true }, text);
 }

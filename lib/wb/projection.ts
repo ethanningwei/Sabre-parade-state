@@ -80,6 +80,8 @@ export async function loadPlanInput(tx: Reader, now: Date): Promise<PlanInput> {
       maTiming: wbRecord.maTiming,
     })
     .from(wbRecord)
+    // someone off the roster is never projected, even leave approved before he went (kept as history)
+    .innerJoin(person, and(eq(person.id, wbRecord.personId), eq(person.active, true)))
     .where(
       or(
         and(
@@ -102,6 +104,7 @@ export async function loadPlanInput(tx: Reader, now: Date): Promise<PlanInput> {
       state: wbAssignment.state,
     })
     .from(wbAssignment)
+    .innerJoin(person, and(eq(person.id, wbAssignment.personId), eq(person.active, true)))
     .where(
       or(
         and(eq(wbAssignment.state, "ACTIVE"), lte(wbAssignment.startAt, now), gt(wbAssignment.endAt, now)),
@@ -216,7 +219,8 @@ export async function planNow(now: Date = new Date()): Promise<Plan> {
   return planProjection(await loadPlanInput(db, now));
 }
 
-async function ensureProjectorUser(tx: Tx) {
+/** The projector's v1 user, created on first use; also the v1 author of the Mini App's roster changes. */
+export async function ensureProjectorUser(tx: Tx) {
   await tx
     .insert(user)
     .values({ ...PROJECTOR_USER, role: "pending", active: false })

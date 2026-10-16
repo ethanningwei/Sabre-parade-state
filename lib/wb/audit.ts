@@ -6,7 +6,8 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export interface WbAuditEntry {
   /** wb_member.id of who did it; null for the system */
   memberId: string | null;
-  via: "MINIAPP" | "BOT" | "SYSTEM";
+  /** WEB: the v1 web app (its user's name in `after.by`) */
+  via: "MINIAPP" | "BOT" | "SYSTEM" | "WEB";
   action: string;
   entity: string;
   entityId?: string | null;

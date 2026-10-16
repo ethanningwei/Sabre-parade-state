@@ -13,6 +13,7 @@ import { wbCommanderChat, wbConversation, wbGrant, wbMember } from "@/lib/wb/db/
 import { memberLabel, recordView } from "@/lib/wb/records";
 import { markOnens } from "@/lib/wb/outcome";
 import { RF_CALLBACK } from "@/lib/wb/domain/rf";
+import { isWaiting, WAITING_REPLY } from "@/lib/wb/domain/roster-flow";
 import { closeRf } from "@/lib/wb/rf";
 import { BACK_CALLBACK } from "@/lib/wb/domain/projection-kinds";
 import { confirmBack } from "@/lib/wb/projection";
@@ -115,6 +116,12 @@ async function quick(ctx: Context) {
   const name = (ctx.msg?.text ?? "").split(/[\s@]/)[0].slice(1).toLowerCase();
   const q = QUICK_COMMANDS[name];
   if (!q) return;
+  // registered but not on the parade state, and no grant: nothing to open yet
+  const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
+  if (member && isWaiting(member)) {
+    await ctx.reply(WAITING_REPLY, { message_thread_id: topicOf(ctx) ?? undefined });
+    return;
+  }
   if (name === "claim" && !isEnabled("CLAIMS")) {
     await ctx.reply("Transport claims aren't on in Sabre yet. Use the Form SG for now.", { message_thread_id: topicOf(ctx) ?? undefined });
     return;

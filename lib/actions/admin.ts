@@ -1,11 +1,13 @@
 "use server";
 
-import { and, asc, count, eq, isNull, max, ne } from "drizzle-orm";
+import { and, asc, count, eq, max, ne } from "drizzle-orm";
 import { z } from "zod";
 import { actionAdmin } from "@/lib/authz";
 import { getCoy } from "@/lib/data/snapshot";
 import { db } from "@/lib/db";
-import { absence, camp, coy, person, subunit } from "@/lib/db/schema";
+import { camp, coy, person, subunit } from "@/lib/db/schema";
+import { savePersonCore, removePersonCore } from "@/lib/core/people";
+import { isEnabled } from "@/lib/flags";
 import { sendToTelegram, TelegramError } from "@/lib/telegram";
 import { audit, run, UserError } from "./shared";
 
@@ -257,29 +259,7 @@ export async function savePerson(raw: z.input<typeof personInput>) {
   return run(async () => {
     const viewer = await actionAdmin();
     const input = personInput.parse(raw);
-    try {
-      if (input.personId) {
-        const [before] = await db.select().from(person).where(eq(person.id, input.personId));
-        if (!before) throw new UserError("Person not found.");
-        const values = { campId: input.campId, rank: input.rank, name: input.name, role: input.role };
-        if (before.campId !== input.campId) {
-          const [{ last }] = await db.select({ last: max(person.sortOrder) }).from(person).where(eq(person.campId, input.campId));
-          Object.assign(values, { sortOrder: (last ?? -1) + 1 });
-        }
-        await db.update(person).set(values).where(eq(person.id, input.personId));
-        await audit(db, viewer, "update-person", "person", input.personId, before, values);
-      } else {
-        const [{ last }] = await db.select({ last: max(person.sortOrder) }).from(person).where(eq(person.campId, input.campId));
-        const [row] = await db
-          .insert(person)
-          .values({ campId: input.campId, rank: input.rank, name: input.name, role: input.role, sortOrder: (last ?? -1) + 1 })
-          .returning();
-        await audit(db, viewer, "create-person", "person", row.id, null, row);
-      }
-    } catch (e) {
-      if (uniqueViolation(e)) throw new UserError(`'${input.name}' is already in that camp. Add a surname to tell them apart.`);
-      throw e;
-    }
+    await savePersonCore(db, viewer.id, input);
     return undefined;
   });
 }
@@ -288,14 +268,15 @@ export async function savePerson(raw: z.input<typeof personInput>) {
 export async function removePerson(personId: string) {
   return run(async () => {
     const viewer = await actionAdmin();
-    await db.transaction(async (tx) => {
-      await tx.update(person).set({ active: false }).where(eq(person.id, id.parse(personId)));
-      await tx
-        .update(absence)
-        .set({ closedAt: new Date(), closedBy: viewer.id })
-        .where(and(eq(absence.personId, personId), isNull(absence.closedAt)));
-      await audit(tx, viewer, "remove-person", "person", personId, null, { active: false });
+    const pid = id.parse(personId);
+    const deliver = await db.transaction(async (tx) => {
+      await removePersonCore(tx, viewer.id, pid);
+      // whereabouts: his grants, Telegram account, pending requests and Extra/RF/SOL go too (approved, flag-guarded)
+      if (!isEnabled("WHEREABOUTS")) return null;
+      const { removeFromWhereabouts } = await import("@/lib/wb/roster-flow");
+      return removeFromWhereabouts(tx, pid, { v1UserId: viewer.id, v1Name: viewer.name });
     });
+    await deliver?.();
     return undefined;
   });
 }

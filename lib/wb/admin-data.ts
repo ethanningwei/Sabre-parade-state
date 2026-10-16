@@ -1,12 +1,12 @@
 import "server-only";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import { place } from "@/lib/wb/format";
 import { camp, person, subunit } from "@/lib/db/schema";
 import { wbCommanderChat, wbGrant, wbMember, type WbRole } from "@/lib/wb/db/schema";
 import type { GrantRow } from "@/lib/wb/domain/grants";
-import { GAPS_ROLES } from "@/lib/wb/permissions";
+import { gapsReach, inGapsScope } from "@/lib/wb/domain/roster-flow";
 
 // Read models for the Mini App's Admin and Gaps screens.
 
@@ -29,6 +29,8 @@ export interface MemberRow {
   campId: string | null;
   personId: string | null;
   personActive: boolean | null;
+  /** what a SELF sign-up typed, for Add to roster */
+  self: { rank: string | null; name: string | null; role: string | null };
 }
 
 export async function listMembers(): Promise<MemberRow[]> {
@@ -68,6 +70,7 @@ export async function listMembers(): Promise<MemberRow[]> {
     campId: r.pCampId ?? r.sCampId,
     personId: m.personId,
     personActive: r.pActive,
+    self: { rank: m.selfRank, name: m.selfName, role: m.selfRole },
   }));
 }
 
@@ -149,16 +152,50 @@ export interface Gaps {
  */
 export async function gapsFor(grants: readonly GrantRow[]): Promise<Gaps & { scoped: boolean }> {
   const g = await gaps();
-  const mine = grants.filter((x) => GAPS_ROLES.includes(x.role));
-  if (mine.some((x) => !x.subunitId && !x.campId)) return { ...g, scoped: false };
-  const inScope = (p: { subunitId: string | null; campId: string | null }) =>
-    mine.some((x) => (x.subunitId ? x.subunitId === p.subunitId : x.campId === p.campId && !!p.campId));
+  if (gapsReach(grants) === true) return { ...g, scoped: false };
+  const inScope = (p: { subunitId: string | null; campId: string | null }) => inGapsScope(grants, p);
   return {
     unregistered: g.unregistered.filter(inScope),
     selfOnly: g.selfOnly.filter(inScope),
     left: g.left.filter(inScope),
     scoped: true,
   };
+}
+
+/** Registered, not on the roster yet, and in Gaps scope: those to add. */
+function waitingWhere(grants: readonly GrantRow[]): SQL | null {
+  const reach = gapsReach(grants);
+  const base = and(eq(wbMember.active, true), isNotNull(wbMember.registeredAt), isNull(wbMember.personId))!;
+  if (reach === true) return base;
+  const parts = [
+    reach.subunitIds.length ? inArray(selfCamp.subunitId, reach.subunitIds) : null,
+    reach.campIds.length ? inArray(wbMember.selfCampId, reach.campIds) : null,
+  ].filter((x): x is SQL => !!x);
+  return parts.length ? and(base, or(...parts))! : null;
+}
+
+/** How many are waiting to be added to the roster in this viewer's Gaps scope (the Home badge): one count, not gaps(). */
+export async function waitingCount(grants: readonly GrantRow[]): Promise<number> {
+  const where = waitingWhere(grants);
+  if (!where) return 0;
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(wbMember)
+    .leftJoin(selfCamp, eq(selfCamp.id, wbMember.selfCampId))
+    .where(where);
+  return n;
+}
+
+/** Per platoon of the camp they registered with: how many have waited since before `before` (the evening line). */
+export async function waitingByPlatoon(before: Date): Promise<{ subunitId: string; subunitName: string; n: number }[]> {
+  return db
+    .select({ subunitId: selfSubunit.id, subunitName: selfSubunit.name, n: sql<number>`count(*)::int` })
+    .from(wbMember)
+    .innerJoin(selfCamp, eq(selfCamp.id, wbMember.selfCampId))
+    .innerJoin(selfSubunit, eq(selfSubunit.id, selfCamp.subunitId))
+    .where(and(eq(wbMember.active, true), isNull(wbMember.personId), lt(wbMember.registeredAt, before)))
+    .groupBy(selfSubunit.id, selfSubunit.name, selfSubunit.sortOrder)
+    .orderBy(asc(selfSubunit.sortOrder));
 }
 
 export async function gaps(): Promise<Gaps> {

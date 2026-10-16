@@ -3,7 +3,7 @@ import type { WbRole } from "@/lib/wb/domain/roles";
 // Who may use which Phase 1 screen or command. Scope is checked separately.
 
 export const ADMIN_ROLES: readonly WbRole[] = ["ADMIN"];
-export const GAPS_ROLES: readonly WbRole[] = ["PS", "PC", "OC", "2IC", "CSM", "ASA", "ADMIN"];
+export { GAPS_ROLES } from "@/lib/wb/domain/roster-flow";
 /** /here needs PC or PS of that platoon (or a company-wide grant), or ADMIN. */
 export const HERE_ROLES: readonly WbRole[] = ["PC", "PS", "ADMIN"];
 /** "Parade state": signs them in to the v1 web app by name. Troopers and ASAs don't get it. */

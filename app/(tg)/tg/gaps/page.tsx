@@ -1,16 +1,23 @@
 import { ChevronRight } from "lucide-react";
 import { Header } from "@/components/tg/form-bits";
+import { WaitingRow, type CampOption } from "@/components/tg/roster/waiting-row";
 import { Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { gapsFor } from "@/lib/wb/admin-data";
 import { requireGrantPage } from "@/lib/wb/auth";
+import { inGapsScope, similarName } from "@/lib/wb/domain/roster-flow";
 import { GAPS_ROLES } from "@/lib/wb/permissions";
+import { structure } from "@/lib/wb/roster";
 
-// Who the system doesn't know about yet, for PS/PC/HQ to chase.
+// Who the system doesn't know about yet, for PS/PC/HQ to chase. Those who
+// registered themselves are added to the roster (or linked) from here.
 export default async function GapsPage() {
   await requireFeaturePage();
   const member = await requireGrantPage(GAPS_ROLES);
-  const g = await gapsFor(member.grants);
+  const [g, subunits] = await Promise.all([gapsFor(member.grants), structure()]);
+  const camps: CampOption[] = subunits.flatMap((sub) =>
+    sub.camps.filter((c) => inGapsScope(member.grants, { subunitId: sub.id, campId: c.id })).map((c) => ({ id: c.id, name: c.name, subunitName: sub.name, isHq: sub.isHq })),
+  );
   const bySubunit = new Map<string, typeof g.unregistered>();
   for (const p of g.unregistered) bySubunit.set(p.subunitName, [...(bySubunit.get(p.subunitName) ?? []), p]);
 
@@ -18,9 +25,20 @@ export default async function GapsPage() {
     <div className="flex flex-col gap-6">
       <Header title="Gaps" hint={g.scoped ? "Your platoon only." : "The whole company."} />
 
-      <Section title="Not on the roster yet" count={g.selfOnly.length} hint="Registered themselves. Add them in the parade-state app, then link them in Admin › Members.">
+      <Section title="Not on the roster yet" count={g.selfOnly.length} hint="Registered themselves. Add them to the parade state here, or link them to who they already are on it.">
         {g.selfOnly.map((m) => (
-          <Row key={m.id} title={m.label} sub={[m.where, m.tgUsername && `@${m.tgUsername}`].filter(Boolean).join(" · ")} />
+          <WaitingRow
+            key={m.id}
+            memberId={m.id}
+            label={m.label}
+            sub={[m.where, m.tgUsername && `@${m.tgUsername}`].filter(Boolean).join(" · ")}
+            self={m.self}
+            campId={m.campId}
+            camps={camps}
+            candidates={g.unregistered
+              .filter((p) => p.campId === m.campId && similarName(m.self.name ?? m.label, p.name))
+              .map((p) => ({ personId: p.personId, label: `${p.rank} ${p.name}`, campName: p.campName }))}
+          />
         ))}
       </Section>
 

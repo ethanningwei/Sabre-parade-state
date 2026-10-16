@@ -15,5 +15,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!verified) return Response.json({ error: "Please reopen Sabre from Telegram." }, { status: 401 });
 
   const member = await signIn(verified.user);
+  // switched off (taken off the roster, or by an admin): say so, rather than signing in to nothing
+  if (!member.active) return Response.json({ error: "Your Sabre account is switched off. Ask your PS." }, { status: 403 });
   return Response.json({ registered: !!member.registeredAt, startParam: verified.startParam });
 }

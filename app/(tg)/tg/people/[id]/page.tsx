@@ -3,20 +3,25 @@ import { Header } from "@/components/tg/form-bits";
 import { HistoryToggle } from "@/components/tg/history-toggle";
 import { RecordActions } from "@/components/tg/record-actions";
 import { RecordSummary } from "@/components/tg/record-summary";
+import { RemoveFromRoster } from "@/components/tg/roster/remove-sheet";
 import { EmptyState } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
+import { canRemoveFromRoster } from "@/lib/wb/domain/roster-flow";
 import { accessTo, canDecide, isCurrent, liveChildren } from "@/lib/wb/domain/rules";
 import { personWhere, recordsOfPerson } from "@/lib/wb/records";
+import { removalPreview } from "@/lib/wb/roster-flow";
 
 // One person's records, newest first, with Void on what's approved or
 // recorded. What's still current by default; Full history (?all=1) has the rest.
+// At the bottom, Remove from roster for his PC/PS, company command and admins.
 export default async function PersonHistoryPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ all?: string | string[] }> }) {
   await requireFeaturePage();
   const member = await requireRegistered();
   const { id } = await params;
   const p = /^[0-9a-f-]{36}$/.test(id) ? await personWhere(id) : null;
-  if (!p || !canDecide(member.grants, p)) {
+  const removes = !!p && canRemoveFromRoster(member.grants, p) && member.personId !== p.personId;
+  if (!p || !(canDecide(member.grants, p) || removes)) {
     return (
       <EmptyState icon={<SearchX />} title="Not found">
         <p>That person isn&apos;t in your platoon, or has left the roster.</p>
@@ -24,7 +29,7 @@ export default async function PersonHistoryPage({ params, searchParams }: { para
     );
   }
   const all = (await searchParams).all === "1";
-  const everything = await recordsOfPerson(p.personId);
+  const [everything, counts] = await Promise.all([recordsOfPerson(p.personId), removes ? removalPreview(p.personId) : null]);
   const kids = liveChildren(everything);
   const now = new Date();
   const records = all ? everything : everything.filter((r) => isCurrent(r, kids.get(r.id) ?? [], now));
@@ -45,6 +50,11 @@ export default async function PersonHistoryPage({ params, searchParams }: { para
         ))
       )}
       <HistoryToggle href={`/tg/people/${p.personId}`} all={all} count={everything.length} />
+      {counts && (
+        <div className="mt-4">
+          <RemoveFromRoster personId={p.personId} name={`${p.rank} ${p.name}`} counts={counts} />
+        </div>
+      )}
     </div>
   );
 }

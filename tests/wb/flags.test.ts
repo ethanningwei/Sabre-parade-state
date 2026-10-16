@@ -122,6 +122,24 @@ describe("every whereabouts entry point is guarded", () => {
     expect(readFileSync(join(root, "lib/wb/actions/parade.ts"), "utf8")).toMatch(/requireFeature\(\);\n\s+return run/);
   });
 
+  // A waiting account (registered, not on the roster, no grant) is sent to
+  // /tg/waiting by requireRegistered; the way out must not use it.
+  it("the waiting screen and registration don't use requireRegistered", () => {
+    for (const page of ["app/(tg)/tg/waiting/page.tsx", "app/(tg)/tg/register/page.tsx"]) {
+      const src = readFileSync(join(root, page), "utf8");
+      expect(src).toMatch(/requireMember\(\)/);
+      expect(src).not.toMatch(/requireRegistered\(|requireGrantPage\(/);
+    }
+    expect(readFileSync(join(root, "lib/wb/auth.ts"), "utf8")).toMatch(/if \(isWaiting\(m\)\) redirect\("\/tg\/waiting"\);/);
+  });
+
+  // The approved v1 edit: Admin › People › Remove reaches whereabouts through one flag-guarded, lazily imported call.
+  it("v1's Remove touches whereabouts only with the flag on", () => {
+    const src = readFileSync(join(root, "lib/actions/admin.ts"), "utf8");
+    expect(src).not.toMatch(/^import .*@\/lib\/wb\//m);
+    expect(src).toMatch(/if \(!isEnabled\("WHEREABOUTS"\)\) return null;\n\s+const \{ removeFromWhereabouts \} = await import\("@\/lib\/wb\/roster-flow"\);/);
+  });
+
   // Transport claims sit behind FEATURE_CLAIMS as well (Phase 7)
   it.each(files(join(root, "app/(tg)")).filter((f) => /\/(apply\/claim|claims)\/page\.tsx$/.test(f)))("%s awaits requireFeaturePage(\"CLAIMS\")", (f) => {
     expect(readFileSync(f, "utf8")).toMatch(/await requireFeaturePage\(\);\n\s+await requireFeaturePage\("CLAIMS"\);/);

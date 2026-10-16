@@ -11,9 +11,11 @@ import { getMember, hasGrant, type GrantRow } from "@/lib/wb/auth";
 import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
 import type { GridRow } from "@/lib/wb/domain/forecast";
 import { needsYou } from "@/lib/wb/domain/needs-you";
+import { isWaiting } from "@/lib/wb/domain/roster-flow";
 import { rfAnything } from "@/lib/wb/domain/rf";
 import { COMPANY_DECIDERS, decidesAnything, forecastsAnything, hotosAnything, PLATOON_DECIDERS, proxiesAnything } from "@/lib/wb/domain/rules";
 import { todaySgt } from "@/lib/wb/domain/timeline";
+import { waitingCount } from "@/lib/wb/admin-data";
 import { campsInfo, forecastScope, grid } from "@/lib/wb/forecast-data";
 import { place } from "@/lib/wb/format";
 import { rosterSelf } from "@/lib/wb/me";
@@ -30,18 +32,21 @@ export default async function TgHome() {
   const member = await getMember();
   if (!member) return null; // the layout is signing them in
   if (!member.registeredAt) redirect("/tg/register");
+  if (isWaiting(member)) redirect("/tg/waiting");
   const decides = decidesAnything(member.grants);
   const hoto = hotosAnything(member.grants);
   const manpower = forecastsAnything(member.grants);
   const rf = rfAnything(member.grants);
+  const gaps = hasGrant(member.grants, GAPS_ROLES, "any");
   const now = new Date();
   const today = todaySgt(now);
-  const [[me, self], pending, owed, openRf, short] = await Promise.all([
+  const [[me, self], pending, owed, openRf, short, waiting] = await Promise.all([
     Promise.all([profileOf(member), rosterSelf(member)]),
     decides ? pendingFor(member) : Promise.resolve([] as RecordView[]),
     decides ? onensOwedFor(member.grants) : Promise.resolve([] as RecordView[]),
     rf ? openRequests(now) : Promise.resolve([]),
     manpower ? shortSoon(member.grants, today, now) : Promise.resolve([] as GridRow[]),
+    gaps ? waitingCount(member.grants) : Promise.resolve(0),
   ]);
   const [{ current, next }, duties] = await Promise.all([
     self ? nowAndNext(self.personId) : { current: null, next: null },
@@ -50,7 +55,7 @@ export default async function TgHome() {
   const companyOnly = hasGrant(member.grants, COMPANY_DECIDERS, "company") && !hasGrant(member.grants, PLATOON_DECIDERS, "any");
   const needs = needsYou({ pending, short, companyOnly, now, today });
   const parade = hasGrant(member.grants, PARADE_STATE_ROLES, "any");
-  const commands = parade || decides || manpower || hoto || rf || proxiesAnything(member.grants) || hasGrant(member.grants, GAPS_ROLES, "any");
+  const commands = parade || decides || manpower || hoto || rf || proxiesAnything(member.grants) || gaps;
 
   return (
     <div className="flex flex-col gap-6">
@@ -71,9 +76,10 @@ export default async function TgHome() {
             <Settings aria-hidden />
           </Link>
         </div>
+        {/* only grant holders get here without a roster person; everyone else waits on /tg/waiting */}
         {!me.onRoster && (
           <p className="mt-2 rounded-xl bg-card px-3 py-2.5 text-sm">
-            You&apos;re not on the parade state yet. Your PS can see you on Gaps and will add you.
+            You&apos;re not on the parade state yourself. Your PS can see you on Gaps and add you.
           </p>
         )}
       </header>
@@ -117,7 +123,15 @@ export default async function TgHome() {
             {rf && <Tile href="/tg/rf" icon={<Bus />} title="RF and duties" badge={openRf.length} hint={rfHint(openRf.map((r) => r.campName))} />}
             {decides && <Tile href="/tg/people" icon={<History />} title="Person history" hint="Anyone's records; void a mistake" />}
             {proxiesAnything(member.grants) && <Tile href="/tg/add" icon={<UsersRound />} title="Add for several men" hint="A course or duty they've been detailed for" />}
-            {hasGrant(member.grants, GAPS_ROLES, "any") && <Tile href="/tg/gaps" icon={<ClipboardList />} title="Gaps" hint="Who isn't registered or isn't on the roster" />}
+            {gaps && (
+              <Tile
+                href="/tg/gaps"
+                icon={<ClipboardList />}
+                title="Gaps"
+                badge={waiting}
+                hint={waiting ? `${waiting} waiting to be added to the roster` : "Who isn't registered or isn't on the roster"}
+              />
+            )}
           </Group>
         )}
       </nav>

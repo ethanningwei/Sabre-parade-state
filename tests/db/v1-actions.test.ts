@@ -226,6 +226,49 @@ describe("saveDuty and endDuty", () => {
   });
 });
 
+describe("savePerson and removePerson", () => {
+  const byName = async (campIdValue: string, name: string) =>
+    (await db.select().from(person).where(and(eq(person.campId, campIdValue), eq(person.name, name), eq(person.active, true))))[0];
+
+  it("creates at the end of the camp, edits in place, and a move re-sorts into the new camp", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const { savePerson } = await import("@/lib/actions/admin");
+    const last = (await db.select({ s: person.sortOrder }).from(person).where(eq(person.campId, ids.tft)).orderBy(asc(person.sortOrder))).at(-1)!.s;
+    expect(await savePerson({ campId: ids.tft, rank: " pte ", name: " new  man ", role: "ST CBT" })).toEqual({ ok: true, data: undefined });
+    const made = await byName(ids.tft, "NEW  MAN");
+    expect(made).toMatchObject({ rank: "PTE", role: "ST CBT", sortOrder: last + 1, active: true });
+
+    await savePerson({ personId: made.id, campId: ids.tft, rank: "LCP", name: "NEW  MAN", role: "GC" });
+    expect((await db.select().from(person).where(eq(person.id, made.id)))[0]).toMatchObject({ rank: "LCP", role: "GC", sortOrder: last + 1 });
+
+    const bdkLast = (await db.select({ s: person.sortOrder }).from(person).where(eq(person.campId, ids.bdk)).orderBy(asc(person.sortOrder))).at(-1)!.s;
+    await savePerson({ personId: made.id, campId: ids.bdk, rank: "LCP", name: "NEW  MAN", role: "GC" });
+    expect((await db.select().from(person).where(eq(person.id, made.id)))[0]).toMatchObject({ campId: ids.bdk, sortOrder: bdkLast + 1 });
+    expect(await auditActions()).toEqual(["create-person:person", "update-person:person", "update-person:person"]);
+  });
+
+  it("refuses a duplicate name in a camp and a person who isn't there", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const { savePerson } = await import("@/lib/actions/admin");
+    const [t1] = await db.select().from(person).where(eq(person.id, p.t1));
+    expect(await savePerson({ campId: ids.tft, rank: "PTE", name: t1.name, role: "" })).toEqual({ ok: false, error: `'${t1.name}' is already in that camp. Add a surname to tell them apart.` });
+    expect(await savePerson({ personId: "00000000-0000-4000-8000-000000000000", campId: ids.tft, rank: "PTE", name: "X", role: "" })).toEqual({ ok: false, error: "Person not found." });
+    expect(await auditActions()).toEqual([]);
+  });
+
+  it("removePerson: inactive, open absences closed by the admin, one audit row", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const { removePerson } = await import("@/lib/actions/admin");
+    await setStatus({ ...mc, personIds: [p.t1], otherReason: "", startTime: null, endTime: null, maTiming: "", maLocation: "" });
+    expect(await removePerson(p.t1)).toEqual({ ok: true, data: undefined });
+    expect((await db.select().from(person).where(eq(person.id, p.t1)))[0].active).toBe(false);
+    expect(await openOf(p.t1)).toBeUndefined();
+    expect((await absencesOf(p.t1))[0].closedBy).toBe(ADMIN);
+    const rows = await db.select({ action: auditLog.action, after: auditLog.after }).from(auditLog).where(and(eq(auditLog.userId, ADMIN), eq(auditLog.action, "remove-person")));
+    expect(rows).toEqual([{ action: "remove-person", after: { active: false } }]);
+  });
+});
+
 describe("the cores write exactly what the actions write", () => {
   const blank = { otherReason: "", startDate: null, startTime: null, endDate: null, endTime: null, maTiming: "", maLocation: "" };
   // a row with what's bound to differ (ids, the person, clocks) left out
@@ -290,6 +333,30 @@ describe("the cores write exactly what the actions write", () => {
     expect(await auditActions()).toEqual(["create-duty:duty", "create-duty:duty", "update-duty:duty", "update-duty:duty", "end-duty:duty", "end-duty:duty"]);
   });
 
+  it("savePerson and removePerson: create, edit, move, remove", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const { savePerson, removePerson } = await import("@/lib/actions/admin");
+    const { savePersonCore, removePersonCore } = await import("@/lib/core/people");
+    const strip = (r: typeof person.$inferSelect) => ({ campId: r.campId, rank: r.rank, role: r.role, active: r.active });
+    const find = async (name: string) => (await db.select().from(person).where(and(eq(person.name, name), eq(person.active, true))))[0];
+    await savePerson({ campId: ids.tft, rank: "PTE", name: "VIA ACTION", role: "ST CBT" });
+    const core = await savePersonCore(db, ADMIN, { campId: ids.tft, rank: "PTE", name: "VIA CORE", role: "ST CBT" });
+    const action = await find("VIA ACTION");
+    expect(strip(core)).toEqual(strip(action));
+    expect(core.sortOrder).toBe(action.sortOrder + 1);
+    await savePerson({ personId: action.id, campId: ids.bdk, rank: "LCP", name: "VIA ACTION", role: "GC" });
+    await savePersonCore(db, ADMIN, { personId: core.id, campId: ids.bdk, rank: "LCP", name: "VIA CORE", role: "GC" });
+    const [a2, c2] = [await find("VIA ACTION"), await find("VIA CORE")];
+    expect(strip(c2)).toEqual(strip(a2));
+    expect(c2.sortOrder).toBe(a2.sortOrder + 1);
+    await removePerson(action.id);
+    await db.transaction((tx) => removePersonCore(tx, ADMIN, core.id));
+    expect((await db.select().from(person).where(eq(person.id, core.id)))[0].active).toBe(false);
+    const actions = await auditActions();
+    expect(actions).toEqual(["create-person:person", "create-person:person", "update-person:person", "update-person:person", "remove-person:person", "remove-person:person"]);
+    await expect(savePersonCore(db, ADMIN, { campId: ids.tft, rank: "PTE", name: (await db.select().from(person).where(eq(person.id, p.t2)))[0].name, role: "" })).rejects.toThrow("is already in that camp");
+  });
+
   it("the cores refuse what the actions refuse", async (ctx) => {
     if (!reachable) ctx.skip();
     const [sftA1] = await db.select({ id: person.id }).from(person).where(and(eq(person.campId, ids.sftA), eq(person.active, true)));
@@ -297,5 +364,57 @@ describe("the cores write exactly what the actions write", () => {
     await expect(
       db.transaction((tx) => saveDutyCore(tx, ADMIN, { type: "RF", rank: "", name: "", personId: p.t1, campId: ids.tft, startDate: "2026-10-13", startTime: null, endDate: "2026-10-14", endTime: null })),
     ).rejects.toThrow("can't be served at their own team (TFT)");
+  });
+});
+
+describe("Admin › People › Remove and whereabouts (FEATURE_WHEREABOUTS)", () => {
+  const setUp = async () => {
+    const { wbGrant, wbMember } = await import("@/lib/wb/db/schema");
+    const [m] = await db.insert(wbMember).values({ telegramUserId: 990001, tgName: "T", registeredAt: new Date(), personId: p.t1 }).returning();
+    await db.insert(wbGrant).values({ memberId: m.id, role: "PS", subunitId: ids.pl5 });
+    const d = await saveDuty({ type: "RF", personId: p.t1, campId: ids.bdk, startDate: "2026-10-13", endDate: "2026-10-15" });
+    return { m, dutyId: (d as { data: string }).data };
+  };
+  const tearDown = async () => {
+    const { wbAudit, wbGrant, wbMember } = await import("@/lib/wb/db/schema");
+    await db.delete(wbGrant);
+    await db.delete(wbMember).where(eq(wbMember.telegramUserId, 990001));
+    await db.delete(wbAudit);
+    vi.unstubAllEnvs();
+  };
+
+  it("off: v1 alone, exactly as before (his account and grant untouched, his open duty left open)", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const { removePerson } = await import("@/lib/actions/admin");
+    const { wbAudit, wbGrant, wbMember } = await import("@/lib/wb/db/schema");
+    vi.stubEnv("FEATURE_WHEREABOUTS", "");
+    try {
+      const { m, dutyId } = await setUp();
+      expect(await removePerson(p.t1)).toEqual({ ok: true, data: undefined });
+      expect((await db.select().from(wbMember).where(eq(wbMember.id, m.id)))[0].active).toBe(true);
+      expect(await db.select().from(wbGrant).where(eq(wbGrant.memberId, m.id))).toHaveLength(1);
+      expect((await db.select().from(duty).where(eq(duty.id, dutyId)))[0].closedAt).toBeNull();
+      expect(await db.select().from(wbAudit)).toEqual([]);
+    } finally {
+      await tearDown();
+    }
+  });
+
+  it("on: the same cleanup as the Mini App's, audited as from the web app", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const { removePerson } = await import("@/lib/actions/admin");
+    const { wbAudit, wbGrant, wbMember } = await import("@/lib/wb/db/schema");
+    vi.stubEnv("FEATURE_WHEREABOUTS", "1");
+    try {
+      const { m, dutyId } = await setUp();
+      expect(await removePerson(p.t1)).toEqual({ ok: true, data: undefined });
+      expect((await db.select().from(wbMember).where(eq(wbMember.id, m.id)))[0].active).toBe(false);
+      expect(await db.select().from(wbGrant).where(eq(wbGrant.memberId, m.id))).toEqual([]);
+      expect((await db.select().from(duty).where(eq(duty.id, dutyId)))[0]).toMatchObject({ closedBy: ADMIN });
+      const rows = await db.select({ action: wbAudit.action, via: wbAudit.via, after: wbAudit.after }).from(wbAudit).where(eq(wbAudit.action, "remove-from-roster"));
+      expect(rows).toEqual([{ action: "remove-from-roster", via: "WEB", after: expect.objectContaining({ by: "v1 test admin", grants: 1, duties: 1 }) }]);
+    } finally {
+      await tearDown();
+    }
   });
 });
