@@ -209,8 +209,15 @@ export const canHoto = (grants: readonly GrantRow[], subunitId: string, teams: r
 export const hotosAnything = (grants: readonly GrantRow[]) =>
   hasGrant(grants, ["GC", ...PLATOON_DECIDERS], "any") || hasGrant(grants, COMPANY_DECIDERS, "company");
 
-/** The forecast and the day view: the platoon's PC/PS, or OC/2IC/CSM. The same people who decide. */
-export const canForecast = canDecide;
+/**
+ * Manpower (the day view and the 14-day grid): whoever decides there, or that
+ * very camp's GC (the user, 2026-10-16). Only a GC grant naming a camp counts:
+ * a campless one would read as company-wide under grantCovers.
+ */
+export const canForecast = (grants: readonly GrantRow[], where: Where) =>
+  canDecide(grants, where) || grants.some((g) => g.role === "GC" && !!g.campId && g.campId === where.campId);
+
+export const forecastsAnything = (grants: readonly GrantRow[]) => decidesAnything(grants) || grants.some((g) => g.role === "GC" && !!g.campId);
 
 // ------------------------------------------------------------------ what
 

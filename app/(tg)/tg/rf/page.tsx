@@ -22,7 +22,7 @@ export default async function RfBoardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <Header title="RF board" hint="Camps that will be short, and who's been sent." />
+      <Header title="RF and duties" hint="Camps that will be short, and who's been sent. Assign puts men on Extra, RF or SOL straight away." />
       <div className="-mt-2 flex gap-2">
         <Link href="/tg/rf/new" className={action}>
           <Plus className="size-4" aria-hidden /> Ask for men

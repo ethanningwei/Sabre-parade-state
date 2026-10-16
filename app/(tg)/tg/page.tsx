@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Bus, CalendarDays, Car, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock, CloudUpload, History, ListChecks, Settings, UserPen, UserPlus, UsersRound } from "lucide-react";
+import { ArrowLeftRight, Bus, Car, CalendarPlus, CalendarRange, ClipboardList, History, Inbox, ListChecks, Settings, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ParadeStateTile } from "@/components/tg/parade-state-tile";
@@ -9,16 +9,16 @@ import { isEnabled, requireFeaturePage } from "@/lib/flags";
 import { getMember, hasGrant } from "@/lib/wb/auth";
 import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
 import { rfAnything } from "@/lib/wb/domain/rf";
-import { decidesAnything, editsShiftsAnything, hotosAnything, proxiesAnything } from "@/lib/wb/domain/rules";
-import { todaySgt } from "@/lib/wb/domain/timeline";
+import { decidesAnything, forecastsAnything, hotosAnything, proxiesAnything } from "@/lib/wb/domain/rules";
 import { place } from "@/lib/wb/format";
 import { rosterSelf } from "@/lib/wb/me";
 import { profileOf } from "@/lib/wb/members";
-import { ADMIN_ROLES, GAPS_ROLES, PARADE_STATE_ROLES } from "@/lib/wb/permissions";
+import { GAPS_ROLES, PARADE_STATE_ROLES } from "@/lib/wb/permissions";
 import { nowAndNext, onensOwedFor, pendingFor, type RecordView } from "@/lib/wb/records";
 import { assignmentsOf, openRequests } from "@/lib/wb/rf-data";
 
-// Home: who you are, where you are now and what's next, and the screens you can reach.
+// Home: who you are, where you are now and what's next, and the screens you
+// can reach. Settings (Shifts, Admin, My details) sit behind the gear.
 export default async function TgHome() {
   await requireFeaturePage();
   const member = await getMember();
@@ -30,20 +30,31 @@ export default async function TgHome() {
   const [waiting, owed] = decides ? await Promise.all([pendingFor(member).then((p) => p.length), onensOwedFor(member.grants).then((o) => o.length)]) : [0, 0];
 
   const hoto = hotosAnything(member.grants);
-  const shifts = editsShiftsAnything(member.grants);
+  const manpower = forecastsAnything(member.grants);
   const rf = rfAnything(member.grants);
   const [openRf, duties] = await Promise.all([rf ? openRequests().then((o) => o.length) : 0, self ? assignmentsOf(self.personId) : []]);
   const parade = hasGrant(member.grants, PARADE_STATE_ROLES, "any");
-  const commands = parade || decides || hoto || shifts || rf || proxiesAnything(member.grants) || hasGrant(member.grants, GAPS_ROLES, "any");
+  const commands = parade || decides || manpower || hoto || rf || proxiesAnything(member.grants) || hasGrant(member.grants, GAPS_ROLES, "any");
 
   return (
     <div className="flex flex-col gap-6">
       <header className="tg-enter flex flex-col gap-0.5 px-1">
-        <p className="text-sm text-muted-foreground">Signed in as</p>
-        <h1 className="text-[1.625rem] leading-tight font-semibold tracking-tight">
-          {me.rank} {me.name}
-        </h1>
-        <p className="text-sm text-muted-foreground">{place(me.campName, me.subunitName) || "No camp yet"}</p>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <p className="text-sm text-muted-foreground">Signed in as</p>
+            <h1 className="text-[1.625rem] leading-tight font-semibold tracking-tight">
+              {me.rank} {me.name}
+            </h1>
+            <p className="text-sm text-muted-foreground">{place(me.campName, me.subunitName) || "No camp yet"}</p>
+          </div>
+          <Link
+            href="/tg/settings"
+            aria-label="Settings"
+            className="tg-press -mr-1 flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-muted [&_svg]:size-[22px]"
+          >
+            <Settings aria-hidden />
+          </Link>
+        </div>
         {!me.onRoster && (
           <p className="mt-2 rounded-xl bg-card px-3 py-2.5 text-sm">
             You&apos;re not on the parade state yet. Your PS can see you on Gaps and will add you.
@@ -82,23 +93,15 @@ export default async function TgHome() {
         {commands && (
           <Group title="Commander" rows>
             {parade && <ParadeStateTile />}
-            {decides && <Tile href="/tg/approvals" icon={<ClipboardCheck />} title="Approvals" badge={waiting} hint="Requests waiting on you" />}
-            {decides && <Tile href="/tg/onens" icon={<CloudUpload />} title="ONENS owed" badge={owed} hint="Civilian MCs not uploaded yet" />}
-            {decides && <Tile href={`/tg/day/${todaySgt()}`} icon={<CalendarDays />} title="Today" hint="Who's on shift, who's away, who's on status" />}
-            {decides && <Tile href="/tg/forecast" icon={<CalendarRange />} title="Forecast" hint="The next 14 days against minimum manning" />}
+            {manpower && <Tile href="/tg/manpower" icon={<CalendarRange />} title="Manpower" hint="Who's on shift and who's away, today and the next 14 days" />}
+            {decides && <Tile href="/tg/inbox" icon={<Inbox />} title="Inbox" badge={waiting + owed} hint="Approvals and ONENS owed" />}
             {hoto && <Tile href="/tg/hoto" icon={<ArrowLeftRight />} title="HOTO" hint="Log a handover" />}
-            {rf && <Tile href="/tg/rf" icon={<Bus />} title="RF board" badge={openRf} hint="Camps short of men; ask for manpower or deploy" />}
-            {rf && <Tile href="/tg/assign" icon={<UserPlus />} title="Assign Extra, RF or SOL" hint="Put men on it straight away" />}
+            {rf && <Tile href="/tg/rf" icon={<Bus />} title="RF and duties" badge={openRf} hint="Camps short of men; ask, deploy, or assign Extra, RF or SOL" />}
             {decides && <Tile href="/tg/people" icon={<History />} title="Person history" hint="Anyone's records; void a mistake" />}
             {proxiesAnything(member.grants) && <Tile href="/tg/add" icon={<UsersRound />} title="Add for several men" hint="A course or duty they've been detailed for" />}
             {hasGrant(member.grants, GAPS_ROLES, "any") && <Tile href="/tg/gaps" icon={<ClipboardList />} title="Gaps" hint="Who isn't registered or isn't on the roster" />}
           </Group>
         )}
-        <Group title="Settings" rows>
-          {shifts && <Tile href="/tg/shifts" icon={<Clock />} title="Shifts" hint="Cycles and minimum manning" />}
-          {hasGrant(member.grants, ADMIN_ROLES, "any") && <Tile href="/tg/admin" icon={<Settings />} title="Admin" hint="Members, grants, commanders' chats" />}
-          <Tile href="/tg/register" icon={<UserPen />} title="My details" hint="Redo your registration" />
-        </Group>
       </nav>
     </div>
   );

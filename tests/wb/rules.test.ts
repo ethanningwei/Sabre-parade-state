@@ -8,9 +8,11 @@ import {
   approverOf,
   canDecide,
   canDecideRequest,
+  canForecast,
   canProxy,
   decideRefusalText,
   decidesAnything,
+  forecastsAnything,
   initialState,
   leaveChange,
   leaveRefusal,
@@ -47,6 +49,22 @@ describe("rules: who decides", () => {
   it("decidesAnything: any PC/PS, or company HQ", () => {
     expect(decidesAnything([g("PS", { subunitId: "pl5" })])).toBe(true);
     expect(decidesAnything([g("GC", { campId: "x" }), g("ADMIN")])).toBe(false);
+  });
+
+  it("Manpower: deciders, plus a GC for his own camp only (2026-10-16)", () => {
+    const gc = [g("GC", { campId: "sft-a" })];
+    expect(canForecast(gc, PL6)).toBe(true);
+    expect(canForecast(gc, { subunitId: "pl6", campId: "sft-b" })).toBe(false);
+    expect(canForecast(gc, { subunitId: "pl5", campId: "bdk" })).toBe(false);
+    expect(canForecast([g("GC")], PL6)).toBe(false);
+    expect(canForecast([g("PS", { subunitId: "pl6" })], { subunitId: "pl6", campId: "sft-b" })).toBe(true);
+    expect(canForecast([g("PS", { subunitId: "pl5" })], PL6)).toBe(false);
+    expect(canForecast([g("OC")], PL6)).toBe(true);
+    expect(canForecast([g("ASA")], PL6)).toBe(false);
+    expect(forecastsAnything(gc)).toBe(true);
+    expect(forecastsAnything([g("GC")])).toBe(false);
+    expect(forecastsAnything([g("PC", { subunitId: "pl6" })])).toBe(true);
+    expect(forecastsAnything([g("ASA"), g("ADMIN")])).toBe(false);
   });
 
   describe("a request goes to someone above whoever asked (2026-10-14)", () => {

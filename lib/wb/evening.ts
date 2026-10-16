@@ -203,7 +203,7 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
 
   // ---------------------------------------------------------------- one digest per commanders chat
   for (const [subunitId, d] of digest) {
-    const buttons: Button[][] = [...(d.approvals ? [[{ text: "Open Approvals", route: "approvals" }]] : []), ...(d.rf ? [[{ text: "Open the RF board", route: "rf" }]] : [])];
+    const buttons: Button[][] = [...(d.approvals ? [[{ text: "Open Inbox", route: "inbox" }]] : []), ...(d.rf ? [[{ text: "Open the RF board", route: "rf" }]] : [])];
     summary.digests += await courier.send({ platoon: subunitId }, `🌙 Tonight · ${d.name}\n\n${d.parts.join("\n\n")}`, buttons.length ? buttons : undefined);
   }
 

@@ -1,4 +1,5 @@
 import { cn } from "cn";
+import Link from "next/link";
 
 // Layout pieces every Mini App screen shares: a group with a small heading
 // (Telegram's settings style), an empty state, and a skeleton block.
@@ -45,6 +46,32 @@ export function Group({
       {rows ? <div className="tg-rows overflow-hidden rounded-2xl bg-card">{children}</div> : <div className="flex flex-col gap-2.5">{children}</div>}
       {hint && <p className="px-1 text-xs text-muted-foreground">{hint}</p>}
     </section>
+  );
+}
+
+/**
+ * Two or three views of one screen, as links (server-rendered, so each view is
+ * its own URL). `replace`: Back leaves the screen, not the last tab.
+ */
+export function Segmented({ items, label }: { items: { href: string; label: string; count?: number; on: boolean }[]; label: string }) {
+  return (
+    <nav aria-label={label} className="grid auto-cols-fr grid-flow-col gap-0.5 rounded-xl bg-muted p-0.5">
+      {items.map((t) => (
+        <Link
+          key={t.href}
+          href={t.href}
+          replace
+          aria-current={t.on ? "page" : undefined}
+          className={cn(
+            "flex min-h-10 items-center justify-center gap-1.5 rounded-[10px] px-2 text-sm font-medium transition-colors duration-150",
+            t.on ? "bg-card text-foreground shadow-xs" : "text-muted-foreground active:bg-card/60",
+          )}
+        >
+          {t.label}
+          {!!t.count && <span className={cn("rounded-full px-1.5 text-xs tabular-nums", t.on ? "bg-primary text-primary-foreground" : "bg-card")}>{t.count}</span>}
+        </Link>
+      ))}
+    </nav>
   );
 }
 
