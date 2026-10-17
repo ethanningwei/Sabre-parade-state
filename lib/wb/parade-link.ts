@@ -1,12 +1,16 @@
 import "server-only";
 import { eq, sql } from "drizzle-orm";
 import { ForbiddenError } from "@/lib/authz";
+import { currentSnapshot } from "@/lib/data/current";
 import { db } from "@/lib/db";
 import { person, user } from "@/lib/db/schema";
 import { UserError } from "@/lib/errors";
 import { startSession } from "@/lib/session";
-import { hasGrant, type Member } from "@/lib/wb/auth";
+import { validate } from "@/lib/parade/validate";
+import { currentCaa } from "@/lib/parade/time";
+import { hasGrant, type GrantRow, type Member } from "@/lib/wb/auth";
 import { wbAudit } from "@/lib/wb/audit";
+import { issuesInScope } from "@/lib/wb/domain/parade-links";
 import { markFromTelegram } from "@/lib/wb/from-telegram";
 import { PARADE_STATE_ROLES } from "@/lib/wb/permissions";
 import { PROJECTOR_USER } from "@/lib/wb/projection";
@@ -47,4 +51,14 @@ export async function signInToParadeState(m: Member): Promise<{ name: string }> 
   const [u] = await db.select({ id: user.id }).from(user).where(sql`lower(${user.name}) = lower(${name})`);
   await wbAudit(db, { memberId: m.id, via: "MINIAPP", action: "open-parade-state", entity: "user", entityId: u.id, after: { name } });
   return { name };
+}
+
+/**
+ * Home's Needs you: v1's blocking issues in the member's scope right now, as
+ * v1's Overview counts them (the projector syncs first, as for v1's pages).
+ */
+export async function paradeIssueCount(grants: readonly GrantRow[]): Promise<number> {
+  if (!hasGrant(grants, PARADE_STATE_ROLES, "any")) return 0;
+  const snapshot = await currentSnapshot();
+  return issuesInScope(snapshot, validate(snapshot, currentCaa()), grants, PARADE_STATE_ROLES);
 }

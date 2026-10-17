@@ -84,7 +84,7 @@ describe("open the parade state (DB)", () => {
     if (!reachable) ctx.skip();
     const m = await memberWith(1, [{ role: "GC", campId: gcPerson.campId }], { personId: gcPerson.id });
 
-    expect(await openParadeState()).toEqual({ ok: true, data: { name: v1Name } });
+    expect(await openParadeState()).toEqual({ ok: true, data: { name: v1Name, path: "/" } });
     expect((await sessionUser())?.name).toBe(v1Name);
     expect(jar.get(SESSION_COOKIE)).toBeTruthy();
     expect(jar.get(FROM_TG_COOKIE)).toBe("1");
@@ -103,6 +103,16 @@ describe("open the parade state (DB)", () => {
     expect(await sessionUser()).toBeNull();
   });
 
+  it("lands on the v1 screen asked for, and only on a v1 screen", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await memberWith(1, [{ role: "GC", campId: gcPerson.campId }], { personId: gcPerson.id });
+    expect(await openParadeState(`/c/${gcPerson.campId}`)).toMatchObject({ ok: true, data: { path: `/c/${gcPerson.campId}` } });
+    expect(await openParadeState("/parade")).toMatchObject({ ok: true, data: { path: "/parade" } });
+    for (const bad of ["https://evil.example", "//evil.example", "/tg", "/admin/people", "/c/not-a-camp"]) {
+      expect(await openParadeState(bad)).toMatchObject({ ok: true, data: { path: "/" } });
+    }
+  });
+
   it("reuses a v1 user who typed the same name", async (ctx) => {
     if (!reachable) ctx.skip();
     await db.insert(user).values({ id: "zztest-typed", name: v1Name.toLowerCase(), role: "guardcomm", subunitId: null });
@@ -117,7 +127,7 @@ describe("open the parade state (DB)", () => {
   it("falls back to the Telegram name with no roster person", async (ctx) => {
     if (!reachable) ctx.skip();
     await memberWith(1, [{ role: "OC" }], { tgName: "zztest  parade noroster" });
-    expect(await openParadeState()).toEqual({ ok: true, data: { name: TG_ONLY } });
+    expect(await openParadeState()).toEqual({ ok: true, data: { name: TG_ONLY, path: "/" } });
     expect((await sessionUser())?.name).toBe(TG_ONLY);
   });
 

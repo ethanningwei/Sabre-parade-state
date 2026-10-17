@@ -122,6 +122,17 @@ describe("every whereabouts entry point is guarded", () => {
     expect(readFileSync(join(root, "lib/wb/actions/parade.ts"), "utf8")).toMatch(/requireFeature\(\);\n\s+return run/);
   });
 
+  // The links from v1's camp screen into the Mini App (2026-10-17): v1 reaches
+  // them only through lib/wb/v1-links.ts, which asks fromTelegram() first.
+  it("v1's links into the Mini App exist only with the flag on", () => {
+    const page = readFileSync(join(root, "app/(app)/c/[campId]/page.tsx"), "utf8");
+    expect(page.match(/@\/lib\/wb\/[\w-]+/g)).toEqual(["@/lib/wb/v1-links"]);
+    const links = readFileSync(join(root, "lib/wb/v1-links.ts"), "utf8");
+    const fns = links.match(/^export async function \w+\([^)]*\)[^{]*\{\n\s+if \(!\(await fromTelegram\(\)\)\) return null;/gm) ?? [];
+    expect(fns).toHaveLength((links.match(/^export async function/gm) ?? []).length);
+    expect(fns.length).toBeGreaterThan(0);
+  });
+
   // A waiting account (registered, not on the roster, no grant) is sent to
   // /tg/waiting by requireRegistered; the way out must not use it.
   it("the waiting screen and registration don't use requireRegistered", () => {

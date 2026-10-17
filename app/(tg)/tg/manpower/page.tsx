@@ -7,12 +7,13 @@ import { Grid, Legend } from "@/components/tg/forecast-grid";
 import { Header } from "@/components/tg/form-bits";
 import { EmptyState, Group, Segmented } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
-import { requireRegistered } from "@/lib/wb/auth";
+import { hasGrant, requireRegistered } from "@/lib/wb/auth";
 import { nextDays } from "@/lib/wb/domain/forecast";
 import { canDecide, forecastsAnything } from "@/lib/wb/domain/rules";
 import { WEEKDAY_NAMES, weekdayOf } from "@/lib/wb/domain/shifts";
 import { dayMonthYear, todaySgt } from "@/lib/wb/domain/timeline";
 import { campsInfo, dayView, FORECAST_DAYS, forecastScope, grid } from "@/lib/wb/forecast-data";
+import { PARADE_STATE_ROLES } from "@/lib/wb/permissions";
 import { paradeStatusesOf, type ParadeStatus } from "@/lib/wb/projection";
 
 type Search = { date?: string | string[]; camp?: string | string[]; view?: string | string[] };
@@ -117,6 +118,8 @@ function DayView({
   const onShift = days.filter((d) => d.manning.on && !d.info.isHq);
   const short = onShift.filter((d) => d.short).length;
   const platoons = [...new Map(days.map((d) => [d.info.subunitId, d.info.subunitName]))];
+  // the parade state is today's: each camp links to its v1 screen
+  const paradeToday = date === today && hasGrant(grants, PARADE_STATE_ROLES, "any");
 
   return (
     <>
@@ -134,7 +137,14 @@ function DayView({
           {days
             .filter((d) => d.info.subunitId === subunitId)
             .map((d, i) => (
-              <CampCard key={d.info.id} d={d} i={i} parade={parade} canOpen={canDecide(grants, { subunitId: d.info.subunitId, campId: d.info.id })} />
+              <CampCard
+                key={d.info.id}
+                d={d}
+                i={i}
+                parade={parade}
+                canOpen={canDecide(grants, { subunitId: d.info.subunitId, campId: d.info.id })}
+                onParadeState={paradeToday}
+              />
             ))}
         </Group>
       ))}

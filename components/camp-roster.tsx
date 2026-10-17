@@ -35,6 +35,7 @@ export function CampRoster({
   reasons,
   today,
   openPersonId,
+  sabreHistory = false,
 }: {
   camp: { id: string; name: string; onShift: boolean };
   isHq: boolean;
@@ -47,6 +48,8 @@ export function CampRoster({
   reasons: string[];
   today: string;
   openPersonId: string | null;
+  /** opened from the Mini App by someone who may see these men's records there */
+  sabreHistory?: boolean;
 }) {
   // an off-shift team isn't printed or counted, so it's locked
   const editable = canEdit && camp.onShift;
@@ -277,6 +280,7 @@ export function CampRoster({
         issues={sheetFor?.length === 1 ? (issuesByPerson.get(sheetFor[0]) ?? []) : []}
         reasons={reasons}
         today={today}
+        sabreHistory={sabreHistory}
         open={sheetFor !== null}
         onOpenChange={(open) => {
           if (!open) setSheetFor(null);

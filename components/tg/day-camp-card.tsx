@@ -1,5 +1,6 @@
 import { Hourglass } from "lucide-react";
 import Link from "next/link";
+import { ParadeStateLink } from "@/components/tg/parade-state-tile";
 import { ParadeStatusLine } from "@/components/tg/parade-status";
 import { enter } from "@/components/tg/ui";
 import { minimumLabel } from "@/lib/wb/domain/shifts";
@@ -10,8 +11,23 @@ import type { ParadeStatus } from "@/lib/wb/projection";
 // minimum, who's away and why (never a diagnosis), who's been sent in, and
 // who's on a status.
 
-/** One camp on one day. `canOpen`: the viewer may open its records (a GC may not). */
-export function CampCard({ d, i, parade, canOpen }: { d: DayCamp; i: number; parade: ReadonlyMap<string, ParadeStatus>; canOpen: boolean }) {
+/**
+ * One camp on one day. `canOpen`: the viewer may open its records (a GC may not).
+ * `onParadeState`: today, for a "Parade state" holder, the camp's v1 screen.
+ */
+export function CampCard({
+  d,
+  i,
+  parade,
+  canOpen,
+  onParadeState,
+}: {
+  d: DayCamp;
+  i: number;
+  parade: ReadonlyMap<string, ParadeStatus>;
+  canOpen: boolean;
+  onParadeState: boolean;
+}) {
   const on = d.manning.on;
   return (
     <article className="tg-enter flex flex-col gap-3 rounded-2xl bg-card p-4" style={enter(i)}>
@@ -108,6 +124,14 @@ export function CampCard({ d, i, parade, canOpen }: { d: DayCamp; i: number; par
         </div>
       )}
       {d.away.length === 0 && d.statuses.length === 0 && !(on && d.manning.duties.length) && <p className="text-sm text-muted-foreground">Everyone present.</p>}
+      {onParadeState && (
+        <ParadeStateLink
+          to={`/c/${d.info.id}`}
+          className="-mx-4 -mb-4 flex min-h-12 items-center gap-2 rounded-b-2xl border-t px-4 py-2.5 text-sm font-medium text-primary transition-colors duration-150 active:bg-muted"
+        >
+          <span className="flex-1">Open on the parade state</span>
+        </ParadeStateLink>
+      )}
     </article>
   );
 }

@@ -66,4 +66,12 @@ describe("needsYou", () => {
     expect(lines.map((l) => l.kind)).toEqual(["short", "soon", "approve"]);
     expect(lines.every((l) => l.href.startsWith("/tg/"))).toBe(true);
   });
+
+  it("v1's blocking issues: one line after short, opening v1's Parade screen", () => {
+    expect(run({ paradeIssues: 0 })).toEqual([]);
+    expect(run({ paradeIssues: 1 })).toEqual([{ kind: "parade", text: "Parade state blocked · 1 issue to fix", href: "/parade" }]);
+    const lines = run({ paradeIssues: 3, short: [row("BDK", { short: true })], pending: [{ startAt: inHours(2), ownerRoles: [] }] });
+    expect(lines.map((l) => l.kind)).toEqual(["short", "parade", "soon"]);
+    expect(lines[1].text).toBe("Parade state blocked · 3 issues to fix");
+  });
 });

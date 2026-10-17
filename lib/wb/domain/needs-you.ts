@@ -7,11 +7,13 @@ import { onlyCompanyDecides } from "./rules";
 //   - one line per kind of problem, never one per man, most urgent first;
 //   - hidden when there's nothing (no lines);
 //   - never ONENS, Gaps, other platoons' RF requests, or anything that's only news;
+//   - v1's blocking issues in their scope (2026-10-17): the parade state can't
+//     be generated until they're fixed, so it opens v1's Parade screen;
 //   - OC/2IC/CSM count only requests only the company decides, plus any request
 //     starting within 48 hours that nobody has decided (the safety net).
 
 export interface NeedLine {
-  kind: "short" | "soon" | "approve";
+  kind: "short" | "parade" | "soon" | "approve";
   text: string;
   href: string;
 }
@@ -26,6 +28,8 @@ export interface NeedsYouInput {
   now: Date;
   /** YYYY-MM-DD, SGT */
   today: string;
+  /** v1's blocking issues in their scope (issuesInScope); 0 or left out for anyone without "Parade state" */
+  paradeIssues?: number;
 }
 
 /** A request this close to starting, still undecided, is "soon". */
@@ -38,7 +42,7 @@ function campList(names: readonly string[]): string {
   return names.length <= 2 ? names.join(", ") : `${names[0]} +${names.length - 1}`;
 }
 
-export function needsYou({ pending, short, companyOnly, now, today }: NeedsYouInput): NeedLine[] {
+export function needsYou({ pending, short, companyOnly, now, today, paradeIssues = 0 }: NeedsYouInput): NeedLine[] {
   const lines: NeedLine[] = [];
 
   // camps below minimum on approved records, by day (off shift and pending-only don't count)
@@ -51,6 +55,8 @@ export function needsYou({ pending, short, companyOnly, now, today }: NeedsYouIn
     const text = shortDays.map((d, i) => `${campList(d.names)}${i === 0 ? " below minimum" : ""} ${when(d.date)}`).join(" · ");
     lines.push({ kind: "short", text, href: `/tg/manpower?date=${shortDays[0].date}` });
   }
+
+  if (paradeIssues > 0) lines.push({ kind: "parade", text: `Parade state blocked · ${plural(paradeIssues, "issue")} to fix`, href: "/parade" });
 
   const soon = pending.filter((r) => r.startAt.getTime() - now.getTime() <= SOON_MS);
   const rest = pending.filter((r) => r.startAt.getTime() - now.getTime() > SOON_MS && (!companyOnly || onlyCompanyDecides(r.ownerRoles)));

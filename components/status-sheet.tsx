@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, ChevronRight, Loader2 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ export function StatusSheet({
   issues,
   reasons,
   today,
+  sabreHistory = false,
   open,
   onOpenChange,
   onSaved,
@@ -31,6 +32,8 @@ export function StatusSheet({
   issues: PersonIssue[];
   reasons: string[];
   today: string;
+  /** opened from the Mini App: link one man to his Person history there */
+  sabreHistory?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
@@ -53,6 +56,13 @@ export function StatusSheet({
           <SheetDescription>
             {single ? "Update attendance" : people.map((p) => `${p.rank} ${p.name}`).join(", ")}
           </SheetDescription>
+          {single && sabreHistory && (
+            // a full load: the Mini App has its own layout
+            <a href={`/tg/people/${single.id}`} className="-ml-0.5 inline-flex min-h-11 w-fit items-center gap-0.5 text-sm font-medium text-primary active:opacity-70">
+              Records in Sabre
+              <ChevronRight className="size-4" />
+            </a>
+          )}
         </SheetHeader>
         {people.length > 0 && (
           <StatusForm
