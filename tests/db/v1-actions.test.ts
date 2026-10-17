@@ -369,7 +369,9 @@ describe("the cores write exactly what the actions write", () => {
 
 describe("Admin › People › Remove and whereabouts (FEATURE_WHEREABOUTS)", () => {
   const setUp = async () => {
-    const { wbGrant, wbMember } = await import("@/lib/wb/db/schema");
+    const { wbAudit, wbGrant, wbMember } = await import("@/lib/wb/db/schema");
+    // earlier DB test files (projection, records, register) leave wb_audit rows behind
+    await db.delete(wbAudit);
     const [m] = await db.insert(wbMember).values({ telegramUserId: 990001, tgName: "T", registeredAt: new Date(), personId: p.t1 }).returning();
     await db.insert(wbGrant).values({ memberId: m.id, role: "PS", subunitId: ids.pl5 });
     const d = await saveDuty({ type: "RF", personId: p.t1, campId: ids.bdk, startDate: "2026-10-13", endDate: "2026-10-15" });

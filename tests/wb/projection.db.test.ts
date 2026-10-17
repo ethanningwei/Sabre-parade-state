@@ -75,6 +75,10 @@ beforeEach(async () => {
 afterAll(async () => {
   if (reachable) {
     await db.delete(wbProjection);
+    // a weekday pattern left on BDK takes it off shift at weekends for the next file
+    await db.delete(wbShiftEvent);
+    await db.delete(wbShiftOverride);
+    await db.delete(wbShiftPattern);
     await db.delete(auditLog).where(inArray(auditLog.userId, [GC, PROJECTOR_USER.id]));
     await db.delete(user).where(eq(user.id, GC));
   }

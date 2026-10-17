@@ -12,7 +12,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { writeCoy } from "@/lib/data/write-coy";
 import { db } from "@/lib/db";
 import { absence, camp, duty, person, subunit } from "@/lib/db/schema";
-import { wbAssignment, wbAudit, wbCard, wbCommanderChat, wbConversation, wbGrant, wbMember, wbMinManning, wbRecord, wbRfCard, wbRfRequest } from "@/lib/wb/db/schema";
+import { wbAssignment, wbAudit, wbCard, wbCommanderChat, wbConversation, wbGrant, wbMember, wbMinManning, wbRecord, wbRfCard, wbRfRequest, wbShiftEvent, wbShiftOverride, wbShiftPattern } from "@/lib/wb/db/schema";
 import { addDays, dayRange, todaySgt } from "@/lib/wb/domain/timeline";
 import { createBot } from "@/lib/wb/telegram/bot";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
@@ -101,6 +101,10 @@ async function clean() {
   await db.delete(wbRecord);
   await db.delete(wbAudit);
   await db.delete(wbMinManning);
+  // no pattern: every camp stands every day, whatever day of the week day(1) is
+  await db.delete(wbShiftEvent);
+  await db.delete(wbShiftOverride);
+  await db.delete(wbShiftPattern);
   await db.delete(wbCommanderChat);
   await db.delete(wbGrant);
   await db.delete(wbMember);
