@@ -33,7 +33,8 @@ export interface RemovedBy {
   /** wb_member.id; null when it came from the v1 web app */
   memberId: string | null;
   label: string;
-  via: "MINIAPP" | "WEB";
+  /** SYSTEM: the evening round, at his ORD */
+  via: "MINIAPP" | "WEB" | "SYSTEM";
   /** the v1 user for v1's audit_log and closed_by */
   v1UserId: string;
 }
@@ -83,7 +84,7 @@ async function grantLabels(memberId: string): Promise<string[]> {
 }
 
 /** He holds an ADMIN grant and no other active account does. */
-async function lastAdmin(tx: Tx, memberId: string): Promise<boolean> {
+export async function lastAdmin(tx: Tx, memberId: string): Promise<boolean> {
   const [mine] = await tx.select({ id: wbGrant.id }).from(wbGrant).where(and(eq(wbGrant.memberId, memberId), eq(wbGrant.role, "ADMIN")));
   if (!mine) return false;
   const [{ n }] = await tx
@@ -109,7 +110,7 @@ export interface Cleanup {
  */
 export async function cleanupWhereabouts(tx: Tx, personId: string, by: RemovedBy, now: Date = new Date()): Promise<Cleanup> {
   const audit = (action: string, entity: string, entityId: string, before: unknown, after: Record<string, unknown> = {}) =>
-    wbAudit(tx, { memberId: by.memberId, via: by.via, action, entity, entityId, before, after: { ...after, reason: REASON, ...(by.via === "WEB" ? { by: by.label } : {}) } });
+    wbAudit(tx, { memberId: by.memberId, via: by.via, action, entity, entityId, before, after: { ...after, reason: REASON, ...(by.memberId ? {} : { by: by.label }) } });
 
   const [member] = await tx.select().from(wbMember).where(eq(wbMember.personId, personId)).for("update");
   if (member && (await lastAdmin(tx, member.id))) throw new UserError(removalRefusal({ self: false, lastAdmin: true })!);
@@ -139,7 +140,7 @@ export async function cleanupWhereabouts(tx: Tx, personId: string, by: RemovedBy
   // his requests still waiting on a decision
   const withdrawn = await tx
     .update(wbRecord)
-    .set({ state: "WITHDRAWN", decisionNote: `Removed from roster by ${by.label}`, updatedAt: now })
+    .set({ state: "WITHDRAWN", decisionNote: by.via === "SYSTEM" ? `Removed from roster at ${by.label}` : `Removed from roster by ${by.label}`, updatedAt: now })
     .where(and(eq(wbRecord.personId, personId), eq(wbRecord.state, "PENDING")))
     .returning({ id: wbRecord.id });
   for (const r of withdrawn) await audit("withdraw", "wb_record", r.id, { state: "PENDING" }, { state: "WITHDRAWN" });
@@ -169,7 +170,7 @@ export async function cleanupWhereabouts(tx: Tx, personId: string, by: RemovedBy
 }
 
 /** Edits to cards already out; nothing new goes to any chat. */
-async function redrawAfter(c: Courier, cleanup: Cleanup) {
+export async function redrawAfter(c: Courier, cleanup: Cleanup) {
   for (const id of cleanup.recordIds) await c.redraw({ record: id });
   for (const id of cleanup.rfIds) await c.redraw({ rf: id });
 }

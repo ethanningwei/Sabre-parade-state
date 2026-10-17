@@ -119,6 +119,8 @@ export async function register(raw: RegisterInput) {
   return run(async () => {
     const me = await actionMember();
     const input = registerInput.parse(raw);
+    // the evening round takes him off the roster on this date; a date already stored is kept (a reopened account)
+    if (input.details.ordDate < toSgt(new Date()).date && input.details.ordDate !== me.ordDate) throw new UserError("Your ORD date can't be in the past.");
 
     let link: Partial<typeof wbMember.$inferInsert>;
     if (input.personId) {

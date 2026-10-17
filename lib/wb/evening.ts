@@ -11,6 +11,8 @@ import { recordWhat } from "@/lib/wb/domain/describe";
 import { isLive } from "@/lib/wb/domain/rules";
 import { addDays, dayRange, todaySgt } from "@/lib/wb/domain/timeline";
 import { waitingByPlatoon } from "@/lib/wb/admin-data";
+import { ordHqLines, ordKeptLine, ordTodayLines, ordTomorrowLine } from "@/lib/wb/domain/ord";
+import { ordTomorrow, retireOrd } from "@/lib/wb/ord";
 import { shortTomorrow } from "@/lib/wb/forecast-data";
 import { rangeLabel } from "@/lib/wb/domain/timeline";
 import { shortBy } from "@/lib/wb/domain/rf";
@@ -66,6 +68,12 @@ export interface RoundSummary {
   claimsTold: number;
   /** accounts waiting more than a day to be added to the roster (Gaps) */
   waiting: number;
+  /** sent off at their ORD tonight */
+  ord: number;
+  /** warned about: ORD tomorrow */
+  ordTomorrow: number;
+  /** ORD come but not removed (a bootstrap admin, the last admin); the admins are told */
+  ordKept: number;
 }
 
 const groupBy = <T, K>(rows: readonly T[], key: (r: T) => K) => {
@@ -94,7 +102,7 @@ async function claim(date: string, force: boolean): Promise<boolean> {
 
 export async function eveningRound(courier: Courier, now: Date = new Date(), { force = false } = {}): Promise<RoundSummary> {
   const today = todaySgt(now);
-  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, rfExpired: 0, back: 0, projection: 0, claimsDecided: 0, claimsTold: 0, waiting: 0 };
+  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, rfExpired: 0, back: 0, projection: 0, claimsDecided: 0, claimsTold: 0, waiting: 0, ord: 0, ordTomorrow: 0, ordKept: 0 };
   if (!(await claim(today, force))) return { ...summary, skipped: true };
 
   const todayStart = dayRange(today).startAt;
@@ -107,6 +115,24 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
     if (button) d[button] = true;
     digest.set(r.subunitId, d);
   };
+
+  // ---------------------------------------------------------------- ORD (2026-10-17)
+  // first, so his withdrawn requests aren't counted below and the projector sync at the end sees him gone
+  try {
+    const ord = await retireOrd(courier, now, today);
+    summary.ord = ord.retired.length;
+    summary.ordKept = ord.kept.length;
+    const onRoster = ord.retired.filter((m) => m.removed && m.subunitId);
+    for (const rows of groupBy(onRoster, (m) => m.subunitId!).values()) addPart({ subunitId: rows[0].subunitId!, subunitName: rows[0].subunitName ?? "" }, ordTodayLines(rows));
+    const [hq] = onRoster.length ? await db.select({ id: subunit.id, name: subunit.name }).from(subunit).where(eq(subunit.isHq, true)) : [];
+    if (hq) addPart({ subunitId: hq.id, subunitName: hq.name }, ordHqLines(onRoster));
+    if (ord.kept.length) await courier.send({ admins: true }, ord.kept.map((m) => ordKeptLine(m, m.why)).join("\n\n"));
+    const soon = await ordTomorrow(addDays(today, 1));
+    summary.ordTomorrow = soon.length;
+    for (const m of soon) addPart({ subunitId: m.subunitId, subunitName: m.subunitName ?? "" }, ordTomorrowLine(m));
+  } catch (e) {
+    console.error("wb evening ORD:", e);
+  }
 
   // ---------------------------------------------------------------- an MC or status ending today
   const ending = await findViews(
@@ -270,7 +296,7 @@ async function heartbeat(courier: Courier, now: Date, s: RoundSummary): Promise<
     `${roster.n} on the roster · ${registered.n} registered\n` +
     `${pending.n} waiting on a decision · ${today.n} recorded today\n` +
     `${linked.n} commanders chats linked (${platoons.n} platoons)\n` +
-    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.rfExpired} RF expired, ${s.waiting} waiting for the roster, ${s.digests} digests, ${s.back} Back? messages${isEnabled("CLAIMS") ? `, ${s.claimsDecided} claims decided, ${s.claimsTold} told` : ""}\n\n` +
+    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.rfExpired} RF expired, ${s.ord} ORD, ${s.ordTomorrow} ORD tomorrow${s.ordKept ? ` (${s.ordKept} kept)` : ""}, ${s.waiting} waiting for the roster, ${s.digests} digests, ${s.back} Back? messages${isEnabled("CLAIMS") ? `, ${s.claimsDecided} claims decided, ${s.claimsTold} told` : ""}\n\n` +
     "Sent every evening. If an evening goes by without one, the bot isn't running.";
   return courier.send({ admins: true }, text);
 }

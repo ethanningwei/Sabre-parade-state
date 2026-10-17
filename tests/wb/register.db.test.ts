@@ -56,6 +56,19 @@ async function as(id: number, first = "Trooper") {
 const details = { fullName: "tan ah kow", nric: "S1234567D", ord: "27/08/28", leaveLeft: "14", stayout: "NONE" as const };
 
 describe("registration (DB)", () => {
+  it("refuses an ORD date in the past, unless it's the one already stored (a reopened account)", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await as(1009, "Ethan");
+    const found = await findMe("ethan teo");
+    if (!found.ok || found.data.kind !== "one") throw new Error("unreachable");
+    const personId = found.data.person.personId;
+    expect(await register({ personId, details: { ...details, ord: "010120" } })).toEqual({ ok: false, error: "Your ORD date can't be in the past." });
+    await db.update(wbMember).set({ ordDate: "2020-01-01", registeredAt: new Date() }).where(eq(wbMember.telegramUserId, 1009));
+    jar.clear();
+    await as(1009, "Ethan");
+    expect(await register({ personId, details: { ...details, ord: "010120" } })).toEqual({ ok: true, data: undefined });
+  });
+
   it("signs in, matches a unique name and registers against the roster", async (ctx) => {
     if (!reachable) ctx.skip();
     await as(1001, "Ethan");
