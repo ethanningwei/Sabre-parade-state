@@ -10,12 +10,21 @@ import { wbAudit, wbGrant, wbMember } from "@/lib/wb/db/schema";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
 
 const jar = new Map<string, string>();
+/** The attributes of the last Set-Cookie for each name (a clearing one too) */
+const attrs = new Map<string, Record<string, unknown>>();
+/** Cookies the browser also sends but this response never set: an older session, say */
+const extraSent: string[] = [];
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => (jar.has(name) ? { name, value: jar.get(name)! } : undefined),
-    set: (name: string, value: string) => void jar.set(name, value),
+    set: (name: string, value: string, opts: Record<string, unknown> = {}) => {
+      attrs.set(name, opts);
+      if (opts.maxAge === 0) jar.delete(name);
+      else jar.set(name, value);
+    },
     delete: (name: string) => void jar.delete(name),
   }),
+  headers: async () => new Headers({ cookie: [...[...jar].map(([k, v]) => `${k}=${v}`), ...extraSent].join("; ") }),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
@@ -48,6 +57,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!reachable) return;
   jar.clear();
+  attrs.clear();
+  extraSent.length = 0;
   vi.stubEnv("FEATURE_WHEREABOUTS", "1");
   await db.delete(wbAudit);
   await db.delete(wbGrant);
@@ -101,6 +112,40 @@ describe("open the parade state (DB)", () => {
     expect(jar.has(SESSION_COOKIE)).toBe(false);
     expect(jar.has(FROM_TG_COOKIE)).toBe(false);
     expect(await sessionUser()).toBeNull();
+  });
+
+  it("Telegram Web: both cookies work inside another site's frame; the password sign-in's cookie is unchanged", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await memberWith(1, [{ role: "GC", campId: gcPerson.campId }], { personId: gcPerson.id });
+    await openParadeState();
+    const embedded = { httpOnly: true, secure: true, sameSite: "none", partitioned: true, path: "/" };
+    expect(attrs.get(SESSION_COOKIE)).toMatchObject(embedded);
+    expect(attrs.get(FROM_TG_COOKIE)).toMatchObject(embedded);
+
+    // v1's own sign-in (the password form) still sets SameSite=Lax, unpartitioned
+    attrs.clear();
+    const { startSession } = await import("@/lib/session");
+    await startSession(TG_ONLY);
+    expect(attrs.get(SESSION_COOKIE)).toMatchObject({ httpOnly: true, sameSite: "lax", path: "/" });
+    expect(attrs.get(SESSION_COOKIE)).not.toHaveProperty("partitioned");
+  });
+
+  it("signing out of a Mini App session ends every session the browser sent and clears both cookies the embedded way", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await memberWith(1, [{ role: "GC", campId: gcPerson.campId }], { personId: gcPerson.id });
+    // an older, unpartitioned session from before 2026-10-19 sits beside today's
+    await openParadeState();
+    const older = jar.get(SESSION_COOKIE)!;
+    await openParadeState();
+    extraSent.push(`${SESSION_COOKIE}=${older}`);
+    const [u] = await usersNamed(v1Name);
+    expect(await db.select().from(appSession).where(eq(appSession.userId, u.id))).toHaveLength(2);
+
+    await endSession();
+    expect(await db.select().from(appSession).where(eq(appSession.userId, u.id))).toEqual([]);
+    for (const name of [SESSION_COOKIE, FROM_TG_COOKIE]) expect(attrs.get(name)).toMatchObject({ sameSite: "none", partitioned: true, secure: true, maxAge: 0 });
+    expect(jar.has(SESSION_COOKIE)).toBe(false);
+    expect(jar.has(FROM_TG_COOKIE)).toBe(false);
   });
 
   it("lands on the v1 screen asked for, and only on a v1 screen", async (ctx) => {

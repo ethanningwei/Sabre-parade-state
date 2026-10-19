@@ -48,8 +48,13 @@ export async function recordFailure(ip: string) {
   await db.delete(loginFailure).where(lt(loginFailure.at, new Date(Date.now() - 24 * 60 * 60 * 1000)));
 }
 
-/** Find (case-insensitively) or create the user for a typed name, then start a session. */
-export async function startSession(name: string) {
+/**
+ * Find (case-insensitively) or create the user for a typed name, then start a session.
+ * `embedded`: the cookie also works inside another site's frame (the Mini App on
+ * Telegram Web). Only the Mini App's "Parade state" asks for it (FEATURE_WHEREABOUTS);
+ * the password sign-in never does.
+ */
+export async function startSession(name: string, { embedded = false } = {}) {
   const [existing] = await db.select().from(user).where(sql`lower(${user.name}) = lower(${name})`);
   const userId = existing?.id ?? randomUUID();
   if (existing) {
@@ -66,8 +71,7 @@ export async function startSession(name: string) {
 
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    ...(embedded ? { secure: true, sameSite: "none" as const, partitioned: true } : { secure: process.env.NODE_ENV === "production", sameSite: "lax" as const }),
     path: "/",
     expires: expiresAt,
   });

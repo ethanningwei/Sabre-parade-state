@@ -146,10 +146,12 @@ describe("Back?", () => {
     // confirmed the evening before: noted, still MC until it ends (syncs run at the real time, long after)
     await db.update(wbRecord).set({ endAt: new Date(Date.now() + 86_400_000) }).where(eq(wbRecord.personId, t1));
     await syncProjection(new Date());
-    const [pending] = await dueBack(new Date(Date.now() + 2 * 86_400_000));
+    // only his: t2's AL (to 20/10) is in force too once the real clock reaches it
+    const his = async () => (await dueBack(new Date(Date.now() + 2 * 86_400_000))).filter((d) => d.personId === t1);
+    const [pending] = await his();
     expect(await confirmBack(ps, pending.projectionId, "BOT")).toMatchObject({ ok: true, closed: false });
     expect(await openOf(t1)).toMatchObject({ type: "MC" });
-    expect(await dueBack(new Date(Date.now() + 2 * 86_400_000))).toEqual([]);
+    expect(await his()).toEqual([]);
     // once it has ended, the next sync closes it
     await syncProjection(new Date(Date.now() + 2 * 86_400_000));
     expect(await openOf(t1)).toBeUndefined();

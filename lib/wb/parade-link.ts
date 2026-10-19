@@ -46,7 +46,8 @@ export async function signInToParadeState(m: Member): Promise<{ name: string }> 
     throw new UserError(`${name} has been switched off in the parade state. Ask a parade-state admin to switch it back on.`);
   }
 
-  await startSession(name);
+  // embedded: Telegram Web runs the Mini App in a frame, where a SameSite=Lax cookie is dropped
+  await startSession(name, { embedded: true });
   await markFromTelegram();
   const [u] = await db.select({ id: user.id }).from(user).where(sql`lower(${user.name}) = lower(${name})`);
   await wbAudit(db, { memberId: m.id, via: "MINIAPP", action: "open-parade-state", entity: "user", entityId: u.id, after: { name } });
