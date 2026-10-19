@@ -66,7 +66,7 @@ export interface RoundSummary {
   claimsDecided: number;
   /** men told what the OC decided (Phase 7) */
   claimsTold: number;
-  /** accounts waiting more than a day to be added to the roster (Gaps) */
+  /** accounts waiting more than a day to be added to the roster (the Roster screen) */
   waiting: number;
   /** sent off at their ORD tonight */
   ord: number;
@@ -108,9 +108,9 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
   const todayStart = dayRange(today).startAt;
   const tomorrow = dayRange(addDays(today, 1));
   /** one message per platoon, not five: subunitId -> parts */
-  const digest = new Map<string, { name: string; parts: string[]; approvals: boolean; rf: boolean; gaps: boolean }>();
-  const addPart = (r: { subunitId: string; subunitName: string }, part: string, button: "approvals" | "rf" | "gaps" | null = null) => {
-    const d = digest.get(r.subunitId) ?? { name: r.subunitName, parts: [], approvals: false, rf: false, gaps: false };
+  const digest = new Map<string, { name: string; parts: string[]; approvals: boolean; rf: boolean; roster: boolean }>();
+  const addPart = (r: { subunitId: string; subunitName: string }, part: string, button: "approvals" | "rf" | "roster" | null = null) => {
+    const d = digest.get(r.subunitId) ?? { name: r.subunitName, parts: [], approvals: false, rf: false, roster: false };
     d.parts.push(part);
     if (button) d[button] = true;
     digest.set(r.subunitId, d);
@@ -188,7 +188,7 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
   // ---------------------------------------------------------------- waiting to be added to the roster
   // his own platoon only (the camp he registered with), and only after a day: a PS adds most the same day
   for (const w of await waitingByPlatoon(new Date(now.getTime() - WAITING_MS))) {
-    addPart(w, `👤 ${plural(w.n, "man", "men")} waiting to be added to the roster`, "gaps");
+    addPart(w, `👤 ${plural(w.n, "man", "men")} waiting to be added to the roster`, "roster");
     summary.waiting += w.n;
   }
 
@@ -241,7 +241,7 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
 
   // ---------------------------------------------------------------- one digest per commanders chat
   for (const [subunitId, d] of digest) {
-    const buttons: Button[][] = [...(d.approvals ? [[{ text: "Open Inbox", route: "inbox" }]] : []), ...(d.rf ? [[{ text: "Open the RF board", route: "rf" }]] : []), ...(d.gaps ? [[{ text: "Open Gaps", route: "gaps" }]] : [])];
+    const buttons: Button[][] = [...(d.approvals ? [[{ text: "Open Inbox", route: "inbox" }]] : []), ...(d.rf ? [[{ text: "Open the RF board", route: "rf" }]] : []), ...(d.roster ? [[{ text: "Open Roster", route: "roster" }]] : [])];
     summary.digests += await courier.send({ platoon: subunitId }, `🌙 Tonight · ${d.name}\n\n${d.parts.join("\n\n")}`, buttons.length ? buttons : undefined);
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canRemoveFromRoster, gapsReach, inGapsScope, isWaiting, removalLines, removalRefusal, similarName } from "@/lib/wb/domain/roster-flow";
+import { canRemoveFromRoster, inRosterScope, isWaiting, removalLines, removalRefusal, rosterReach, rosterReachLabel, seesRoster, similarName } from "@/lib/wb/domain/roster-flow";
 
 const PL5 = "pl5";
 const PL6 = "pl6";
@@ -18,20 +18,32 @@ describe("isWaiting", () => {
   });
 });
 
-describe("Gaps scope", () => {
+describe("Roster scope", () => {
   it("company-wide sees everyone, even someone with no camp", () => {
     const oc = [{ role: "OC" as const, subunitId: null, campId: null }];
-    expect(gapsReach(oc)).toBe(true);
-    expect(inGapsScope(oc, { subunitId: null, campId: null })).toBe(true);
+    expect(rosterReach(oc)).toBe(true);
+    expect(inRosterScope(oc, { subunitId: null, campId: null })).toBe(true);
   });
-  it("a platoon grant sees its platoon; a camp grant its camp; GCs see nothing", () => {
+  it("a platoon grant sees its platoon; a camp grant its camp", () => {
     const ps = [{ role: "PS" as const, subunitId: PL6, campId: null }];
-    expect(inGapsScope(ps, where)).toBe(true);
-    expect(inGapsScope(ps, { subunitId: PL5, campId: "bdk" })).toBe(false);
-    expect(inGapsScope(ps, { subunitId: null, campId: null })).toBe(false);
-    expect(inGapsScope([{ role: "ASA", subunitId: null, campId: SLR }], where)).toBe(true);
-    expect(inGapsScope([{ role: "GC", subunitId: null, campId: null }], where)).toBe(false);
-    expect(gapsReach(ps)).toEqual({ subunitIds: [PL6], campIds: [] });
+    expect(inRosterScope(ps, where)).toBe(true);
+    expect(inRosterScope(ps, { subunitId: PL5, campId: "bdk" })).toBe(false);
+    expect(inRosterScope(ps, { subunitId: null, campId: null })).toBe(false);
+    expect(inRosterScope([{ role: "ASA", subunitId: null, campId: SLR }], where)).toBe(true);
+    expect(rosterReach(ps)).toEqual({ subunitIds: [PL6], campIds: [] });
+    expect(rosterReachLabel(ps)).toBe("Your platoon");
+  });
+  it("a GC sees his own camp only, however his grant was given", () => {
+    const gc = [{ role: "GC" as const, subunitId: null, campId: SLR }];
+    expect(inRosterScope(gc, where)).toBe(true);
+    expect(inRosterScope(gc, { subunitId: PL6, campId: "srfa" })).toBe(false);
+    expect(rosterReachLabel(gc)).toBe("Your camp");
+    expect(seesRoster(gc)).toBe(true);
+    const wide = [{ role: "GC" as const, subunitId: null, campId: null }];
+    expect(inRosterScope(wide, where)).toBe(false);
+    expect(seesRoster(wide)).toBe(false);
+    expect(seesRoster([{ role: "PS" as const, subunitId: PL6, campId: null }])).toBe(true);
+    expect(seesRoster([])).toBe(false);
   });
 });
 

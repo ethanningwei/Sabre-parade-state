@@ -10,7 +10,7 @@ export interface GrantRow {
 
 /**
  * What a check is about:
- *   "any"      holding the role anywhere is enough (e.g. seeing Gaps)
+ *   "any"      holding the role anywhere is enough (e.g. seeing Roster)
  *   "company"  only a company-wide grant will do
  *   {subunitId, campId?}  a platoon, or a camp in it: a company-wide grant,
  *              a grant for that platoon, or a grant for that very camp

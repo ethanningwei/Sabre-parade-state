@@ -60,6 +60,7 @@ The import updates people **in place**: each Sheet row is matched to the person 
    - It refuses to run while a name is **ambiguous** (more than one person has it and they can't be told apart) or the Sheet has dropped a camp or subunit (delete it in Admin, or put it back).
    - Any cell the app can't represent is listed, for example a date written `28/09/26` instead of `280926`.
 5. `npm run import` updates people and structure. If anyone would be marked inactive it stops and asks you to run it again with `--yes`.
+   - It makes the roster match the Sheet. Anyone added in the app (Sabre's Roster, or Admin › People) who isn't in the Sheet goes inactive, and renames or moves made in the app are undone. While you still import, put roster changes in the Sheet too, and check the dry run for them.
 6. Parallel run only: `npm run import -- --with-absences --yes` also replaces every absence, duty, on-shift and the Telegram chat with the Sheet's, then renders the parade state from the database at the bot's CAA and compares it with the bot's output. `✅ PARITY` means the app prints exactly what the bot printed. It overwrites what GCs typed in the app.
 
 **Into production:** `.env.production.local` (gitignored) holds the production `DATABASE_URL_UNPOOLED`.

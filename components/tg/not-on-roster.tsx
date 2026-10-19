@@ -5,7 +5,7 @@ export function NotOnRoster() {
   return (
     <section className="flex flex-col gap-2 rounded-2xl bg-card p-4">
       <p className="font-medium">You&apos;re not on the parade state yet</p>
-      <p className="text-sm text-muted-foreground">{NOT_ON_ROSTER} They can see you on Gaps.</p>
+      <p className="text-sm text-muted-foreground">{NOT_ON_ROSTER} They can see you on Roster.</p>
     </section>
   );
 }

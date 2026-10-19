@@ -10,7 +10,7 @@ import { profileOf } from "@/lib/wb/members";
 
 // Registered, but not on the parade state and holding no grant: every other
 // screen sends him here (requireRegistered). Fix my details is the way out,
-// or his PS adding him from Gaps.
+// or his PS adding him from Roster.
 export default async function WaitingPage() {
   await requireFeaturePage();
   const member = await requireMember();

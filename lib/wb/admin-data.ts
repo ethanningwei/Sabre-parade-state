@@ -6,9 +6,9 @@ import { place } from "@/lib/wb/format";
 import { camp, person, subunit } from "@/lib/db/schema";
 import { wbCommanderChat, wbGrant, wbMember, type WbRole } from "@/lib/wb/db/schema";
 import type { GrantRow } from "@/lib/wb/domain/grants";
-import { gapsReach, inGapsScope } from "@/lib/wb/domain/roster-flow";
+import { inRosterScope, rosterReach, rosterReachLabel } from "@/lib/wb/domain/roster-flow";
 
-// Read models for the Mini App's Admin and Gaps screens.
+// Read models for the Mini App's Admin and Roster screens.
 
 const selfCamp = alias(camp, "self_camp");
 const selfSubunit = alias(subunit, "self_subunit");
@@ -24,7 +24,7 @@ export interface MemberRow {
   /** "3SG ETHAN TEO" from the roster, or what a SELF sign-up typed */
   label: string;
   where: string;
-  /** their platoon and camp, from the roster or what they told us; for scoping Gaps */
+  /** their platoon and camp, from the roster or what they told us; for scoping Roster */
   subunitId: string | null;
   campId: string | null;
   personId: string | null;
@@ -134,37 +134,71 @@ export async function listCommanderChats(): Promise<ChatRow[]> {
     .orderBy(asc(subunit.sortOrder));
 }
 
-// ------------------------------------------------------------------ gaps
+// ------------------------------------------------------------------ roster
 
-export interface Gaps {
-  /** on the roster, but nobody has registered as them */
-  unregistered: { personId: string; rank: string; name: string; campId: string; campName: string; subunitId: string; subunitName: string }[];
-  /** registered themselves (SELF) and not on the roster yet */
-  selfOnly: MemberRow[];
-  /** registered against a roster person who has since left (inactive) */
+export interface RosterRow {
+  personId: string;
+  rank: string;
+  name: string;
+  /** as v1 has it: free text from the old roster, or one of rolesFor() */
+  role: string;
+  /** someone has registered as him */
+  registered: boolean;
+}
+
+export interface RosterCamp {
+  id: string;
+  name: string;
+  subunitId: string;
+  subunitName: string;
+  isHq: boolean;
+  people: RosterRow[];
+}
+
+export interface Roster {
+  /** "Your camp", "Your platoon", "The whole company" */
+  reach: string;
+  /** every camp in scope, in parade-state order, empty ones too (a man can be added to them) */
+  camps: RosterCamp[];
+  /** registered themselves and not on the roster yet: Add to roster / Link to existing */
+  waiting: MemberRow[];
+  /** registered against a roster person who has since left */
   left: MemberRow[];
 }
 
-/**
- * Gaps for someone with these grants. A company-wide grant sees the company;
- * a platoon- or camp-scoped one sees only that platoon or camp (213 people
- * was too long to scroll). Unplaced SELF sign-ups are company-wide only.
- */
-export async function gapsFor(grants: readonly GrantRow[]): Promise<Gaps & { scoped: boolean }> {
-  const g = await gaps();
-  if (gapsReach(grants) === true) return { ...g, scoped: false };
-  const inScope = (p: { subunitId: string | null; campId: string | null }) => inGapsScope(grants, p);
+/** The Roster screen for someone with these grants: the same scope as the waiting accounts. */
+export async function rosterFor(grants: readonly GrantRow[]): Promise<Roster> {
+  const [people, members, allCamps] = await Promise.all([
+    db
+      .select({ personId: person.id, rank: person.rank, name: person.name, role: person.role, campId: person.campId, memberId: wbMember.id })
+      .from(person)
+      .innerJoin(camp, eq(camp.id, person.campId))
+      .innerJoin(subunit, eq(subunit.id, camp.subunitId))
+      .leftJoin(wbMember, eq(wbMember.personId, person.id))
+      .where(eq(person.active, true))
+      .orderBy(asc(subunit.sortOrder), asc(camp.sortOrder), asc(person.sortOrder)),
+    listMembers(),
+    db
+      .select({ id: camp.id, name: camp.name, subunitId: subunit.id, subunitName: subunit.name, isHq: subunit.isHq })
+      .from(camp)
+      .innerJoin(subunit, eq(subunit.id, camp.subunitId))
+      .orderBy(asc(subunit.sortOrder), asc(camp.sortOrder)),
+  ]);
+  const camps = new Map<string, RosterCamp>();
+  for (const c of allCamps) if (inRosterScope(grants, { subunitId: c.subunitId, campId: c.id })) camps.set(c.id, { ...c, people: [] });
+  for (const p of people) camps.get(p.campId)?.people.push({ personId: p.personId, rank: p.rank, name: p.name, role: p.role, registered: !!p.memberId });
+  const live = members.filter((m) => m.active && m.registered && inRosterScope(grants, m));
   return {
-    unregistered: g.unregistered.filter(inScope),
-    selfOnly: g.selfOnly.filter(inScope),
-    left: g.left.filter(inScope),
-    scoped: true,
+    reach: rosterReachLabel(grants),
+    camps: [...camps.values()],
+    waiting: live.filter((m) => !m.personId),
+    left: live.filter((m) => m.personId && m.personActive === false),
   };
 }
 
-/** Registered, not on the roster yet, and in Gaps scope: those to add. */
+/** Registered, not on the roster yet, and in Roster scope: those to add. */
 function waitingWhere(grants: readonly GrantRow[]): SQL | null {
-  const reach = gapsReach(grants);
+  const reach = rosterReach(grants);
   const base = and(eq(wbMember.active, true), isNotNull(wbMember.registeredAt), isNull(wbMember.personId))!;
   if (reach === true) return base;
   const parts = [
@@ -174,7 +208,7 @@ function waitingWhere(grants: readonly GrantRow[]): SQL | null {
   return parts.length ? and(base, or(...parts))! : null;
 }
 
-/** How many are waiting to be added to the roster in this viewer's Gaps scope (the Home badge): one count, not gaps(). */
+/** How many are waiting to be added to the roster in this viewer's Roster scope (the Home badge): one count, not rosterFor(). */
 export async function waitingCount(grants: readonly GrantRow[]): Promise<number> {
   const where = waitingWhere(grants);
   if (!where) return 0;
@@ -196,34 +230,6 @@ export async function waitingByPlatoon(before: Date): Promise<{ subunitId: strin
     .where(and(eq(wbMember.active, true), isNull(wbMember.personId), lt(wbMember.registeredAt, before)))
     .groupBy(selfSubunit.id, selfSubunit.name, selfSubunit.sortOrder)
     .orderBy(asc(selfSubunit.sortOrder));
-}
-
-export async function gaps(): Promise<Gaps> {
-  const [unregistered, members] = await Promise.all([
-    db
-      .select({
-        personId: person.id,
-        rank: person.rank,
-        name: person.name,
-        campId: camp.id,
-        campName: camp.name,
-        subunitId: subunit.id,
-        subunitName: subunit.name,
-      })
-      .from(person)
-      .innerJoin(camp, eq(camp.id, person.campId))
-      .innerJoin(subunit, eq(subunit.id, camp.subunitId))
-      .leftJoin(wbMember, eq(wbMember.personId, person.id))
-      .where(and(eq(person.active, true), isNull(wbMember.id)))
-      .orderBy(asc(subunit.sortOrder), asc(camp.sortOrder), asc(person.sortOrder)),
-    listMembers(),
-  ]);
-  const live = members.filter((m) => m.active && m.registered);
-  return {
-    unregistered,
-    selfOnly: live.filter((m) => !m.personId),
-    left: live.filter((m) => m.personId && m.personActive === false),
-  };
 }
 
 /** Registered members, for pickers. */

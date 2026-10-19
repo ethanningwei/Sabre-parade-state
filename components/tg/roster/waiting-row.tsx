@@ -4,19 +4,13 @@ import { Link2, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Input } from "@/components/ui/input";
 import { addToRosterAction, linkToRosterAction } from "@/lib/wb/actions/roster";
-import { RANKS, rolesFor } from "@/lib/wb/domain/roles";
-import { fieldClass, inputClass } from "../ui";
-import { BigButton, Choice, ErrorBox, Field, useAction } from "../form-bits";
+import { rolesFor } from "@/lib/wb/domain/roles";
+import { BigButton, ErrorBox, useAction } from "../form-bits";
+import { filledIn, PersonFields, type CampOption, type PersonValues } from "./person-fields";
 import { TgSheet } from "./tg-sheet";
 
-export interface CampOption {
-  id: string;
-  name: string;
-  subunitName: string;
-  isHq: boolean;
-}
+export type { CampOption } from "./person-fields";
 
 export interface Candidate {
   personId: string;
@@ -25,7 +19,7 @@ export interface Candidate {
 }
 
 /**
- * One "Not on the roster yet" row on Gaps: who he says he is, with Add to
+ * One "Waiting to be added" row on Roster: who he says he is, with Add to
  * roster (a v1 person from what he typed, checked by the PS) and, when the
  * roster has a similar unregistered name in his camp, Link to existing.
  */
@@ -87,18 +81,18 @@ function AddSheet({
   camps: CampOption[];
 }) {
   const router = useRouter();
-  const startCamp = camps.some((c) => c.id === initialCamp) ? initialCamp! : (camps[0]?.id ?? "");
-  const [rank, setRank] = useState(self.rank ?? "");
-  const [name, setName] = useState((self.name ?? "").toUpperCase());
-  const [campId, setCampId] = useState(startCamp);
-  const camp = camps.find((c) => c.id === campId);
-  const roles = camp ? rolesFor(camp.isHq) : [];
-  const [role, setRole] = useState(self.role && roles.includes(self.role) ? self.role : "");
+  const startCamp = camps.find((c) => c.id === initialCamp) ?? camps[0];
+  const [value, setValue] = useState<PersonValues>({
+    rank: self.rank ?? "",
+    name: (self.name ?? "").toUpperCase(),
+    campId: startCamp?.id ?? "",
+    role: self.role && startCamp && rolesFor(startCamp.isHq).includes(self.role) ? self.role : "",
+  });
   const { pending, error, call } = useAction();
 
   const save = () =>
     call(
-      () => addToRosterAction({ memberId, campId, rank, name, role }),
+      () => addToRosterAction({ memberId, ...value }),
       (done) => {
         toast.success(`${done.label} is on the parade state. He's been told.`);
         onOpenChange(false);
@@ -108,47 +102,9 @@ function AddSheet({
 
   return (
     <TgSheet open={open} onOpenChange={onOpenChange} title="Add to roster" description={`What ${label} registered with. Check it against the parade state before you add him.`}>
-      <Field label="Rank">
-        <select className={inputClass} value={rank} onChange={(e) => setRank(e.target.value)}>
-          <option value="">Pick one</option>
-          {RANKS.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Name, as on the parade state">
-        <Input value={name} onChange={(e) => setName(e.target.value.toUpperCase())} autoCapitalize="characters" className={fieldClass} />
-      </Field>
-      <Field label="Camp">
-        <select
-          className={inputClass}
-          value={campId}
-          onChange={(e) => {
-            setCampId(e.target.value);
-            const next = camps.find((c) => c.id === e.target.value);
-            if (next && !rolesFor(next.isHq).includes(role)) setRole("");
-          }}
-        >
-          {camps.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} · {c.subunitName}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Role">
-        <div className="grid grid-cols-3 gap-2">
-          {roles.map((r) => (
-            <Choice key={r} on={role === r} onClick={() => setRole(r)}>
-              {r}
-            </Choice>
-          ))}
-        </div>
-      </Field>
+      <PersonFields value={value} onChange={setValue} camps={camps} />
       <ErrorBox error={error} />
-      <BigButton pending={pending} disabled={!rank || name.trim().length < 2 || !campId || !role} onClick={save}>
+      <BigButton pending={pending} disabled={!filledIn(value)} onClick={save}>
         <UserPlus aria-hidden /> Add to the parade state
       </BigButton>
     </TgSheet>

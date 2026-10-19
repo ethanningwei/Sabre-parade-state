@@ -449,7 +449,7 @@ describe("evening round (fake Telegram)", () => {
     await member(71);
     for (const cmd of ["/sick", "/leave", "/me"]) {
       const c = await send(command(cmd, { from: 71 }));
-      expect(c[0].payload.text).toBe("You're not on the parade state yet. Your PS can see you on Gaps.");
+      expect(c[0].payload.text).toBe("You're not on the parade state yet. Your PS can see you on Roster.");
       expect(c[0].payload.reply_markup).toBeUndefined();
     }
     await member(72, [{ role: "ADMIN" }]);

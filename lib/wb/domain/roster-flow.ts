@@ -5,8 +5,18 @@
 import { hasGrant, type GrantRow } from "./grants";
 import type { WbRole } from "./roles";
 
-/** Gaps, and adding a man from it: the platoon's PS/PC, company command, ASAs and admins. */
-export const GAPS_ROLES: readonly WbRole[] = ["PS", "PC", "OC", "2IC", "CSM", "ASA", "ADMIN"];
+/**
+ * Roster (adding, editing and moving men, and the accounts waiting to be
+ * added): the platoon's PS/PC, a GC for his own camp, company command, ASAs
+ * and admins.
+ */
+export const ROSTER_ROLES: readonly WbRole[] = ["GC", "PS", "PC", "OC", "2IC", "CSM", "ASA", "ADMIN"];
+
+/** A GC's grant only ever reaches his camp, however it was given. */
+const reaches = (g: GrantRow) => ROSTER_ROLES.includes(g.role) && (g.role !== "GC" || !!g.campId);
+
+/** Roster on Home, and the screen itself. */
+export const seesRoster = (grants: readonly GrantRow[]) => grants.some(reaches);
 
 /**
  * Registered, but not on the parade state and holding no grant: everything in
@@ -17,11 +27,11 @@ export const isWaiting = (m: { registeredAt: Date | null; personId: string | nul
   !!m.registeredAt && !m.personId && m.grants.length === 0;
 
 /** The bot's answer to a quick command from a waiting account. No button: there's nothing he can open yet. */
-export const WAITING_REPLY = "You're not on the parade state yet. Your PS can see you on Gaps.";
+export const WAITING_REPLY = "You're not on the parade state yet. Your PS can see you on Roster.";
 
-/** Gaps seen company-wide (true), or only the platoons and camps listed. */
-export function gapsReach(grants: readonly GrantRow[]): true | { subunitIds: string[]; campIds: string[] } {
-  const mine = grants.filter((g) => GAPS_ROLES.includes(g.role));
+/** Roster seen company-wide (true), or only the platoons and camps listed. */
+export function rosterReach(grants: readonly GrantRow[]): true | { subunitIds: string[]; campIds: string[] } {
+  const mine = grants.filter(reaches);
   if (mine.some((g) => !g.subunitId && !g.campId)) return true;
   return {
     subunitIds: mine.flatMap((g) => (g.subunitId ? [g.subunitId] : [])),
@@ -29,14 +39,22 @@ export function gapsReach(grants: readonly GrantRow[]): true | { subunitIds: str
   };
 }
 
+/** How far the Roster reaches, for its header. */
+export function rosterReachLabel(grants: readonly GrantRow[]): string {
+  const reach = rosterReach(grants);
+  if (reach === true) return "The whole company";
+  if (reach.subunitIds.length) return reach.campIds.length || reach.subunitIds.length > 1 ? "Your platoons and camps" : "Your platoon";
+  return reach.campIds.length > 1 ? "Your camps" : "Your camp";
+}
+
 /**
  * Whether a man (by his roster platoon and camp, or what he registered with)
- * is in what these grants see on Gaps: a company-wide grant sees everyone; a
+ * is in what these grants see on Roster: a company-wide grant sees everyone; a
  * platoon grant its platoon; a camp grant its camp. Someone with no camp is
  * company-wide only.
  */
-export function inGapsScope(grants: readonly GrantRow[], p: { subunitId: string | null; campId: string | null }): boolean {
-  const reach = gapsReach(grants);
+export function inRosterScope(grants: readonly GrantRow[], p: { subunitId: string | null; campId: string | null }): boolean {
+  const reach = rosterReach(grants);
   if (reach === true) return true;
   return (!!p.subunitId && reach.subunitIds.includes(p.subunitId)) || (!!p.campId && reach.campIds.includes(p.campId));
 }

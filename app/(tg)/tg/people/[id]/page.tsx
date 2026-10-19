@@ -14,8 +14,9 @@ import { removalPreview } from "@/lib/wb/roster-flow";
 
 // One person's records, newest first, with Void on what's approved or
 // recorded. What's still current by default; Full history (?all=1) has the rest.
-// At the bottom, Remove from roster for his PC/PS, company command and admins.
-export default async function PersonHistoryPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ all?: string | string[] }> }) {
+// At the bottom, Remove from roster for his PC/PS, company command and admins
+// (?from=roster: opened from Roster, so it goes back there afterwards).
+export default async function PersonHistoryPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ all?: string | string[]; from?: string | string[] }> }) {
   await requireFeaturePage();
   const member = await requireRegistered();
   const { id } = await params;
@@ -28,7 +29,8 @@ export default async function PersonHistoryPage({ params, searchParams }: { para
       </EmptyState>
     );
   }
-  const all = (await searchParams).all === "1";
+  const query = await searchParams;
+  const all = query.all === "1";
   const [everything, counts] = await Promise.all([recordsOfPerson(p.personId), removes ? removalPreview(p.personId) : null]);
   const kids = liveChildren(everything);
   const now = new Date();
@@ -51,8 +53,8 @@ export default async function PersonHistoryPage({ params, searchParams }: { para
       )}
       <HistoryToggle href={`/tg/people/${p.personId}`} all={all} count={everything.length} />
       {counts && (
-        <div className="mt-4">
-          <RemoveFromRoster personId={p.personId} name={`${p.rank} ${p.name}`} counts={counts} />
+        <div id="remove" className="mt-4 scroll-mt-4">
+          <RemoveFromRoster personId={p.personId} name={`${p.rank} ${p.name}`} counts={counts} after={query.from === "roster" ? "/tg/roster" : undefined} />
         </div>
       )}
     </div>

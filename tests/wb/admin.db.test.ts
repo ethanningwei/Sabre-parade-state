@@ -19,7 +19,12 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 const { signIn } = await import("@/lib/wb/auth");
 const { addGrant, removeGrant, linkMember, setMemberActive } = await import("@/lib/wb/actions/admin");
-const { gaps, gapsFor } = await import("@/lib/wb/admin-data");
+const { rosterFor } = await import("@/lib/wb/admin-data");
+type Roster = Awaited<ReturnType<typeof rosterFor>>;
+const COMPANY = [{ role: "OC" as const, subunitId: null, campId: null }];
+/** On the roster, but nobody has registered as them. */
+const unregistered = (r: Roster) => r.camps.flatMap((c) => c.people.filter((p) => !p.registered).map((p) => ({ ...p, subunitName: c.subunitName })));
+const gaps = () => rosterFor(COMPANY);
 
 let reachable = true;
 let pl6: string;
@@ -100,7 +105,7 @@ describe("admin (DB)", () => {
     vi.stubEnv("WB_ADMIN_TELEGRAM_IDS", "");
   });
 
-  it("links a SELF sign-up once they're on the roster, and Gaps follows", async (ctx) => {
+  it("links a SELF sign-up once they're on the roster, and Roster follows", async (ctx) => {
     if (!reachable) ctx.skip();
     vi.stubEnv("WB_ADMIN_TELEGRAM_IDS", "1");
     await signInAs(1);
@@ -111,16 +116,16 @@ describe("admin (DB)", () => {
     await registered(5, { personId: tft2.id, source: "ROSTER" });
 
     let g = await gaps();
-    expect(g.selfOnly.map((m) => m.label)).toEqual(["PTE NEW GUY"]);
-    expect(g.unregistered.some((p) => p.name === "TFT PRESENT 1")).toBe(true);
-    expect(g.unregistered.some((p) => p.name === "TFT PRESENT 2")).toBe(false);
+    expect(g.waiting.map((m) => m.label)).toEqual(["PTE NEW GUY"]);
+    expect(unregistered(g).some((p) => p.name === "TFT PRESENT 1")).toBe(true);
+    expect(unregistered(g).some((p) => p.name === "TFT PRESENT 2")).toBe(false);
 
     // can't take a person someone else has
     expect((await linkMember(self.id, tft2.id)).ok).toBe(false);
     expect(await linkMember(self.id, tft1.id)).toEqual({ ok: true, data: undefined });
     g = await gaps();
-    expect(g.selfOnly).toEqual([]);
-    expect(g.unregistered.some((p) => p.name === "TFT PRESENT 1")).toBe(false);
+    expect(g.waiting).toEqual([]);
+    expect(unregistered(g).some((p) => p.name === "TFT PRESENT 1")).toBe(false);
 
     // their person leaves the roster
     await db.update(person).set({ active: false }).where(eq(person.id, tft1.id));
@@ -129,7 +134,7 @@ describe("admin (DB)", () => {
     vi.stubEnv("WB_ADMIN_TELEGRAM_IDS", "");
   });
 
-  it("Gaps is the viewer's own platoon unless their grant is company-wide", async (ctx) => {
+  it("Roster is the viewer's own platoon (or a GC's camp) unless their grant is company-wide", async (ctx) => {
     if (!reachable) ctx.skip();
     const [pl5] = await db.select().from(subunit).where(eq(subunit.name, "PLATOON 5"));
     const [tft] = await db.select().from(camp).where(eq(camp.name, "TFT"));
@@ -138,14 +143,21 @@ describe("admin (DB)", () => {
     await registered(7, { source: "SELF", selfName: "PL6 GUY", selfRank: "PTE", selfCampId: slr.id });
     await registered(8, { source: "SELF", selfName: "NOWHERE", selfRank: "PTE" });
 
-    const ps5 = await gapsFor([{ role: "PS", subunitId: pl5.id, campId: null }]);
-    expect(ps5.scoped).toBe(true);
-    expect(new Set(ps5.unregistered.map((p) => p.subunitName))).toEqual(new Set(["PLATOON 5"]));
-    expect(ps5.selfOnly.map((m) => m.label)).toEqual(["PTE PL5 GUY"]);
+    const ps5 = await rosterFor([{ role: "PS", subunitId: pl5.id, campId: null }]);
+    expect(ps5.reach).toBe("Your platoon");
+    expect(new Set(ps5.camps.map((c) => c.subunitName))).toEqual(new Set(["PLATOON 5"]));
+    expect(ps5.waiting.map((m) => m.label)).toEqual(["PTE PL5 GUY"]);
 
-    const oc = await gapsFor([{ role: "OC", subunitId: null, campId: null }]);
-    expect(oc.scoped).toBe(false);
-    expect(oc.selfOnly.map((m) => m.label).sort()).toEqual(["PTE NOWHERE", "PTE PL5 GUY", "PTE PL6 GUY"]);
-    expect(oc.unregistered.length).toBe((await gaps()).unregistered.length);
+    const gc = await rosterFor([{ role: "GC", subunitId: null, campId: slr.id }]);
+    expect(gc.reach).toBe("Your camp");
+    expect(gc.camps.map((c) => c.name)).toEqual(["SLR"]);
+    expect(gc.waiting.map((m) => m.label)).toEqual(["PTE PL6 GUY"]);
+    // a GC grant given company-wide still reaches no further than a camp: here, nothing
+    expect((await rosterFor([{ role: "GC", subunitId: null, campId: null }])).camps).toEqual([]);
+
+    const oc = await rosterFor(COMPANY);
+    expect(oc.reach).toBe("The whole company");
+    expect(oc.waiting.map((m) => m.label).sort()).toEqual(["PTE NOWHERE", "PTE PL5 GUY", "PTE PL6 GUY"]);
+    expect(oc.camps.reduce((n, c) => n + c.people.length, 0)).toBe((await db.select().from(person).where(eq(person.active, true))).length);
   });
 });

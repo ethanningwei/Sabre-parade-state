@@ -103,7 +103,7 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
           <p className="font-medium">I can&apos;t find “{step.typed}”</p>
           <p className="text-sm text-muted-foreground">
             Almost everybody is on the parade state, so check the spelling first. Ask your GC or PS if you&apos;re unsure
-            of your parade-state name. If you really aren&apos;t on it, I can set you up and your PS will see you on Gaps.
+            of your parade-state name. If you really aren&apos;t on it, I can set you up and your PS will see you on Roster.
           </p>
           <Button size="lg" className={bigButtonClass} onClick={() => go({ at: "name" })}>
             Try my name again

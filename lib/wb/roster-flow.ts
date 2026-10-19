@@ -11,7 +11,7 @@ import { inTx, Refusal, type Actor } from "@/lib/wb/core";
 import { wbAssignment, wbGrant, wbMember, wbProjection, wbRecord, wbRfRequest } from "@/lib/wb/db/schema";
 import { stateAfter } from "@/lib/wb/domain/rf";
 import { RANKS, rolesFor } from "@/lib/wb/domain/roles";
-import { addedText, canRemoveFromRoster, inGapsScope, removalRefusal, type RemovalCounts } from "@/lib/wb/domain/roster-flow";
+import { addedText, canRemoveFromRoster, inRosterScope, removalRefusal, type RemovalCounts } from "@/lib/wb/domain/roster-flow";
 import { STANDING_STATES } from "@/lib/wb/domain/rules";
 import { place } from "@/lib/wb/format";
 import { ensureProjectorUser, PROJECTOR_USER } from "@/lib/wb/projection";
@@ -23,7 +23,7 @@ import { courier as liveCourier, type Courier } from "@/lib/wb/telegram/courier"
 // Removing a man takes everything whereabouts holds for him with him: his
 // open v1 duties, his Extra/RF/SOL, his pending requests, his grants and his
 // account. Approved entries still to come stay, as history (the projector
-// never writes anything for someone off the roster). Adding a man from Gaps
+// never writes anything for someone off the roster). Adding a man from Roster
 // creates his v1 person through v1's own core and links his account.
 //
 // The v1 author of what the Mini App writes into v1 is the projector's user,
@@ -228,7 +228,7 @@ export interface NewRosterPerson {
   role: string;
 }
 
-/** The account waiting on Gaps, if the actor can see him there. */
+/** The account waiting to be added, if the actor can see him on Roster. */
 async function waitingMember(actor: Actor, memberId: string) {
   const [row] = await db
     .select({ m: wbMember, campId: camp.id, subunitId: camp.subunitId })
@@ -236,7 +236,7 @@ async function waitingMember(actor: Actor, memberId: string) {
     .leftJoin(camp, eq(camp.id, wbMember.selfCampId))
     .where(eq(wbMember.id, memberId));
   if (!row || !row.m.active || !row.m.registeredAt) return { error: "That account is no longer waiting." };
-  if (!inGapsScope(actor.grants, { subunitId: row.subunitId, campId: row.campId })) return { error: "He isn't in your platoon." };
+  if (!inRosterScope(actor.grants, { subunitId: row.subunitId, campId: row.campId })) return { error: "He isn't in your platoon or camp." };
   if (row.m.personId) return { error: "Someone has just added him." };
   return { member: row.m, campId: row.campId };
 }
@@ -263,32 +263,69 @@ async function tell(c: Courier, telegramUserId: number, personId: string) {
   await c.send({ telegramId: telegramUserId }, addedText(p ? place(p.campName, p.subunitName) : ""), [[{ text: "Open Sabre", route: "" }]]);
 }
 
-/** Add to roster from Gaps: a v1 person from what he registered with (checked by the PS), linked to his account. */
-export async function addToRoster(c: Courier, actor: Actor, input: NewRosterPerson) {
-  const w = await waitingMember(actor, input.memberId);
-  if (!w.member) return { ok: false as const, error: w.error };
+export interface PersonInput {
+  campId: string;
+  rank: string;
+  name: string;
+  role: string;
+}
+
+interface Target {
+  id: string;
+  name: string;
+  subunitId: string;
+  isHq: boolean;
+}
+
+/**
+ * What every add or edit checks before writing: a camp in the actor's Roster
+ * scope, a rank from the list, a name, and a role that fits the camp. `keep` is
+ * the man's rank and role as v1 has them: sent back untouched they stay, even
+ * if they're free text from the old roster ("GUARD COMM").
+ */
+async function checkPerson(actor: Actor, input: PersonInput, keep?: { rank: string; role: string }) {
   const [target] = await db
     .select({ id: camp.id, name: camp.name, subunitId: camp.subunitId, isHq: subunit.isHq })
     .from(camp)
     .innerJoin(subunit, eq(subunit.id, camp.subunitId))
     .where(eq(camp.id, input.campId));
   if (!target) return { ok: false as const, error: "Pick his camp again." };
-  if (!inGapsScope(actor.grants, { subunitId: target.subunitId, campId: target.id })) return { ok: false as const, error: `${target.name} isn't in your platoon.` };
+  if (!inRosterScope(actor.grants, { subunitId: target.subunitId, campId: target.id })) return { ok: false as const, error: `${target.name} isn't in your platoon or camp.` };
   const rank = input.rank.trim().toUpperCase();
   const name = input.name.trim().toUpperCase().split(/\s+/).filter(Boolean).join(" ");
-  if (!(RANKS as readonly string[]).includes(rank)) return { ok: false as const, error: "Pick his rank." };
+  if (!(RANKS as readonly string[]).includes(rank) && rank !== keep?.rank) return { ok: false as const, error: "Pick his rank." };
   if (name.length < 2) return { ok: false as const, error: "Type his name as it should be on the parade state." };
-  if (!rolesFor(target.isHq).includes(input.role)) return { ok: false as const, error: "Pick a role that fits that camp." };
+  const kept = !!keep && input.role === keep.role;
+  if (!kept && !rolesFor(target.isHq).includes(input.role)) return { ok: false as const, error: "Pick a role that fits that camp." };
+  return { ok: true as const, target: target as Target, values: { campId: target.id, rank, name, role: input.role } };
+}
+
+/** Someone else active in that camp under that name. Inside the transaction, so a race meets v1's unique index instead. */
+async function refuseDuplicate(tx: Tx, target: Target, name: string, hint: string, exceptId?: string) {
+  const [same] = await tx
+    .select({ rank: person.rank })
+    .from(person)
+    .where(and(eq(person.campId, target.id), eq(person.name, name), eq(person.active, true), exceptId ? ne(person.id, exceptId) : undefined));
+  if (same) throw new Refusal(`There's already a ${same.rank} ${name} in ${target.name}. ${hint}`);
+}
+
+/** Add to roster (a waiting account): a v1 person from what he registered with (checked by the PS), linked to his account. */
+export async function addToRoster(c: Courier, actor: Actor, input: NewRosterPerson) {
+  const w = await waitingMember(actor, input.memberId);
+  if (!w.member) return { ok: false as const, error: w.error };
+  const checked = await checkPerson(actor, input);
+  if (!checked.ok) return checked;
+  const { target, values } = checked;
+  const { rank, name } = values;
 
   let res;
   try {
     res = await inTx(async (t) => {
       const tx = asTx(t);
-      const [same] = await tx.select({ rank: person.rank }).from(person).where(and(eq(person.campId, target.id), eq(person.name, name), eq(person.active, true)));
-      if (same) throw new Refusal(`There's already a ${same.rank} ${name} in ${target.name}. Link him to that person, or add a surname.`);
+      await refuseDuplicate(tx, target, name, "Link him to that person, or add a surname.");
       await ensureProjectorUser(tx);
-      const row = await savePersonCore(tx, PROJECTOR_USER.id, { campId: target.id, rank, name, role: input.role });
-      await wbAudit(tx, { memberId: actor.id, via: "MINIAPP", action: "roster-add", entity: "person", entityId: row.id, after: { memberId: input.memberId, campId: target.id, rank, name, role: input.role } });
+      const row = await savePersonCore(tx, PROJECTOR_USER.id, values);
+      await wbAudit(tx, { memberId: actor.id, via: "MINIAPP", action: "roster-add", entity: "person", entityId: row.id, after: { memberId: input.memberId, ...values } });
       await link(tx, actor.id, input.memberId, row.id);
       return row.id;
     });
@@ -302,13 +339,13 @@ export async function addToRoster(c: Courier, actor: Actor, input: NewRosterPers
   return { ok: true as const, value: { personId: res.value, label: `${rank} ${name}` } };
 }
 
-/** Link to existing from Gaps: he's on the roster already, under a name nobody has registered as. */
+/** Link to existing (a waiting account): he's on the roster already, under a name nobody has registered as. */
 export async function linkToRoster(c: Courier, actor: Actor, memberId: string, personId: string) {
   const w = await waitingMember(actor, memberId);
   if (!w.member) return { ok: false as const, error: w.error };
   const p = await personWhere(personId);
   if (!p) return { ok: false as const, error: "That person is no longer on the roster." };
-  if (!inGapsScope(actor.grants, p)) return { ok: false as const, error: `${p.rank} ${p.name} isn't in your platoon.` };
+  if (!inRosterScope(actor.grants, p)) return { ok: false as const, error: `${p.rank} ${p.name} isn't in your platoon or camp.` };
   if (p.campId !== w.campId) return { ok: false as const, error: `${p.rank} ${p.name} is in ${p.campName}, not the camp he registered with.` };
   const res = await inTx(async (t) => {
     const tx = asTx(t);
@@ -319,4 +356,76 @@ export async function linkToRoster(c: Courier, actor: Actor, memberId: string, p
   if (!res.ok) return res;
   await tell(c, w.member.telegramUserId, personId);
   return { ok: true as const, value: { label: `${p.rank} ${p.name}` } };
+}
+
+// ------------------------------------------------------------------ add and edit (Roster)
+
+/**
+ * + Add person on Roster: a man who hasn't opened Sabre yet. Nobody is linked
+ * and nobody is told; registering later finds him by name like anyone else.
+ */
+export async function addPersonToRoster(actor: Actor, input: PersonInput) {
+  const checked = await checkPerson(actor, input);
+  if (!checked.ok) return checked;
+  const { target, values } = checked;
+  let res;
+  try {
+    res = await inTx(async (t) => {
+      const tx = asTx(t);
+      await refuseDuplicate(tx, target, values.name, "Add a surname to tell them apart.");
+      await ensureProjectorUser(tx);
+      const row = await savePersonCore(tx, PROJECTOR_USER.id, values);
+      await wbAudit(tx, { memberId: actor.id, via: "MINIAPP", action: "roster-add", entity: "person", entityId: row.id, after: values });
+      return row.id;
+    });
+  } catch (e) {
+    if (e instanceof UserError) return { ok: false as const, error: e.message };
+    throw e;
+  }
+  if (!res.ok) return res;
+  return { ok: true as const, value: { personId: res.value, label: `${values.rank} ${values.name}` } };
+}
+
+/**
+ * Edit on Roster: rank, name, role, or a move to another camp. Both the camp
+ * he's in and the one he's going to must be in the actor's Roster scope, so a
+ * GC can't send a man out of his camp; a move puts him at the end of the new one.
+ */
+export async function editRosterPerson(actor: Actor, personId: string, input: PersonInput) {
+  const p = await personWhere(personId);
+  if (!p) return { ok: false as const, error: "He's no longer on the roster." };
+  if (!inRosterScope(actor.grants, p)) return { ok: false as const, error: `${p.rank} ${p.name} isn't in your platoon or camp.` };
+  const [current] = await db.select({ rank: person.rank, role: person.role }).from(person).where(eq(person.id, personId));
+  const checked = await checkPerson(actor, input, current);
+  if (!checked.ok) return checked;
+  const { target, values } = checked;
+  let res;
+  try {
+    res = await inTx(async (t) => {
+      const tx = asTx(t);
+      const [before] = await tx.select().from(person).where(eq(person.id, personId)).for("update");
+      if (!before?.active) throw new Refusal("He's no longer on the roster.");
+      if (before.campId !== p.campId) throw new Refusal("Someone has just moved him. Open Roster again.");
+      const same = before.rank === values.rank && before.name === values.name && before.role === values.role && before.campId === values.campId;
+      if (same) return false;
+      await refuseDuplicate(tx, target, values.name, "Add a surname to tell them apart.", personId);
+      await ensureProjectorUser(tx);
+      await savePersonCore(tx, PROJECTOR_USER.id, { personId, ...values });
+      await wbAudit(tx, {
+        memberId: actor.id,
+        via: "MINIAPP",
+        action: "roster-edit",
+        entity: "person",
+        entityId: personId,
+        before: { campId: before.campId, rank: before.rank, name: before.name, role: before.role },
+        after: values,
+      });
+      return true;
+    });
+  } catch (e) {
+    if (e instanceof UserError) return { ok: false as const, error: e.message };
+    throw e;
+  }
+  if (!res.ok) return res;
+  return { ok: true as const, value: { changed: res.value, moved: target.id !== p.campId, label: `${values.rank} ${values.name}`, campName: target.name } };
 }

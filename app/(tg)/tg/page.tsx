@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Bus, Car, CalendarPlus, CalendarRange, ClipboardList, History, Inbox, ListChecks, Settings, UsersRound } from "lucide-react";
+import { ArrowLeftRight, Bus, Car, CalendarPlus, CalendarRange, Contact, History, Inbox, ListChecks, Settings, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { NeedsYou } from "@/components/tg/needs-you";
@@ -11,7 +11,7 @@ import { getMember, hasGrant, type GrantRow } from "@/lib/wb/auth";
 import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
 import type { GridRow } from "@/lib/wb/domain/forecast";
 import { needsYou } from "@/lib/wb/domain/needs-you";
-import { isWaiting } from "@/lib/wb/domain/roster-flow";
+import { isWaiting, seesRoster } from "@/lib/wb/domain/roster-flow";
 import { rfAnything } from "@/lib/wb/domain/rf";
 import { COMPANY_DECIDERS, decidesAnything, forecastsAnything, hotosAnything, PLATOON_DECIDERS, proxiesAnything } from "@/lib/wb/domain/rules";
 import { todaySgt } from "@/lib/wb/domain/timeline";
@@ -21,7 +21,7 @@ import { place } from "@/lib/wb/format";
 import { rosterSelf } from "@/lib/wb/me";
 import { profileOf } from "@/lib/wb/members";
 import { paradeIssueCount } from "@/lib/wb/parade-link";
-import { GAPS_ROLES, PARADE_STATE_ROLES } from "@/lib/wb/permissions";
+import { PARADE_STATE_ROLES } from "@/lib/wb/permissions";
 import { nowAndNext, onensOwedFor, pendingFor, type RecordView } from "@/lib/wb/records";
 import { assignmentsOf, openRequests } from "@/lib/wb/rf-data";
 
@@ -38,7 +38,7 @@ export default async function TgHome() {
   const hoto = hotosAnything(member.grants);
   const manpower = forecastsAnything(member.grants);
   const rf = rfAnything(member.grants);
-  const gaps = hasGrant(member.grants, GAPS_ROLES, "any");
+  const roster = seesRoster(member.grants);
   const now = new Date();
   const today = todaySgt(now);
   const parade = hasGrant(member.grants, PARADE_STATE_ROLES, "any");
@@ -48,7 +48,7 @@ export default async function TgHome() {
     decides ? onensOwedFor(member.grants) : Promise.resolve([] as RecordView[]),
     rf ? openRequests(now) : Promise.resolve([]),
     manpower ? shortSoon(member.grants, today, now) : Promise.resolve([] as GridRow[]),
-    gaps ? waitingCount(member.grants) : Promise.resolve(0),
+    roster ? waitingCount(member.grants) : Promise.resolve(0),
     // never breaks Home: no line rather than an error
     parade ? paradeIssueCount(member.grants).catch(() => 0) : Promise.resolve(0),
   ]);
@@ -58,7 +58,7 @@ export default async function TgHome() {
   ]);
   const companyOnly = hasGrant(member.grants, COMPANY_DECIDERS, "company") && !hasGrant(member.grants, PLATOON_DECIDERS, "any");
   const needs = needsYou({ pending, short, companyOnly, now, today, paradeIssues });
-  const commands = parade || decides || manpower || hoto || rf || proxiesAnything(member.grants) || gaps;
+  const commands = parade || decides || manpower || hoto || rf || proxiesAnything(member.grants) || roster;
 
   return (
     <div className="flex flex-col gap-6">
@@ -82,7 +82,7 @@ export default async function TgHome() {
         {/* only grant holders get here without a roster person; everyone else waits on /tg/waiting */}
         {!me.onRoster && (
           <p className="mt-2 rounded-xl bg-card px-3 py-2.5 text-sm">
-            You&apos;re not on the parade state yourself. Your PS can see you on Gaps and add you.
+            You&apos;re not on the parade state yourself. Your PS can see you on Roster and add you.
           </p>
         )}
       </header>
@@ -126,13 +126,13 @@ export default async function TgHome() {
             {rf && <Tile href="/tg/rf" icon={<Bus />} title="RF and duties" badge={openRf.length} hint={rfHint(openRf.map((r) => r.campName))} />}
             {decides && <Tile href="/tg/people" icon={<History />} title="Person history" hint="Anyone's records; void a mistake" />}
             {proxiesAnything(member.grants) && <Tile href="/tg/add" icon={<UsersRound />} title="Add for several men" hint="A course or duty they've been detailed for" />}
-            {gaps && (
+            {roster && (
               <Tile
-                href="/tg/gaps"
-                icon={<ClipboardList />}
-                title="Gaps"
+                href="/tg/roster"
+                icon={<Contact />}
+                title="Roster"
                 badge={waiting}
-                hint={waiting ? `${waiting} waiting to be added to the roster` : "Who isn't registered or isn't on the roster"}
+                hint={waiting ? `${waiting} waiting to be added to the roster` : "Add, edit or move men on the parade state"}
               />
             )}
           </Group>

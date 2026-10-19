@@ -9,8 +9,8 @@ import { removalLines, type RemovalCounts } from "@/lib/wb/domain/roster-flow";
 import { BigButton, ErrorBox, useAction } from "../form-bits";
 import { TgSheet } from "./tg-sheet";
 
-/** Person history's Remove from roster: what it will do, counted, then one confirm. */
-export function RemoveFromRoster({ personId, name, counts }: { personId: string; name: string; counts: RemovalCounts }) {
+/** Person history's Remove from roster: what it will do, counted, then one confirm. `after`: where to go once he's gone. */
+export function RemoveFromRoster({ personId, name, counts, after = "/tg/people" }: { personId: string; name: string; counts: RemovalCounts; after?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const { pending, error, call } = useAction();
@@ -22,7 +22,7 @@ export function RemoveFromRoster({ personId, name, counts }: { personId: string;
       () => {
         toast.success(`${name} is off the roster`);
         setOpen(false);
-        router.replace("/tg/people");
+        router.replace(after);
       },
     );
 
