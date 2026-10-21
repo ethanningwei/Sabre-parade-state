@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { Header } from "@/components/tg/form-bits";
 import type { CampOption } from "@/components/tg/roster/person-fields";
 import { RosterList, type ListCamp } from "@/components/tg/roster/roster-list";
@@ -6,9 +5,9 @@ import { WaitingRow } from "@/components/tg/roster/waiting-row";
 import { Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { rosterFor } from "@/lib/wb/admin-data";
-import { requireRegistered } from "@/lib/wb/auth";
-import { canRemoveFromRoster, seesRoster, similarName } from "@/lib/wb/domain/roster-flow";
-import { canDecide } from "@/lib/wb/domain/rules";
+import { requireScreenPage } from "@/lib/wb/auth";
+import { manAccess } from "@/lib/wb/domain/access";
+import { similarName } from "@/lib/wb/domain/roster-flow";
 
 // The roster in the viewer's scope (a GC his camp, a PS/PC his platoon,
 // company command, ASAs and admins everyone): who's waiting to be added,
@@ -16,14 +15,13 @@ import { canDecide } from "@/lib/wb/domain/rules";
 // history. Ordering men, and camps and platoons, stay in v1's Admin.
 export default async function RosterPage() {
   await requireFeaturePage();
-  const member = await requireRegistered();
-  if (!seesRoster(member.grants)) redirect("/tg");
+  const member = await requireScreenPage("roster");
   const r = await rosterFor(member.grants);
   const options: CampOption[] = r.camps.map((c) => ({ id: c.id, name: c.name, subunitName: c.subunitName, isHq: c.isHq }));
   const camps: ListCamp[] = r.camps.map((c) => {
-    const where = { subunitId: c.subunitId, campId: c.id };
-    const remove = canRemoveFromRoster(member.grants, where);
-    return { id: c.id, name: c.name, subunitName: c.subunitName, history: remove || canDecide(member.grants, where), remove, people: c.people };
+    // by camp: the man's own sheet refuses yourself (removalRefusal)
+    const can = manAccess({ grants: member.grants }, { subunitId: c.subunitId, campId: c.id });
+    return { id: c.id, name: c.name, subunitName: c.subunitName, history: can.history, remove: can.removes, people: c.people };
   });
   const unregistered = r.camps.flatMap((c) => c.people.filter((p) => !p.registered).map((p) => ({ ...p, campId: c.id, campName: c.name })));
 

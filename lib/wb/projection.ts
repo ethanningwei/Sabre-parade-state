@@ -12,7 +12,7 @@ import { wbAudit } from "@/lib/wb/audit";
 import { wbAudit as wbAuditTable } from "@/lib/wb/db/schema";
 import type { Actor, Via } from "@/lib/wb/core";
 import { wbAssignment, wbProjection, wbRecord, wbShiftEvent, wbShiftOverride, wbShiftPattern } from "@/lib/wb/db/schema";
-import { hasGrant } from "@/lib/wb/domain/grants";
+import { manAccess } from "@/lib/wb/domain/access";
 import { toPattern } from "@/lib/wb/forecast-data";
 import {
   absenceRow,
@@ -26,7 +26,6 @@ import {
   type Write,
 } from "@/lib/wb/domain/projection";
 import { formatProjection, type Who } from "@/lib/wb/domain/projection-report";
-import type { WbRole } from "@/lib/wb/domain/roles";
 import { STANDING_STATES, type WbRecordKind, type WbRecordState } from "@/lib/wb/domain/rules";
 
 // The projector: the timeline into the parade state (status §3b, plan §4f).
@@ -379,9 +378,6 @@ export async function diffNow(now: Date = new Date()): Promise<string> {
 
 // ------------------------------------------------------------------ "Back?"
 
-/** Who may confirm a man is back: his camp's GC, his platoon's PC or PS, or OC, 2IC or CSM. */
-export const BACK_ROLES: readonly WbRole[] = ["GC", "PC", "PS", "OC", "2IC", "CSM"];
-
 export interface DueBack {
   projectionId: string;
   personId: string;
@@ -453,7 +449,7 @@ export async function confirmBack(actor: Actor, projectionId: string, via: Via):
     .where(eq(wbProjection.id, projectionId));
   if (!row) return { ok: false, error: "That's no longer on the parade state." };
   const label = `${row.rank} ${row.name}`;
-  if (!hasGrant(actor.grants, BACK_ROLES, { subunitId: row.subunitId, campId: row.campId })) {
+  if (!manAccess(actor, { subunitId: row.subunitId, campId: row.campId }).confirmsBack) {
     return { ok: false, error: `Only ${label}'s GC, PC or PS can say he's back.` };
   }
   if (row.p.closedAt) return { ok: true, label, closed: true };

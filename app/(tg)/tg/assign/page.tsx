@@ -1,10 +1,8 @@
-import { redirect } from "next/navigation";
 import { StandDown } from "@/components/tg/rf/rf-actions";
 import { AssignForm } from "@/components/tg/rf/assign-form";
 import { Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
-import { requireRegistered } from "@/lib/wb/auth";
-import { rfAnything } from "@/lib/wb/domain/rf";
+import { requireScreenPage } from "@/lib/wb/auth";
 import { todaySgt } from "@/lib/wb/domain/timeline";
 import { campsInfo } from "@/lib/wb/forecast-data";
 import { assignmentsInScope, peopleToSend } from "@/lib/wb/rf-data";
@@ -13,8 +11,7 @@ import { assignmentsInScope, peopleToSend } from "@/lib/wb/rf-data";
 // coming up, each with Stand down.
 export default async function AssignPage() {
   await requireFeaturePage();
-  const member = await requireRegistered();
-  if (!rfAnything(member.grants)) redirect("/tg");
+  const member = await requireScreenPage("rf");
   const [people, camps, current] = await Promise.all([peopleToSend(member.grants), campsInfo(), assignmentsInScope(member.grants)]);
   return (
     <div className="flex flex-col gap-8">

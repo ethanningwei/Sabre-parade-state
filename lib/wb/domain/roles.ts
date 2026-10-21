@@ -4,6 +4,18 @@
 export const WB_ROLES = ["GC", "PS", "PC", "2IC", "OC", "CSM", "ASA", "ADMIN"] as const;
 export type WbRole = (typeof WB_ROLES)[number];
 
+/** Grants an admin can hand out, and the scope each one usually takes. */
+export const ROLE_LABELS: Record<WbRole, string> = {
+  GC: "Guard comm (a camp)",
+  PS: "Platoon sergeant",
+  PC: "Platoon commander",
+  "2IC": "2IC (company)",
+  OC: "OC (company)",
+  CSM: "CSM (company)",
+  ASA: "ASA (company)",
+  ADMIN: "Sabre admin",
+};
+
 export const RANKS = [
   "REC", "PTE", "PFC", "LCP", "CPL", "CFC",
   "3SG", "2SG", "1SG", "SSG", "MSG",

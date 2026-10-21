@@ -4,17 +4,13 @@ import { sgtToInstant } from "@/lib/parade/time";
 import type { CoySnapshot, SnapshotDuty } from "@/lib/parade/types";
 import { clashLines } from "@/lib/wb/domain/clash";
 import { costOfSending, manningOf, snapshotFor, worstDayOf, type AssignmentRow, type CampManning, type ForecastInput, type TimelineRow } from "@/lib/wb/domain/forecast";
-import type { GrantRow } from "@/lib/wb/domain/grants";
 import {
   assignedText,
   assignRefusal,
-  canDeployRf,
-  canRaiseRf,
   deployRefusal,
   headDownText,
   isOver,
   rankCandidates,
-  rfAnything,
   rfButtons,
   rfCardText,
   RF_CALLBACK,
@@ -127,47 +123,6 @@ describe("an RF request", () => {
     for (const state of ["FILLED", "CLOSED"] as const) expect(rfButtons({ ...r, state }, false)).toEqual([[{ text: "Open", route: `rf/${r.id}` }]]);
     expect(RF_CALLBACK.exec(rfCloseData(r.id))?.[1]).toBe(r.id);
     expect(Buffer.byteLength(rfCloseData(r.id))).toBeLessThanOrEqual(64);
-  });
-});
-
-// ------------------------------------------------------------------ who
-
-const grant = (role: GrantRow["role"], subunitId: string | null = null, campId: string | null = null): GrantRow => ({ role, subunitId, campId });
-const slr = { subunitId: "pl6", campId: "camp:SLR" };
-const srf = { subunitId: "pl6", campId: "camp:SRF A" };
-const bdk = { subunitId: "pl7", campId: "camp:BDK" };
-
-describe("who may raise, deploy and assign", () => {
-  it("a GC for his own camp and its men only", () => {
-    const gc = [grant("GC", null, "camp:SLR")];
-    expect(canRaiseRf(gc, slr)).toBe(true);
-    expect(canRaiseRf(gc, srf)).toBe(false);
-    expect(canDeployRf(gc, slr)).toBe(true);
-    expect(canDeployRf(gc, bdk)).toBe(false);
-  });
-
-  it("a PC or PS for their platoon", () => {
-    for (const role of ["PC", "PS"] as const) {
-      const g = [grant(role, "pl6")];
-      expect(canRaiseRf(g, srf)).toBe(true);
-      expect(canDeployRf(g, slr)).toBe(true);
-      expect(canDeployRf(g, bdk)).toBe(false);
-    }
-  });
-
-  it("OC, 2IC, CSM and ASA company-wide", () => {
-    for (const role of ["OC", "2IC", "CSM", "ASA"] as const) {
-      const g = [grant(role)];
-      expect(canRaiseRf(g, bdk)).toBe(true);
-      expect(canDeployRf(g, slr)).toBe(true);
-      expect(rfAnything(g)).toBe(true);
-    }
-  });
-
-  it("not ADMIN alone, and not a trooper", () => {
-    expect(rfAnything([grant("ADMIN")])).toBe(false);
-    expect(canRaiseRf([grant("ADMIN")], slr)).toBe(false);
-    expect(rfAnything([])).toBe(false);
   });
 });
 

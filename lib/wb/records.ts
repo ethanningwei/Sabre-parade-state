@@ -4,10 +4,10 @@ import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import { camp, duty, person, subunit } from "@/lib/db/schema";
 import { clashLines } from "@/lib/wb/domain/clash";
-import type { GrantRow } from "@/lib/wb/domain/grants";
+import { manAccess, recordAccess, type GrantRow, type Viewer } from "@/lib/wb/domain/access";
 import { outcomeOrder } from "@/lib/wb/domain/describe";
 import type { WbRole } from "@/lib/wb/domain/roles";
-import { canDecide, canDecideRequest, canProxy, DEAD_STATES, STANDING_STATES } from "@/lib/wb/domain/rules";
+import { DEAD_STATES, STANDING_STATES } from "@/lib/wb/domain/rules";
 import type { Range } from "@/lib/wb/domain/timeline";
 import { wbAssignment, wbGrant, wbMember, wbRecord } from "@/lib/wb/db/schema";
 
@@ -40,7 +40,7 @@ const viewColumns = {
   ownerId: owner.id,
   ownerTelegramId: owner.telegramUserId,
   ownerLeaveLeft: owner.leaveLeft,
-  // whose request it is decides who may approve it (rules.ts canDecideRequest)
+  // whose request it is decides who may approve it (domain/access.ts recordAccess)
   ownerRoles: sql<WbRole[]>`coalesce((select array_agg(distinct ${wbGrant.role}::text) from ${wbGrant} where ${wbGrant.memberId} = ${owner.id}), '{}')`,
 };
 
@@ -135,15 +135,15 @@ export async function childrenOf(parentIds: readonly string[], tx: Db = db): Pro
 }
 
 /** Pending requests this member may decide, oldest first: never their own (unless ADMIN), and a PS's or PC's only from above. */
-export async function pendingFor(viewer: { personId: string | null; grants: readonly GrantRow[] }): Promise<RecordView[]> {
+export async function pendingFor(viewer: Viewer): Promise<RecordView[]> {
   const rows = await views(db, eq(wbRecord.state, "PENDING")).orderBy(asc(wbRecord.createdAt));
-  return rows.map(toView).filter((r) => canDecideRequest(viewer, r));
+  return rows.map(toView).filter((r) => recordAccess(viewer, r).decide);
 }
 
 /** MCs still owed on ONENS that this member decides for, oldest first. */
 export async function onensOwedFor(grants: readonly GrantRow[]): Promise<RecordView[]> {
   const rows = await views(db, and(eq(wbRecord.onens, "OWED"), eq(wbRecord.state, "RECORDED"))).orderBy(asc(wbRecord.startAt));
-  return rows.map(toView).filter((r) => canDecide(grants, r));
+  return rows.map(toView).filter((r) => manAccess({ grants }, r).commands);
 }
 
 /** What's in the way of a new range: live absent records, open v1 duties and live Extra/RF/SOL. */
@@ -233,8 +233,7 @@ export async function peopleInScope(grants: readonly GrantRow[], purpose: "decid
     .innerJoin(subunit, eq(subunit.id, camp.subunitId))
     .where(eq(person.active, true))
     .orderBy(asc(subunit.sortOrder), asc(camp.sortOrder), asc(person.sortOrder));
-  const allowed = purpose === "decide" ? canDecide : canProxy;
-  return rows.filter((p) => allowed(grants, p));
+  return rows.filter((p) => manAccess({ grants }, p)[purpose === "decide" ? "commands" : "proxies"]);
 }
 
 /** Where a roster person stands, for scope checks. */

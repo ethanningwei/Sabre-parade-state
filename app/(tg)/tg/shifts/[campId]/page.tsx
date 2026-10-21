@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { toSgt } from "@/lib/parade/time";
 import { requireRegistered } from "@/lib/wb/auth";
-import { canEditShifts } from "@/lib/wb/domain/rules";
+import { postAccess } from "@/lib/wb/domain/access";
 import { minimumLabel, stintAround, WEEKDAYS } from "@/lib/wb/domain/shifts";
 import { todaySgt } from "@/lib/wb/domain/timeline";
 import { campsInfo, loadMinimums, loadPatterns, postsOf } from "@/lib/wb/forecast-data";
@@ -17,7 +17,7 @@ export default async function ShiftEditPage({ params }: { params: Promise<{ camp
   const { campId } = await params;
   const [camps, patterns, minimums] = await Promise.all([campsInfo(), loadPatterns(), loadMinimums()]);
   const post = postsOf(camps).find((p) => p.teams.some((t) => t.id === campId));
-  if (!post || !canEditShifts(member.grants, post.subunitId)) {
+  if (!post || !postAccess(member, post).editShifts) {
     return (
       <EmptyState icon={<SearchX />} title="Not found">
         <p>That camp isn&apos;t in your platoon.</p>

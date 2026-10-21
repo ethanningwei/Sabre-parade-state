@@ -1,5 +1,4 @@
-import { hasGrant, type GrantRow } from "./grants";
-import type { WbRole } from "./roles";
+import type { Where } from "./access";
 import { overlaps, rangeLabel, type Range } from "./timeline";
 
 // RF requests, deploying men to them, and Extra/RF/SOL assignments. Pure: no
@@ -32,29 +31,6 @@ export const MAX_NEED = 10;
 export const MAX_ASSIGN = 40;
 /** Filled and closed requests stay on the board this long. */
 export const BOARD_HISTORY_MS = 7 * 24 * 60 * 60 * 1000;
-
-// ------------------------------------------------------------------ who
-
-/**
- * Raise, deploy and assign: Sabre Bot's GC and every HQ role (GC, PC, PS, OC,
- * 2IC, CSM, ASA), each within their grant (decided 2026-10-13). A GC answers
- * for his own camp and its men, a PC/PS for their platoon, OC/2IC/CSM/ASA
- * company-wide. Asking for manpower and finding it are different jobs done by
- * the same men.
- */
-export const RF_GRANT_ROLES: readonly WbRole[] = ["GC", "PC", "PS", "OC", "2IC", "CSM", "ASA"];
-
-export interface Where {
-  subunitId: string;
-  campId: string;
-}
-
-/** Raise (and close) a request for this camp. */
-export const canRaiseRf = (grants: readonly GrantRow[], camp: Where) => hasGrant(grants, RF_GRANT_ROLES, camp);
-/** Send this man somewhere (deploy him to a request, or assign him Extra/RF/SOL), or stand him down. */
-export const canDeployRf = (grants: readonly GrantRow[], man: Where) => hasGrant(grants, RF_GRANT_ROLES, man);
-/** Holds any RF role at all: sees the RF board, Raise RF and Assign. */
-export const rfAnything = (grants: readonly GrantRow[]) => hasGrant(grants, RF_GRANT_ROLES, "any");
 
 // ------------------------------------------------------------------ the request
 

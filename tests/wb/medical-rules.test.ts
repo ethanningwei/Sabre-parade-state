@@ -2,10 +2,8 @@
 // read a diagnosis, and how a medical record reads on a card.
 import { describe, expect, it } from "vitest";
 import { recordWhat } from "@/lib/wb/domain/describe";
-import type { GrantRow } from "@/lib/wb/domain/grants";
 import {
   asksSeenBy,
-  canSeeMedical,
   initialState,
   isAbsentKind,
   kinOf,
@@ -16,8 +14,6 @@ import {
   type WbRecordState,
 } from "@/lib/wb/domain/rules";
 import { dateRange, dayRange } from "@/lib/wb/domain/timeline";
-
-const g = (role: GrantRow["role"], scope: Partial<GrantRow> = {}): GrantRow => ({ role, subunitId: null, campId: null, ...scope });
 
 describe("report sick", () => {
   it("RSI and RSO wait for a PC/PS, like leave", () => {
@@ -85,25 +81,6 @@ describe("void cascade (Sabre Bot's _void_kin)", () => {
     const head = r("rso", null, "APPROVED");
     const rows = [head, r("mc", "rso"), r("st", "rso"), r("old", "rso", "CANCELLED"), r("other", null), r("grand", "mc")];
     expect(kinOf(head, rows).map((x) => x.id)).toEqual(["rso", "mc", "st"]);
-  });
-});
-
-describe("who may read a diagnosis", () => {
-  const rec = { personId: "trooper", subunitId: "pl6", campId: "slr" };
-  it.each<[string, { personId: string | null; grants: GrantRow[] }, boolean]>([
-    ["the trooper", { personId: "trooper", grants: [] }, true],
-    ["his PS", { personId: "ps", grants: [g("PS", { subunitId: "pl6" })] }, true],
-    ["his PC", { personId: null, grants: [g("PC", { subunitId: "pl6" })] }, true],
-    ["OC", { personId: null, grants: [g("OC")] }, true],
-    ["2IC", { personId: null, grants: [g("2IC")] }, true],
-    ["CSM", { personId: null, grants: [g("CSM")] }, true],
-    ["another platoon's PS", { personId: null, grants: [g("PS", { subunitId: "pl5" })] }, false],
-    ["his camp's GC", { personId: null, grants: [g("GC", { campId: "slr" })] }, false],
-    ["an ASA", { personId: null, grants: [g("ASA")] }, false],
-    ["an admin", { personId: null, grants: [g("ADMIN")] }, false],
-    ["someone not on the roster", { personId: null, grants: [] }, false],
-  ])("%s → %s", (_t, viewer, want) => {
-    expect(canSeeMedical(viewer, rec)).toBe(want);
   });
 });
 

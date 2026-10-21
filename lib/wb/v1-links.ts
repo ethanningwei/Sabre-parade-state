@@ -1,7 +1,7 @@
 import "server-only";
 import { getMember } from "@/lib/wb/auth";
 import { isWaiting } from "@/lib/wb/domain/roster-flow";
-import { canDecide, canForecast, type Where } from "@/lib/wb/domain/rules";
+import { campAccess, manAccess, type Where } from "@/lib/wb/domain/access";
 import { fromTelegram } from "@/lib/wb/from-telegram";
 
 // The way from v1's screens into the Mini App, for a v1 session started by its
@@ -22,7 +22,7 @@ export async function sabreLinksForCamp(where: Where): Promise<SabreLinks | null
   const member = await getMember();
   if (!member?.registeredAt || isWaiting(member)) return null;
   return {
-    manpower: canForecast(member.grants, where) ? `/tg/manpower?camp=${where.campId}` : null,
-    history: canDecide(member.grants, where),
+    manpower: campAccess(member, where).forecast ? `/tg/manpower?camp=${where.campId}` : null,
+    history: manAccess(member, where).commands,
   };
 }

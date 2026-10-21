@@ -1,11 +1,10 @@
 import { ChevronRight, Clock } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Header } from "@/components/tg/form-bits";
 import { EmptyState, Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
-import { requireRegistered } from "@/lib/wb/auth";
-import { canEditShifts, editsShiftsAnything } from "@/lib/wb/domain/rules";
+import { requireScreenPage } from "@/lib/wb/auth";
+import { postAccess } from "@/lib/wb/domain/access";
 import { minimumLabel } from "@/lib/wb/domain/shifts";
 import { campsInfo, loadMinimums, loadPatterns, patternSummary, postsOf, shiftNote } from "@/lib/wb/forecast-data";
 
@@ -13,10 +12,9 @@ import { campsInfo, loadMinimums, loadPatterns, patternSummary, postsOf, shiftNo
 // ADMIN sees every camp; a PC/PS sees their platoon's.
 export default async function ShiftsPage() {
   await requireFeaturePage();
-  const member = await requireRegistered();
-  if (!editsShiftsAnything(member.grants)) redirect("/tg");
+  const member = await requireScreenPage("shifts");
   const [camps, patterns, minimums] = await Promise.all([campsInfo(), loadPatterns(), loadMinimums()]);
-  const posts = postsOf(camps).filter((p) => canEditShifts(member.grants, p.subunitId));
+  const posts = postsOf(camps).filter((p) => postAccess(member, p).editShifts);
   const now = new Date();
   // by id, not name: two coys can both have a PLATOON 5
   const platoons = [...new Map(posts.map((p) => [p.subunitId, p.subunitName]))];

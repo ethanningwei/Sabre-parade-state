@@ -7,8 +7,8 @@ import { RemoveFromRoster } from "@/components/tg/roster/remove-sheet";
 import { EmptyState } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
-import { canRemoveFromRoster } from "@/lib/wb/domain/roster-flow";
-import { accessTo, canDecide, isCurrent, liveChildren } from "@/lib/wb/domain/rules";
+import { manAccess, recordAccess } from "@/lib/wb/domain/access";
+import { isCurrent, liveChildren } from "@/lib/wb/domain/rules";
 import { personWhere, recordsOfPerson } from "@/lib/wb/records";
 import { removalPreview } from "@/lib/wb/roster-flow";
 
@@ -21,8 +21,8 @@ export default async function PersonHistoryPage({ params, searchParams }: { para
   const member = await requireRegistered();
   const { id } = await params;
   const p = /^[0-9a-f-]{36}$/.test(id) ? await personWhere(id) : null;
-  const removes = !!p && canRemoveFromRoster(member.grants, p) && member.personId !== p.personId;
-  if (!p || !(canDecide(member.grants, p) || removes)) {
+  const can = p ? manAccess(member, p) : null;
+  if (!p || !can?.history) {
     return (
       <EmptyState icon={<SearchX />} title="Not found">
         <p>That person isn&apos;t in your platoon, or has left the roster.</p>
@@ -31,7 +31,7 @@ export default async function PersonHistoryPage({ params, searchParams }: { para
   }
   const query = await searchParams;
   const all = query.all === "1";
-  const [everything, counts] = await Promise.all([recordsOfPerson(p.personId), removes ? removalPreview(p.personId) : null]);
+  const [everything, counts] = await Promise.all([recordsOfPerson(p.personId), can.removes ? removalPreview(p.personId) : null]);
   const kids = liveChildren(everything);
   const now = new Date();
   const records = all ? everything : everything.filter((r) => isCurrent(r, kids.get(r.id) ?? [], now));
@@ -47,7 +47,7 @@ export default async function PersonHistoryPage({ params, searchParams }: { para
       ) : (
         records.map((r, i) => (
           <RecordSummary key={r.id} r={r} i={i} href={`/tg/records/${r.id}`}>
-            <RecordActions recordId={r.id} can={accessTo(member, r)} />
+            <RecordActions recordId={r.id} can={recordAccess(member, r)} />
           </RecordSummary>
         ))
       )}

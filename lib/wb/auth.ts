@@ -6,9 +6,9 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { ForbiddenError } from "@/lib/authz";
 import { db } from "@/lib/db";
-import { wbGrant, wbMember, type WbRole } from "@/lib/wb/db/schema";
+import { wbGrant, wbMember } from "@/lib/wb/db/schema";
 import { wbAudit } from "@/lib/wb/audit";
-import { hasGrant, type GrantRow, type GrantScope } from "@/lib/wb/domain/grants";
+import { screens, type GrantRow, type Screen } from "@/lib/wb/domain/access";
 import { isWaiting } from "@/lib/wb/domain/roster-flow";
 
 // Mini App sign-in. Telegram signs `initData` with the bot token; we check it,
@@ -126,7 +126,7 @@ export function verifySession(
 
 // ------------------------------------------------------------------ grants
 
-export { grantCovers, hasGrant, type GrantRow, type GrantScope } from "@/lib/wb/domain/grants";
+export type { GrantRow } from "@/lib/wb/domain/access";
 
 /** WB_ADMIN_TELEGRAM_IDS: comma-separated Telegram user ids that are always ADMIN. */
 export function bootstrapAdminIds(): number[] {
@@ -217,18 +217,18 @@ export async function requireRegistered(): Promise<Member> {
   return m;
 }
 
-/** For pages: lacking the grant sends them Home. */
-export async function requireGrantPage(roles: readonly WbRole[], scope: GrantScope = "any"): Promise<Member> {
+/** For pages: a member who doesn't see this screen (domain/access.ts screens) is sent Home. */
+export async function requireScreenPage(screen: Screen): Promise<Member> {
   const m = await requireRegistered();
-  if (!hasGrant(m.grants, roles, scope)) redirect("/tg");
+  if (!screens(m)[screen]) redirect("/tg");
   return m;
 }
 
 /** For server actions: throws ForbiddenError, which `run()` turns into a message. */
-export async function requireGrant(roles: readonly WbRole[], scope: GrantScope = "any"): Promise<Member> {
+export async function requireScreen(screen: Screen): Promise<Member> {
   const m = await getMember();
   if (!m) throw new ForbiddenError("Please reopen Sabre from Telegram.");
-  if (!hasGrant(m.grants, roles, scope)) throw new ForbiddenError("You don't have permission to do that.");
+  if (!screens(m)[screen]) throw new ForbiddenError("You don't have permission to do that.");
   return m;
 }
 

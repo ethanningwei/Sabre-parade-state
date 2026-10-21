@@ -1,13 +1,12 @@
 import { GrantsEditor } from "@/components/tg/admin/grants-editor";
 import { requireFeaturePage } from "@/lib/flags";
 import { listGrants, registeredMembers } from "@/lib/wb/admin-data";
-import { requireGrantPage } from "@/lib/wb/auth";
-import { ADMIN_ROLES } from "@/lib/wb/permissions";
+import { requireScreenPage } from "@/lib/wb/auth";
 import { structure } from "@/lib/wb/roster";
 
 export default async function GrantsPage() {
   await requireFeaturePage();
-  await requireGrantPage(ADMIN_ROLES);
+  await requireScreenPage("admin");
   const [grants, members, subunits] = await Promise.all([listGrants(), registeredMembers(), structure()]);
   return (
     <div className="flex flex-col gap-4">

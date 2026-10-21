@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CoySnapshot, Issue, SnapshotCamp } from "@/lib/parade/types";
-import type { GrantRow } from "@/lib/wb/domain/grants";
+import { reach, type GrantRow } from "@/lib/wb/domain/access";
 import { issuesInScope, paradeStatePath, v1BackLeaves } from "@/lib/wb/domain/parade-links";
-import { PARADE_STATE_ROLES } from "@/lib/wb/permissions";
 
 const ID = "0b7e6a52-5d0e-4c3f-9b1a-2f4e8c9d1a00";
 
@@ -54,7 +53,7 @@ describe("issuesInScope", () => {
     issue({ kind: "duty", dutyId: "d1" }),
     issue({ kind: "duty", dutyId: "d2" }),
   ];
-  const count = (grants: GrantRow[]) => issuesInScope(snapshot, issues, grants, PARADE_STATE_ROLES);
+  const count = (grants: GrantRow[]) => issuesInScope(snapshot, issues, reach({ grants }, "parade"));
 
   it("a GC counts his own camp's, an Extra/RF/SOL counted there included", () => {
     expect(count([{ role: "GC", subunitId: null, campId: "slr" }])).toBe(2);

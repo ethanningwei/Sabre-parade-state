@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { addGrant, removeGrant } from "@/lib/wb/actions/admin";
 import type { GrantRowView } from "@/lib/wb/admin-data";
-import { WB_ROLES, type WbRole } from "@/lib/wb/domain/roles";
-import { ROLE_LABELS } from "@/lib/wb/permissions";
+import { onlyCampScope } from "@/lib/wb/domain/access";
+import { ROLE_LABELS, WB_ROLES, type WbRole } from "@/lib/wb/domain/roles";
 import type { SubunitWithCamps } from "@/lib/wb/roster";
 import { bigButtonClass, inputClass } from "../ui";
 
@@ -93,14 +93,19 @@ export function GrantsEditor({
           <Label>Where</Label>
           <select className={selectClass} value={scope} onChange={(e) => setScope(e.target.value)}>
             <option value="">Pick a scope</option>
-            <option value="company">Whole company</option>
-            <optgroup label="A platoon">
-              {structure.map((s) => (
-                <option key={s.id} value={`subunit:${s.id}`}>
-                  {s.name}
-                </option>
-              ))}
-            </optgroup>
+            {/* a GC's grant is for his camp only (domain/access.ts) */}
+            {!(role && onlyCampScope(role)) && (
+              <>
+                <option value="company">Whole company</option>
+                <optgroup label="A platoon">
+                  {structure.map((s) => (
+                    <option key={s.id} value={`subunit:${s.id}`}>
+                      {s.name}
+                    </option>
+                  ))}
+                </optgroup>
+              </>
+            )}
             <optgroup label="One camp">
               {structure.flatMap((s) =>
                 s.camps.map((c) => (

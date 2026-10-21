@@ -1,12 +1,12 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import { place } from "@/lib/wb/format";
 import { camp, person, subunit } from "@/lib/db/schema";
 import { wbCommanderChat, wbGrant, wbMember, type WbRole } from "@/lib/wb/db/schema";
-import type { GrantRow } from "@/lib/wb/domain/grants";
-import { inRosterScope, rosterReach, rosterReachLabel } from "@/lib/wb/domain/roster-flow";
+import { inReach, reach, reachLabel, type GrantRow } from "@/lib/wb/domain/access";
+import { reachWhere } from "@/lib/wb/reach-sql";
 
 // Read models for the Mini App's Admin and Roster screens.
 
@@ -184,34 +184,28 @@ export async function rosterFor(grants: readonly GrantRow[]): Promise<Roster> {
       .innerJoin(subunit, eq(subunit.id, camp.subunitId))
       .orderBy(asc(subunit.sortOrder), asc(camp.sortOrder)),
   ]);
+  const roster = reach({ grants }, "roster");
   const camps = new Map<string, RosterCamp>();
-  for (const c of allCamps) if (inRosterScope(grants, { subunitId: c.subunitId, campId: c.id })) camps.set(c.id, { ...c, people: [] });
+  for (const c of allCamps) if (inReach(roster, { subunitId: c.subunitId, campId: c.id })) camps.set(c.id, { ...c, people: [] });
   for (const p of people) camps.get(p.campId)?.people.push({ personId: p.personId, rank: p.rank, name: p.name, role: p.role, registered: !!p.memberId });
-  const live = members.filter((m) => m.active && m.registered && inRosterScope(grants, m));
+  const live = members.filter((m) => m.active && m.registered && inReach(roster, m));
   return {
-    reach: rosterReachLabel(grants),
+    reach: reachLabel(roster),
     camps: [...camps.values()],
     waiting: live.filter((m) => !m.personId),
     left: live.filter((m) => m.personId && m.personActive === false),
   };
 }
 
-/** Registered, not on the roster yet, and in Roster scope: those to add. */
-function waitingWhere(grants: readonly GrantRow[]): SQL | null {
-  const reach = rosterReach(grants);
-  const base = and(eq(wbMember.active, true), isNotNull(wbMember.registeredAt), isNull(wbMember.personId))!;
-  if (reach === true) return base;
-  const parts = [
-    reach.subunitIds.length ? inArray(selfCamp.subunitId, reach.subunitIds) : null,
-    reach.campIds.length ? inArray(wbMember.selfCampId, reach.campIds) : null,
-  ].filter((x): x is SQL => !!x);
-  return parts.length ? and(base, or(...parts))! : null;
-}
-
 /** How many are waiting to be added to the roster in this viewer's Roster scope (the Home badge): one count, not rosterFor(). */
 export async function waitingCount(grants: readonly GrantRow[]): Promise<number> {
-  const where = waitingWhere(grants);
-  if (!where) return 0;
+  // registered, not on the roster yet, and by the camp they registered with, in Roster reach (as rosterFor's waiting)
+  const where = and(
+    eq(wbMember.active, true),
+    isNotNull(wbMember.registeredAt),
+    isNull(wbMember.personId),
+    reachWhere(reach({ grants }, "roster"), { subunitId: selfCamp.subunitId, campId: wbMember.selfCampId }),
+  );
   const [{ n }] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(wbMember)

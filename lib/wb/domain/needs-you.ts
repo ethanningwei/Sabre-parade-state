@@ -1,6 +1,6 @@
 import type { GridRow } from "./forecast";
 import type { WbRole } from "./roles";
-import { onlyCompanyDecides } from "./rules";
+import { onlyCompanyDecides } from "./access";
 
 // Home's "Needs you" card: only what this member should act on, soon, in
 // their scope. Pure: no I/O. Agreed with the user 2026-10-16:

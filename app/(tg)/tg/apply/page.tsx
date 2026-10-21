@@ -5,7 +5,7 @@ import { Tile } from "@/components/tg/tile";
 import { Group } from "@/components/tg/ui";
 import { isEnabled, requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
-import { approverOf } from "@/lib/wb/domain/rules";
+import { approverOf } from "@/lib/wb/domain/access";
 import { rosterSelf } from "@/lib/wb/me";
 
 // Everything a trooper can put on their own timeline.

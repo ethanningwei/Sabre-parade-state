@@ -1,22 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { clashLines, type ClashDuty, type ClashRecord } from "@/lib/wb/domain/clash";
 import { eventDetail, overseasWhere, recordLine, recordWhat } from "@/lib/wb/domain/describe";
-import type { GrantRow } from "@/lib/wb/domain/grants";
 import { holidayOn } from "@/lib/wb/domain/holidays";
 import {
-  accessTo,
-  approverOf,
-  canDecide,
-  canDecideRequest,
-  canForecast,
-  canProxy,
-  decideRefusalText,
-  decidesAnything,
-  forecastsAnything,
   initialState,
   leaveChange,
   leaveRefusal,
-  needsNoApproval,
   nextState,
   NO_APPROVAL_NOTE,
   undoRefusal,
@@ -25,113 +14,6 @@ import {
   type RecordAction,
 } from "@/lib/wb/domain/rules";
 import { dateRange, stampRange } from "@/lib/wb/domain/timeline";
-
-const PL6 = { subunitId: "pl6", campId: "sft-a" };
-const g = (role: GrantRow["role"], scope: Partial<GrantRow> = {}): GrantRow => ({ role, subunitId: null, campId: null, ...scope });
-
-describe("rules: who decides", () => {
-  it.each([
-    ["PS of the platoon", [g("PS", { subunitId: "pl6" })], true],
-    ["PC of the platoon", [g("PC", { subunitId: "pl6" })], true],
-    ["PS of another platoon", [g("PS", { subunitId: "pl5" })], false],
-    ["OC company-wide", [g("OC")], true],
-    ["CSM company-wide", [g("CSM")], true],
-    ["2IC company-wide", [g("2IC")], true],
-    ["OC scoped to a platoon (company roles must be company-wide)", [g("OC", { subunitId: "pl5" })], false],
-    ["GC of the camp", [g("GC", { campId: "sft-a" })], false],
-    ["ASA", [g("ASA")], false],
-    ["ADMIN", [g("ADMIN")], false],
-    ["nobody", [], false],
-  ])("%s → %s", (_tag, grants, want) => {
-    expect(canDecide(grants, PL6)).toBe(want);
-  });
-
-  it("decidesAnything: any PC/PS, or company HQ", () => {
-    expect(decidesAnything([g("PS", { subunitId: "pl5" })])).toBe(true);
-    expect(decidesAnything([g("GC", { campId: "x" }), g("ADMIN")])).toBe(false);
-  });
-
-  it("Manpower: deciders, plus a GC for his own camp only (2026-10-16)", () => {
-    const gc = [g("GC", { campId: "sft-a" })];
-    expect(canForecast(gc, PL6)).toBe(true);
-    expect(canForecast(gc, { subunitId: "pl6", campId: "sft-b" })).toBe(false);
-    expect(canForecast(gc, { subunitId: "pl5", campId: "bdk" })).toBe(false);
-    expect(canForecast([g("GC")], PL6)).toBe(false);
-    expect(canForecast([g("PS", { subunitId: "pl6" })], { subunitId: "pl6", campId: "sft-b" })).toBe(true);
-    expect(canForecast([g("PS", { subunitId: "pl5" })], PL6)).toBe(false);
-    expect(canForecast([g("OC")], PL6)).toBe(true);
-    expect(canForecast([g("ASA")], PL6)).toBe(false);
-    expect(forecastsAnything(gc)).toBe(true);
-    expect(forecastsAnything([g("GC")])).toBe(false);
-    expect(forecastsAnything([g("PC", { subunitId: "pl6" })])).toBe(true);
-    expect(forecastsAnything([g("ASA"), g("ADMIN")])).toBe(false);
-  });
-
-  describe("a request goes to someone above whoever asked (2026-10-14)", () => {
-    const req = (personId: string, ownerRoles: GrantRow["role"][]) => ({ ...PL6, personId, ownerRoles });
-    const ps = { personId: "ps", grants: [g("PS", { subunitId: "pl6" })] };
-    const pc = { personId: "pc", grants: [g("PC", { subunitId: "pl6" })] };
-    const oc = { personId: "oc", grants: [g("OC")] };
-    const csm = { personId: "csm", grants: [g("CSM")] };
-
-    it("a trooper's or GC's: his PC or PS, or company HQ", () => {
-      for (const roles of [[], ["GC"]] as GrantRow["role"][][]) {
-        expect(canDecideRequest(ps, req("t", roles))).toBe(true);
-        expect(canDecideRequest(pc, req("t", roles))).toBe(true);
-        expect(canDecideRequest(oc, req("t", roles))).toBe(true);
-      }
-    });
-
-    it("a PS's: the PC or company HQ, never another PS", () => {
-      expect(canDecideRequest({ personId: "ps2", grants: [g("PS", { subunitId: "pl6" })] }, req("ps", ["PS"]))).toBe(false);
-      expect(canDecideRequest(pc, req("ps", ["PS"]))).toBe(true);
-      expect(canDecideRequest(csm, req("ps", ["PS"]))).toBe(true);
-    });
-
-    it("a PC's: OC, 2IC or CSM only", () => {
-      expect(canDecideRequest(ps, req("pc", ["PC"]))).toBe(false);
-      expect(canDecideRequest({ personId: "pc2", grants: [g("PC", { subunitId: "pl6" })] }, req("pc", ["PC"]))).toBe(false);
-      expect(canDecideRequest(csm, req("pc", ["PC"]))).toBe(true);
-      expect(canDecideRequest(oc, req("pc", ["PC"]))).toBe(true);
-    });
-
-    it("nobody decides their own, except an ADMIN", () => {
-      expect(canDecideRequest(ps, req("ps", ["PS"]))).toBe(false);
-      expect(canDecideRequest(oc, req("oc", ["OC"]))).toBe(false);
-      const admin = { personId: "ps", grants: [g("PS", { subunitId: "pl6" }), g("ADMIN")] };
-      expect(canDecideRequest(admin, req("ps", ["PS", "ADMIN"]))).toBe(true);
-      // ADMIN alone still needs a deciding grant over himself
-      expect(canDecideRequest({ personId: "t", grants: [g("ADMIN")] }, req("t", ["ADMIN"]))).toBe(false);
-    });
-
-    it("OC, 2IC and CSM need no approval; the others are told who approves", () => {
-      expect(needsNoApproval([g("2IC")])).toBe(true);
-      expect(needsNoApproval([g("PC", { subunitId: "pl6" })])).toBe(false);
-      expect(approverOf([])).toBe("your PC or PS");
-      expect(approverOf(["PS"])).toBe("your PC, OC, 2IC or CSM");
-      expect(approverOf(["PC"])).toBe("OC, 2IC or CSM");
-      expect(approverOf(["CSM"])).toBeNull();
-    });
-
-    it("the refusal says why", () => {
-      expect(decideRefusalText(ps, { ...req("ps", ["PS"]), subunitName: "PLATOON 6" })).toMatch(/your own/);
-      expect(decideRefusalText(ps, { ...req("pc", ["PC"]), subunitName: "PLATOON 6" })).toBe("Only OC, 2IC or CSM can decide this.");
-      expect(decideRefusalText({ personId: "x" }, { ...req("ps", ["PS"]), subunitName: "PLATOON 6" })).toMatch(/PLATOON 6's PC/);
-    });
-
-    it("approved on save can't be undone, only voided", () => {
-      const auto = { state: "APPROVED" as const, decidedBy: "m", decidedAt: new Date(), decisionNote: NO_APPROVAL_NOTE };
-      expect(undoRefusal(auto, "m", "you")).toMatch(/Void it instead/);
-    });
-  });
-
-  it("a camp's GC can add events for that camp only", () => {
-    expect(canProxy([g("GC", { campId: "sft-a" })], PL6)).toBe(true);
-    expect(canProxy([g("GC", { campId: "sft-b" })], PL6)).toBe(false);
-    expect(canProxy([g("PS", { subunitId: "pl6" })], PL6)).toBe(true);
-    expect(canProxy([g("ASA")], PL6)).toBe(false);
-  });
-});
 
 describe("rules: states", () => {
   it("leave and off wait for a decision; MA and events are recorded", () => {
@@ -161,6 +43,11 @@ describe("rules: undo", () => {
     expect(undoRefusal({ ...decided, decidedAt: new Date(now.getTime() - UNDO_WINDOW_MS - 1) }, "m1", "2SG TAN", now)).toMatch(/Too late/);
     expect(undoRefusal({ ...decided, state: "PENDING" }, "m1", "x", now)).toMatch(/already waiting/);
     expect(undoRefusal({ ...decided, state: "CANCELLED" }, "m1", "x", now)).toMatch(/can't be taken back/);
+  });
+
+  it("approved on save can't be undone, only voided", () => {
+    const auto = { state: "APPROVED" as const, decidedBy: "m", decidedAt: new Date(), decisionNote: NO_APPROVAL_NOTE };
+    expect(undoRefusal(auto, "m", "you")).toMatch(/Void it instead/);
   });
 });
 
@@ -253,27 +140,3 @@ describe("describe", () => {
   });
 });
 
-describe("rules: accessTo", () => {
-  const now = new Date("2026-08-27T10:00:00Z");
-  const rec = { subunitId: "pl6", campId: "sft-a", personId: "p1", ownerRoles: [], state: "PENDING" as const, decidedBy: null, decidedAt: null, decisionNote: null };
-  const trooper = { id: "m1", personId: "p1", grants: [] };
-  const ps = { id: "m2", personId: "p2", grants: [g("PS", { subunitId: "pl6" })] };
-  const stranger = { id: "m3", personId: "p3", grants: [g("GC", { campId: "sft-a" })] };
-
-  it("the trooper sees and withdraws his own pending request; the PS decides it; others see nothing", () => {
-    expect(accessTo(trooper, rec, now)).toEqual({ view: true, decide: false, undo: false, sayWhy: false, void: false, withdraw: true });
-    expect(accessTo(ps, rec, now)).toEqual({ view: true, decide: true, undo: false, sayWhy: false, void: false, withdraw: false });
-    expect(accessTo(stranger, rec, now).view).toBe(false);
-  });
-
-  it("a PS sees his own pending request but can't decide it", () => {
-    expect(accessTo(ps, { ...rec, personId: "p2", ownerRoles: ["PS"] }, now)).toMatchObject({ view: true, decide: false, withdraw: true });
-  });
-
-  it("after a rejection the decider may undo and say why, once", () => {
-    const rejected = { ...rec, state: "REJECTED" as const, decidedBy: "m2", decidedAt: new Date(now.getTime() - 1000) };
-    expect(accessTo(ps, rejected, now)).toMatchObject({ undo: true, sayWhy: true, void: false, decide: false });
-    expect(accessTo(ps, { ...rejected, decisionNote: "short" }, now).sayWhy).toBe(false);
-    expect(accessTo(ps, { ...rejected, state: "APPROVED" }, now)).toMatchObject({ undo: true, void: true });
-  });
-});

@@ -3,12 +3,11 @@ import { eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { wbAudit } from "@/lib/wb/audit";
 import { wbRecord } from "@/lib/wb/db/schema";
-import type { GrantRow } from "@/lib/wb/domain/grants";
-import { canSeeMedical } from "@/lib/wb/domain/rules";
+import { recordAccess, type GrantRow } from "@/lib/wb/domain/access";
 import type { RecordView } from "@/lib/wb/records";
 
 // The only way to read a diagnosis or a document photo's file_id. Each read is
-// checked against canSeeMedical (the trooper, his PC/PS, OC/2IC/CSM) and
+// checked against recordAccess().seeMedical (the trooper, his PC/PS, OC/2IC/CSM) and
 // written to wb_audit, whether it's a page showing the diagnosis or the file
 // route sending the photo. Nothing here is ever sent to a group chat.
 
@@ -26,7 +25,7 @@ export type MedicalField = "diagnosis" | "photo";
  * diagnosis actually returned.
  */
 export async function readDiagnoses(viewer: Viewer, records: readonly RecordView[], via: "MINIAPP" | "BOT"): Promise<Map<string, string>> {
-  const allowed = records.filter((r) => canSeeMedical(viewer, r)).map((r) => r.id);
+  const allowed = records.filter((r) => recordAccess(viewer, r).seeMedical).map((r) => r.id);
   const out = new Map<string, string>();
   if (!allowed.length) return out;
   const rows = await db.select({ id: wbRecord.id, diagnosis: wbRecord.diagnosis }).from(wbRecord).where(inArray(wbRecord.id, allowed));
@@ -51,7 +50,7 @@ export async function photoIds(records: readonly RecordView[]): Promise<Set<stri
 
 /** The photo's file_id for the file route, if the viewer may see it. Audited. */
 export async function readPhoto(viewer: Viewer, r: RecordView): Promise<string | null> {
-  if (!canSeeMedical(viewer, r)) return null;
+  if (!recordAccess(viewer, r).seeMedical) return null;
   const [row] = await db.select({ f: wbRecord.evidenceFileId }).from(wbRecord).where(eq(wbRecord.id, r.id));
   if (!row?.f) return null;
   await audit(db, viewer.id, "MINIAPP", r.id, "photo");

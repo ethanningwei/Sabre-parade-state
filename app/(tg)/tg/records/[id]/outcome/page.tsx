@@ -3,6 +3,7 @@ import { Header } from "@/components/tg/form-bits";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
 import { recordWhat } from "@/lib/wb/domain/describe";
+import { visitAccess } from "@/lib/wb/domain/access";
 import { outcomeParentRefusal } from "@/lib/wb/domain/rules";
 import { todaySgt } from "@/lib/wb/domain/timeline";
 import { photoIds, readDiagnoses } from "@/lib/wb/medical";
@@ -15,11 +16,10 @@ export default async function OutcomePage({ params }: { params: Promise<{ id: st
   const member = await requireRegistered();
   const { id } = await params;
   const visit = /^[0-9a-f-]{36}$/.test(id) ? await visitOf(id) : null;
-  const mine = !!visit && !!member.personId && visit.anchor.personId === member.personId;
-  const refusal = visit && mine && visit.parentKind ? outcomeParentRefusal(visit.anchor, member.personId!) : null;
-  const standaloneGone = visit && !visit.parentKind && visit.outcome.length === 0;
-
-  if (!visit || !mine || refusal || standaloneGone) {
+  if (!visit || !visitAccess(member, visit).recordOutcome) {
+    // the reason in words, when it's his own visit that isn't ready
+    const mine = !!visit && !!member.personId && visit.anchor.personId === member.personId;
+    const refusal = visit && mine && visit.parentKind ? outcomeParentRefusal(visit.anchor, member.personId!) : null;
     return (
       <div className="flex flex-col gap-3">
         <Header title="Can't record an outcome here" />

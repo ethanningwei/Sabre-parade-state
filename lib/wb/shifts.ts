@@ -5,8 +5,7 @@ import { toSgt } from "@/lib/parade/time";
 import { wbAudit } from "@/lib/wb/audit";
 import { inTx, Refusal, type Actor, type Via } from "@/lib/wb/core";
 import { wbMinManning, wbShiftEvent, wbShiftOverride, wbShiftPattern } from "@/lib/wb/db/schema";
-import { hasGrant } from "@/lib/wb/domain/grants";
-import { canEditShifts, canHoto } from "@/lib/wb/domain/rules";
+import { postAccess, screens } from "@/lib/wb/domain/access";
 import {
   hotoEffect,
   minimumLabel,
@@ -74,7 +73,7 @@ export async function saveShift(actor: Actor, input: ShiftInput, via: Via = "MIN
     // every team of the post, so a pair is never half-set
     const siblings = all.filter((c) => c.post === post.post && c.subunitId === post.subunitId);
     if (siblings.length !== teams.length) throw new Refusal("Set both teams of a camp together.");
-    if (!canEditShifts(actor.grants, post.subunitId)) throw new Refusal(`Only ${post.subunitName}'s PC or PS can change its shifts.`);
+    if (!postAccess(actor, { subunitId: post.subunitId, teams: siblings }).editShifts) throw new Refusal(`Only ${post.subunitName}'s PC or PS can change its shifts.`);
     if (input.kind === "CYCLE") {
       if (!input.anchorDate) throw new Refusal("Say the day a team took over.");
       if (input.campIds.length > 2) throw new Refusal("A cycle works for one team or a pair.");
@@ -146,7 +145,7 @@ export async function logHoto(courier: Courier, actor: Actor, input: { campId: s
     const team = all.find((c) => c.id === input.campId);
     if (!team) throw new Refusal("That camp no longer exists.");
     const teams = all.filter((c) => c.post === team.post && c.subunitId === team.subunitId);
-    if (!canHoto(actor.grants, team.subunitId, teams.map((t) => t.id))) throw new Refusal(`Only ${team.post}'s GC or ${team.subunitName}'s PC or PS can log its HOTO.`);
+    if (!postAccess(actor, { subunitId: team.subunitId, teams }).hoto) throw new Refusal(`Only ${team.post}'s GC or ${team.subunitName}'s PC or PS can log its HOTO.`);
     if (input.at.getTime() > Date.now() + 15 * 60_000) throw new Refusal("That's in the future. Log it when it happens.");
     if (input.at.getTime() < Date.now() - 2 * 86_400_000) throw new Refusal("That's more than two days ago. Ask your PS to fix the pattern instead.");
     const patterns = await loadPatterns(tx);
@@ -208,7 +207,7 @@ export async function recentHotos(campIds: readonly string[], limit = 5) {
  * not yet over for that camp.
  */
 export async function keepShift(actor: Actor, campId: string, on: boolean, via: Via, now: Date = new Date()) {
-  if (!hasGrant(actor.grants, ["ADMIN"], "any")) return { ok: false as const, error: "Only an admin can keep a camp on or off." };
+  if (!screens(actor).admin) return { ok: false as const, error: "Only an admin can keep a camp on or off." };
   const p = (await loadPatterns()).get(campId);
   if (p?.kind !== "WEEKLY") return { ok: false as const, error: "Only a weekday camp (Monday to Friday) can be kept on or off here. Teams that take turns follow their HOTO." };
   const w = overrideWindow(p, now, on);
@@ -226,7 +225,7 @@ export async function keepShift(actor: Actor, campId: string, on: boolean, via: 
 
 /** Back to the pattern: the override ends now. */
 export async function clearShiftOverride(actor: Actor, overrideId: string, via: Via, now: Date = new Date()) {
-  if (!hasGrant(actor.grants, ["ADMIN"], "any")) return { ok: false as const, error: "Only an admin can change that." };
+  if (!screens(actor).admin) return { ok: false as const, error: "Only an admin can change that." };
   return inTx(async (tx) => {
     const [row] = await tx
       .update(wbShiftOverride)

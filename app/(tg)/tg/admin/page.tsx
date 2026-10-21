@@ -4,12 +4,11 @@ import { ParadeStateTile } from "@/components/tg/parade-state-tile";
 import { Tile } from "@/components/tg/tile";
 import { Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
-import { requireGrantPage } from "@/lib/wb/auth";
-import { ADMIN_ROLES } from "@/lib/wb/permissions";
+import { requireScreenPage } from "@/lib/wb/auth";
 
 export default async function AdminHome() {
   await requireFeaturePage();
-  await requireGrantPage(ADMIN_ROLES);
+  await requireScreenPage("admin");
   return (
     <div className="flex flex-col gap-4">
       <Header title="Admin" />

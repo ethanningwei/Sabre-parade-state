@@ -23,3 +23,17 @@ _Avoid_: recipient, target
 **Courier**:
 The one place whereabouts speaks on Telegram on its own initiative, by audience or by card; replies to a tap are not the Courier's.
 _Avoid_: notifier, outbound, sender
+
+## Who may
+
+**Grant**:
+A role a member holds over the company, one platoon or one camp. A GC's grant names his camp; without one it counts for nothing.
+_Avoid_: permission, rank
+
+**Access**:
+What one member may do now with one record, RF request, post or man, and which screens he sees, worked out from his grants and the thing's state.
+_Avoid_: permission, rights, can
+
+**Reach**:
+How far a member's grants carry for one kind of access: the whole company, some platoons and camps, or nothing.
+_Avoid_: scope, coverage

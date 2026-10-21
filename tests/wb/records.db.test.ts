@@ -263,6 +263,9 @@ describe("timeline (DB)", () => {
     // Say why is gone once there's a reason; Undo stays
     expect((edits()[0].payload.reply_markup as { inline_keyboard: { text: string }[][] }).inline_keyboard[0].map((b) => b.text)).toEqual(["↩ Undo"]);
     expect(String(sends()[0].payload.text)).toMatch(/^💬 Why LCP CHUN HEI said no[\s\S]*Camp is short that weekend$/);
+    // one reason: a second is refused, the first stands (2026-10-21)
+    expect(await actions.giveReason({ recordId: id, note: "Changed my mind" })).toMatchObject({ ok: false, error: "You've already said why." });
+    expect((await db.select().from(wbRecord).where(eq(wbRecord.id, id)))[0].decisionNote).toBe("Camp is short that weekend");
   });
 
   it("two approvers racing: exactly one wins, and leave is spent once", async (ctx) => {

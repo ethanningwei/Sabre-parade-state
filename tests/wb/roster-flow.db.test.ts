@@ -13,7 +13,7 @@ import { writeCoy } from "@/lib/data/write-coy";
 import { db } from "@/lib/db";
 import { absence, auditLog, camp, duty, person, subunit } from "@/lib/db/schema";
 import { wbAssignment, wbAudit, wbCard, wbGrant, wbMember, wbProjection, wbRecord, wbRfRequest } from "@/lib/wb/db/schema";
-import type { GrantRow } from "@/lib/wb/domain/grants";
+import type { GrantRow } from "@/lib/wb/domain/access";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
 import { signInitData, TEST_BOT_TOKEN, tgUser } from "./helpers";
 import { recordingCourier } from "./recording-courier";

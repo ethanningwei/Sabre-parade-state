@@ -1,7 +1,8 @@
 import { Ban, Check, Clock, CloudUpload, Undo2, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { KIND_LABEL, recordWhat, STATE_LABEL } from "@/lib/wb/domain/describe";
-import { approvedOnSave, approverOf, costsLeave, isLive, NO_APPROVAL_NOTE, type WbRecordState } from "@/lib/wb/domain/rules";
+import { approverOf } from "@/lib/wb/domain/access";
+import { approvedOnSave, costsLeave, isLive, NO_APPROVAL_NOTE, type WbRecordState } from "@/lib/wb/domain/rules";
 import { dayMonthYear, rangeLabel } from "@/lib/wb/domain/timeline";
 import type { RecordView } from "@/lib/wb/records";
 import { enter } from "./ui";

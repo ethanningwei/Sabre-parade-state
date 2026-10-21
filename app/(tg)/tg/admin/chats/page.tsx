@@ -1,12 +1,11 @@
 import { ChatsEditor } from "@/components/tg/admin/chats-editor";
 import { requireFeaturePage } from "@/lib/flags";
 import { listCommanderChats } from "@/lib/wb/admin-data";
-import { requireGrantPage } from "@/lib/wb/auth";
-import { ADMIN_ROLES } from "@/lib/wb/permissions";
+import { requireScreenPage } from "@/lib/wb/auth";
 
 export default async function ChatsPage() {
   await requireFeaturePage();
-  await requireGrantPage(ADMIN_ROLES);
+  await requireScreenPage("admin");
   const chats = await listCommanderChats();
   return (
     <div className="flex flex-col gap-4">

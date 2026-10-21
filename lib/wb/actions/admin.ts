@@ -7,11 +7,11 @@ import { db } from "@/lib/db";
 import { camp, subunit } from "@/lib/db/schema";
 import { requireFeature } from "@/lib/flags";
 import { wbAudit } from "@/lib/wb/audit";
-import { requireGrant } from "@/lib/wb/auth";
+import { requireScreen } from "@/lib/wb/auth";
+import { onlyCampScope } from "@/lib/wb/domain/access";
 import { place } from "@/lib/wb/format";
 import { WB_ROLES, wbCommanderChat, wbGrant, wbMember } from "@/lib/wb/db/schema";
 import { linkedToSomeoneElse, TAKEN_MESSAGE } from "@/lib/wb/domain/registration";
-import { ADMIN_ROLES } from "@/lib/wb/permissions";
 import { rosterContaining, rosterPerson } from "@/lib/wb/roster";
 
 // Mini App admin (ADMIN grant only): members, grants, commanders' chats.
@@ -19,7 +19,7 @@ import { rosterContaining, rosterPerson } from "@/lib/wb/roster";
 const id = z.uuid();
 
 // requireFeature() runs outside run(), so a disabled feature is a real 404 rather than an error message
-const admin = () => requireGrant(ADMIN_ROLES, "any");
+const admin = () => requireScreen("admin");
 
 async function memberRow(memberId: string) {
   const [m] = await db.select().from(wbMember).where(eq(wbMember.id, memberId));
@@ -116,6 +116,7 @@ export async function addGrant(raw: z.input<typeof grantInput>) {
     if (!m.active || !m.registeredAt) throw new UserError("Only active, registered members can be given a role.");
 
     const [kind, scopeId] = input.scope.split(":") as ["company" | "subunit" | "camp", string | undefined];
+    if (onlyCampScope(input.role) && kind !== "camp") throw new UserError(`A ${input.role} grant is for one camp. Pick his camp.`);
     if (kind === "subunit") {
       const [s] = await db.select({ id: subunit.id }).from(subunit).where(eq(subunit.id, scopeId!));
       if (!s) throw new UserError("That platoon no longer exists.");

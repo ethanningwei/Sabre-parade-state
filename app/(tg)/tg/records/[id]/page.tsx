@@ -8,7 +8,8 @@ import { VisitSection } from "@/components/tg/visit-section";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
 import { KIND_LABEL } from "@/lib/wb/domain/describe";
-import { accessTo, canDecide, canSeeMedical, isOutcome, outcomeParentRefusal, VISIT_KINDS } from "@/lib/wb/domain/rules";
+import { recordAccess, visitAccess } from "@/lib/wb/domain/access";
+import { isOutcome, VISIT_KINDS } from "@/lib/wb/domain/rules";
 import { photoIds, readDiagnoses } from "@/lib/wb/medical";
 import { paradeStatuses } from "@/lib/wb/projection";
 import { recordView } from "@/lib/wb/records";
@@ -23,9 +24,8 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
   const member = await requireRegistered();
   const { id } = await params;
   const r = /^[0-9a-f-]{36}$/.test(id) ? await recordView(id) : null;
-  const can = r ? accessTo(member, r) : null;
 
-  if (!r || !can?.view) {
+  if (!r || !recordAccess(member, r).view) {
     return (
       <EmptyState icon={<SearchX />} title="Not found">
         <p>That record doesn&apos;t exist, or it isn&apos;t yours or your platoon&apos;s to see.</p>
@@ -35,13 +35,14 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
 
   const medical = VISIT_KINDS.includes(r.kind) || isOutcome(r.kind);
   const visit = medical ? await visitOf(r.id) : null;
-  const owner = !!member.personId && member.personId === r.personId;
+  const onVisit = visit ? visitAccess(member, visit) : null;
+  // once he's recorded what the doctor gave, the approval can only be voided
+  const can = recordAccess(member, { ...r, hasOutcome: !!visit && r.id === visit.anchor.id && visit.outcome.length > 0 });
   // the diagnosis and photo: read (and audited) only for someone allowed, and only when there's an outcome to show
-  const sees = !!visit && canSeeMedical(member, visit.anchor) && visit.outcome.length > 0;
+  const sees = !!visit && !!onVisit?.seeMedical && visit.outcome.length > 0;
   const diagnoses = sees ? await readDiagnoses(member, visit.outcome, "MINIAPP") : null;
   const photo = sees ? [...(await photoIds(visit.outcome))][0] ?? null : null;
-  const canOutcome =
-    !!visit && owner && (visit.parentKind ? outcomeParentRefusal(visit.anchor, member.personId!) === null : visit.outcome.length > 0);
+  const canOutcome = !!onVisit?.recordOutcome;
   // a pending or rejected report sick has nothing to show yet
   const showVisit = !!visit && (canOutcome || visit.outcome.length > 0 || !!visit.anchor.outcomeAt);
   // projection on: is it on the parade state yet?
@@ -51,8 +52,7 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
     <div className="flex flex-col gap-4">
       <Header title={KIND_LABEL[r.kind]} hint={`${r.rank} ${r.name} · ${r.campName} · ${r.subunitName}`} />
       <RecordSummary r={r}>
-        {/* once he's recorded what the doctor gave, the approval can only be voided (decide.ts undo refuses too) */}
-        <RecordActions recordId={r.id} can={visit && r.id === visit.anchor.id && visit.outcome.length ? { ...can, undo: false } : can} />
+        <RecordActions recordId={r.id} can={can} />
       </RecordSummary>
       {parade && (
         <p className="px-1">
@@ -66,8 +66,8 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
           diagnoses={diagnoses}
           photoId={photo}
           outcomeHref={canOutcome ? `/tg/records/${visit.anchor.id}/outcome` : null}
-          canMarkOnens={owner || canDecide(member.grants, visit.anchor)}
-          own={owner}
+          canMarkOnens={!!onVisit?.markOnens}
+          own={!!member.personId && member.personId === r.personId}
         />
       )}
       <p className="px-1 text-xs text-muted-foreground">

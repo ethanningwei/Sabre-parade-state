@@ -5,12 +5,11 @@ import { camp } from "@/lib/db/schema";
 import { wbAudit } from "@/lib/wb/audit";
 import { inTx, Refusal, type Actor, type Via } from "@/lib/wb/core";
 import { wbAssignment, wbRfRequest } from "@/lib/wb/db/schema";
+import { assignmentAccess, campAccess, manAccess, rfAccess } from "@/lib/wb/domain/access";
 import {
   ASSIGNMENT_LABEL,
   assignedText,
   assignRefusal,
-  canDeployRf,
-  canRaiseRf,
   deployedLabel,
   deployRefusal,
   headDownText,
@@ -52,7 +51,7 @@ export interface NewRequest extends Range {
 export async function raiseRf(courier: Courier, actor: Actor, input: NewRequest, via: Via) {
   const [c] = await db.select({ id: camp.id, subunitId: camp.subunitId, name: camp.name }).from(camp).where(eq(camp.id, input.campId));
   if (!c) return { ok: false as const, error: "That camp no longer exists." };
-  if (!canRaiseRf(actor.grants, { subunitId: c.subunitId, campId: c.id })) return { ok: false as const, error: `You can't ask for manpower for ${c.name}.` };
+  if (!campAccess(actor, { subunitId: c.subunitId, campId: c.id }).asks) return { ok: false as const, error: `You can't ask for manpower for ${c.name}.` };
   const res = await inTx(async (tx) => {
     const [row] = await tx
       .insert(wbRfRequest)
@@ -80,7 +79,7 @@ export async function raiseRf(courier: Courier, actor: Actor, input: NewRequest,
 export async function deploy(courier: Courier, actor: Actor, requestId: string, personId: string, via: Via) {
   const man = await personWhere(personId);
   if (!man) return { ok: false as const, error: "That man is no longer on the roster." };
-  if (!canDeployRf(actor.grants, man)) return { ok: false as const, error: `You can't send ${man.rank} ${man.name}: he isn't in your platoon or camp.` };
+  if (!manAccess(actor, man).sends) return { ok: false as const, error: `You can't send ${man.rank} ${man.name}: he isn't in your platoon or camp.` };
   const before = await rfView(requestId);
   if (!before) return { ok: false as const, error: "That request has gone." };
   const away = await clashFor(personId, before);
@@ -118,7 +117,7 @@ export async function deploy(courier: Courier, actor: Actor, requestId: string, 
 export async function closeRf(courier: Courier, actor: Actor, requestId: string, via: Via) {
   const before = await rfView(requestId);
   if (!before) return { ok: false as const, error: "That request has gone." };
-  if (before.raisedById !== actor.id && !canRaiseRf(actor.grants, before)) return { ok: false as const, error: `Only whoever asked, or ${before.campName}'s commanders, can close this.` };
+  if (!rfAccess(actor, before).asks) return { ok: false as const, error: `Only whoever asked, or ${before.campName}'s commanders, can close this.` };
   const res = await inTx(async (tx) => {
     const [row] = await tx
       .update(wbRfRequest)
@@ -169,9 +168,7 @@ export async function standDown(courier: Courier, actor: Actor, assignmentId: st
   const a = await assignmentView(assignmentId);
   if (!a) return { ok: false as const, error: "That's gone." };
   const req = a.rfRequestId ? await rfView(a.rfRequestId) : null;
-  const allowed =
-    canDeployRf(actor.grants, { subunitId: a.subunitId, campId: a.homeCampId }) || (req && (canRaiseRf(actor.grants, req) || req.raisedById === actor.id));
-  if (!allowed) return { ok: false as const, error: `You can't stand ${a.rank} ${a.name} down.` };
+  if (!assignmentAccess(actor, { man: { subunitId: a.subunitId, campId: a.homeCampId }, request: req }).standDown) return { ok: false as const, error: `You can't stand ${a.rank} ${a.name} down.` };
   const res = await inTx(async (tx) => {
     if (a.rfRequestId) await tx.select({ id: wbRfRequest.id }).from(wbRfRequest).where(eq(wbRfRequest.id, a.rfRequestId)).for("update");
     const [row] = await tx
@@ -218,7 +215,7 @@ export async function assign(courier: Courier, actor: Actor, input: NewAssignmen
   const men = await Promise.all(input.personIds.map((id) => personWhere(id)));
   if (men.some((m) => !m)) return { ok: false as const, error: "Someone picked is no longer on the roster." };
   const list = men as NonNullable<(typeof men)[number]>[];
-  const outside = list.find((m) => !canDeployRf(actor.grants, m));
+  const outside = list.find((m) => !manAccess(actor, m).sends);
   if (outside) return { ok: false as const, error: `You can't send ${outside.rank} ${outside.name}: he isn't in your platoon or camp.` };
   let target: { id: string; name: string } | null = null;
   if (input.type !== "SOL") {

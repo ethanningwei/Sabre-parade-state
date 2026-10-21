@@ -1,12 +1,10 @@
 import { Bus, Plus, UserPlus } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Header } from "@/components/tg/form-bits";
 import { RfSummary } from "@/components/tg/rf/rf-summary";
 import { EmptyState, Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
-import { requireRegistered } from "@/lib/wb/auth";
-import { rfAnything } from "@/lib/wb/domain/rf";
+import { requireScreenPage } from "@/lib/wb/auth";
 import { board } from "@/lib/wb/rf-data";
 
 // The RF board: what the company is still short of, soonest first, then what
@@ -14,8 +12,7 @@ import { board } from "@/lib/wb/rf-data";
 // it: any platoon may have the men to spare.
 export default async function RfBoardPage() {
   await requireFeaturePage();
-  const member = await requireRegistered();
-  if (!rfAnything(member.grants)) redirect("/tg");
+  await requireScreenPage("rf");
   const now = new Date();
   const { open, settled } = await board(now);
   const action = "tg-press flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-card px-3 text-sm font-medium text-primary active:bg-muted";

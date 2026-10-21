@@ -4,17 +4,14 @@ import { db } from "@/lib/db";
 import { wbAudit } from "@/lib/wb/audit";
 import { inTx, Refusal, type Actor, type Delivery, type Via } from "@/lib/wb/core";
 import { wbMember, wbRecord, type WbRecordKind } from "@/lib/wb/db/schema";
+import { decideRefusalText, needsNoApproval, recordAccess } from "@/lib/wb/domain/access";
 import { STATE_LABEL } from "@/lib/wb/domain/describe";
 import {
-  canDecide,
-  canDecideRequest,
-  decideRefusalText,
   initialState,
   isLive,
   kinOf,
   leaveChange,
   needsApproval,
-  needsNoApproval,
   nextState,
   NO_APPROVAL_NOTE,
   undoRefusal,
@@ -78,7 +75,7 @@ export async function submit(courier: Courier, actor: Actor, recs: NewRecord[], 
   const now = new Date();
   const ids = await db.transaction(async (tx) => {
     const values = recs.map((r) => {
-      const onSave = r.createdVia === "SELF" && needsApproval(r.kind) && needsNoApproval(actor.grants);
+      const onSave = r.createdVia === "SELF" && needsApproval(r.kind) && needsNoApproval(actor);
       return onSave
         ? { ...r, state: "APPROVED" as const, decidedBy: actor.id, decidedAt: now, decisionNote: NO_APPROVAL_NOTE, createdBy: actor.id }
         : { ...r, state: initialState(r.kind), createdBy: actor.id };
@@ -130,7 +127,7 @@ export async function submit(courier: Courier, actor: Actor, recs: NewRecord[], 
 export async function decide(courier: Courier, actor: Actor, recordId: string, action: "approve" | "reject", via: Via, note?: string): Promise<Result> {
   const before = await recordView(recordId);
   if (!before) return { ok: false, error: "That record has gone." };
-  if (!canDecideRequest(actor, before)) return { ok: false, error: decideRefusalText(actor, before), record: before };
+  if (!recordAccess(actor, before).approves) return { ok: false, error: decideRefusalText(actor, before), record: before };
   const to = nextState("PENDING", action)!;
   const why = note?.trim().slice(0, NOTE_MAX) || null;
 
@@ -209,7 +206,7 @@ export async function withdraw(courier: Courier, actor: Actor, recordId: string,
 export async function voidRecord(courier: Courier, actor: Actor, recordId: string, reason: string, via: Via): Promise<Result> {
   const before = await recordView(recordId);
   if (!before) return { ok: false, error: "That record has gone." };
-  if (!canDecide(actor.grants, before)) return { ok: false, error: `Only ${before.subunitName}'s PC or PS can void this.`, record: before };
+  if (!recordAccess(actor, before).commands) return { ok: false, error: `Only ${before.subunitName}'s PC or PS can void this.`, record: before };
   const why = reason.trim().slice(0, NOTE_MAX);
   if (why.length < 3) return { ok: false, error: "Say why you're voiding it.", record: before };
   const by = await memberLabel(actor.id);
@@ -253,6 +250,7 @@ export async function sayWhy(courier: Courier, actor: Actor, recordId: string, n
     const [row] = await tx.select().from(wbRecord).where(eq(wbRecord.id, recordId)).for("update");
     if (!row) throw new Refusal("That record has gone.");
     if (row.state !== "REJECTED" || row.decidedBy !== actor.id) throw new Refusal("Only whoever rejected it can say why.");
+    if (row.decisionNote) throw new Refusal("You've already said why.");
     await tx.update(wbRecord).set({ decisionNote: why, updatedAt: new Date() }).where(eq(wbRecord.id, recordId));
     await wbAudit(tx, { memberId: actor.id, via, action: "say-why", entity: "wb_record", entityId: row.id, before: { note: row.decisionNote }, after: { note: why } });
   });

@@ -1,7 +1,6 @@
 import { indexCamps, servingCampId } from "@/lib/parade/compute";
 import type { CoySnapshot, Issue } from "@/lib/parade/types";
-import { hasGrant, type GrantRow } from "./grants";
-import type { WbRole } from "./roles";
+import { inReach, type Reach } from "./access";
 
 // The hop between the Mini App and the v1 web app (agreed with the user
 // 2026-10-17): where the Mini App may open v1, where Telegram's Back goes
@@ -25,7 +24,7 @@ export const v1BackLeaves = (pathname: string): boolean => V1_TABS.test(pathname
  * platoon each one is about (an Extra/RF/SOL by the camp it's counted at).
  * An issue about no camp or platoon is company command's.
  */
-export function issuesInScope(snapshot: CoySnapshot, issues: readonly Issue[], grants: readonly GrantRow[], roles: readonly WbRole[]): number {
+export function issuesInScope(snapshot: CoySnapshot, issues: readonly Issue[], reach: Reach): number {
   const idx = indexCamps(snapshot);
   const subunitOf = new Map(snapshot.subunits.flatMap((s) => s.camps.map((c) => [c.id, s.id] as const)));
   const duties = new Map(snapshot.duties.map((d) => [d.id, d]));
@@ -34,6 +33,6 @@ export function issuesInScope(snapshot: CoySnapshot, issues: readonly Issue[], g
     const duty = t.kind === "duty" ? duties.get(t.dutyId) : undefined;
     const campId = t.kind === "camp" || t.kind === "person" ? t.campId : duty ? servingCampId(duty, idx) : null;
     const subunitId = t.kind === "subunit" ? t.subunitId : campId ? subunitOf.get(campId) : undefined;
-    return subunitId ? hasGrant(grants, roles, { subunitId, campId }) : hasGrant(grants, roles, "company");
+    return subunitId ? inReach(reach, { subunitId, campId: campId ?? null }) : reach === "company";
   }).length;
 }

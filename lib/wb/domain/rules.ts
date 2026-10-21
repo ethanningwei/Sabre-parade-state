@@ -1,5 +1,3 @@
-import { hasGrant, type GrantRow } from "./grants";
-import type { WbRole } from "./roles";
 
 // What may happen to a record, and who may make it happen. Pure: no I/O.
 // Ports Sabre Bot's engine.py decide/undo/void and store.py refunds.
@@ -101,123 +99,8 @@ export function kinOf<R extends { id: string; parentId: string | null; state: Wb
 /** Statuses on one paper. More than this is a second entry. */
 export const MAX_STATUSES = 4;
 
-// ------------------------------------------------------------------ who
-
-/** Decide a platoon's requests: its PC or PS. */
-export const PLATOON_DECIDERS: readonly WbRole[] = ["PC", "PS"];
-/** Decide anyone's: company HQ. */
-export const COMPANY_DECIDERS: readonly WbRole[] = ["OC", "2IC", "CSM"];
-/** Add an event for several men: commanders, plus a camp's own GC. */
-export const PROXY_ROLES: readonly WbRole[] = ["PC", "PS", "GC"];
-
-/** Where the person a record is about stands. */
-export interface Where {
-  subunitId: string;
-  campId: string;
-}
-
-/**
- * Approving, rejecting and voiding need a grant: the platoon's PC or PS, or
- * OC/2IC/CSM company-wide. Being in the commanders chat isn't enough (a change
- * from Sabre Bot), and GCs don't decide.
- */
-export const canDecide = (grants: readonly GrantRow[], where: Where) =>
-  hasGrant(grants, PLATOON_DECIDERS, where) || hasGrant(grants, COMPANY_DECIDERS, "company");
-
-/** A request and whose it is: the roles the man it's about holds (wb_grant, any scope). */
-export interface Request extends Where {
-  personId: string;
-  ownerRoles: readonly WbRole[];
-}
-
-/**
- * OC, 2IC and CSM record their own leave, off and report sick without asking
- * anyone (the user, 2026-10-14): it's approved the moment it's saved.
- */
-export const needsNoApproval = (grants: readonly GrantRow[]) => hasGrant(grants, COMPANY_DECIDERS, "any");
-
-/** Marks a record approved at submission because its owner needs no approval. */
+/** Marks a record approved at submission because its owner needs no approval (domain/access.ts needsNoApproval). */
 export const NO_APPROVAL_NOTE = "No approval needed";
-
-/** The platoon roles that may decide this man's requests: a PS's go to the PC, a PC's (and company HQ's) to OC/2IC/CSM only. */
-function platoonDecidersFor(ownerRoles: readonly WbRole[]): readonly WbRole[] {
-  if (ownerRoles.some((r) => r === "PC" || COMPANY_DECIDERS.includes(r))) return [];
-  if (ownerRoles.includes("PS")) return ["PC"];
-  return PLATOON_DECIDERS;
-}
-
-/**
- * Approving or rejecting needs someone above the man who asked (the user,
- * 2026-10-14): a trooper's or GC's request goes to his PC or PS, a PS's to the
- * PC, a PC's to OC/2IC/CSM, and OC/2IC/CSM decide anyone's but their own.
- * Nobody decides their own, except an ADMIN (so the app can be tested alone).
- */
-export function canDecideRequest(viewer: { personId: string | null; grants: readonly GrantRow[] }, r: Request): boolean {
-  if (viewer.personId === r.personId) return hasGrant(viewer.grants, ["ADMIN"], "any") && canDecide(viewer.grants, r);
-  return hasGrant(viewer.grants, platoonDecidersFor(r.ownerRoles), r) || hasGrant(viewer.grants, COMPANY_DECIDERS, "company");
-}
-
-/** A PC's requests (and company HQ's) are decided by OC, 2IC or CSM only: their cards go to COY HQ's chat too. */
-export const onlyCompanyDecides = (ownerRoles: readonly WbRole[]) => platoonDecidersFor(ownerRoles).length === 0;
-
-/** Who approves this man's requests, for the Apply screen and a pending record: "your PC or PS", or null when nobody needs to. */
-export function approverOf(ownerRoles: readonly WbRole[]): string | null {
-  if (ownerRoles.some((r) => COMPANY_DECIDERS.includes(r))) return null;
-  const deciders = platoonDecidersFor(ownerRoles);
-  if (!deciders.length) return "OC, 2IC or CSM";
-  if (deciders.length === 1) return "your PC, OC, 2IC or CSM";
-  return "your PC or PS";
-}
-
-/** Why this viewer can't decide this request, in words. */
-export function decideRefusalText(viewer: { personId: string | null }, r: Request & { subunitName: string }): string {
-  if (viewer.personId === r.personId) return "You can't decide your own request. It's with the commander above you.";
-  const deciders = platoonDecidersFor(r.ownerRoles);
-  if (!deciders.length) return "Only OC, 2IC or CSM can decide this.";
-  if (deciders.length === 1) return `Only ${r.subunitName}'s PC, or OC, 2IC or CSM, can decide a PS's request.`;
-  return `Only ${r.subunitName}'s PC or PS can decide this.`;
-}
-
-/** Whether someone decides anything at all (shows the Approvals screen). */
-export const decidesAnything = (grants: readonly GrantRow[]) =>
-  hasGrant(grants, PLATOON_DECIDERS, "any") || hasGrant(grants, COMPANY_DECIDERS, "company");
-
-export const canProxy = (grants: readonly GrantRow[], where: Where) =>
-  hasGrant(grants, PROXY_ROLES, where) || hasGrant(grants, COMPANY_DECIDERS, "company");
-
-export const proxiesAnything = (grants: readonly GrantRow[]) =>
-  hasGrant(grants, PROXY_ROLES, "any") || hasGrant(grants, COMPANY_DECIDERS, "company");
-
-// ------------------------------------------------------------------ shifts (Phase 4)
-
-/** Set a camp's shift pattern and minimum manning: ADMIN anywhere, or the platoon's PC/PS. */
-export const canEditShifts = (grants: readonly GrantRow[], subunitId: string) =>
-  hasGrant(grants, ["ADMIN"], "any") || hasGrant(grants, PLATOON_DECIDERS, { subunitId });
-
-export const editsShiftsAnything = (grants: readonly GrantRow[]) =>
-  hasGrant(grants, ["ADMIN"], "any") || hasGrant(grants, PLATOON_DECIDERS, "any");
-
-/**
- * Log a HOTO for a physical camp: a GC of either of its teams, the platoon's
- * PC/PS, or OC/2IC/CSM. `teams` are the camps sharing the post.
- */
-export const canHoto = (grants: readonly GrantRow[], subunitId: string, teams: readonly string[]) =>
-  teams.some((campId) => hasGrant(grants, ["GC"], { subunitId, campId })) ||
-  hasGrant(grants, PLATOON_DECIDERS, { subunitId }) ||
-  hasGrant(grants, COMPANY_DECIDERS, "company");
-
-export const hotosAnything = (grants: readonly GrantRow[]) =>
-  hasGrant(grants, ["GC", ...PLATOON_DECIDERS], "any") || hasGrant(grants, COMPANY_DECIDERS, "company");
-
-/**
- * Manpower (the day view and the 14-day grid): whoever decides there, or that
- * very camp's GC (the user, 2026-10-16). Only a GC grant naming a camp counts:
- * a campless one would read as company-wide under grantCovers.
- */
-export const canForecast = (grants: readonly GrantRow[], where: Where) =>
-  canDecide(grants, where) || grants.some((g) => g.role === "GC" && !!g.campId && g.campId === where.campId);
-
-export const forecastsAnything = (grants: readonly GrantRow[]) => decidesAnything(grants) || grants.some((g) => g.role === "GC" && !!g.campId);
 
 // ------------------------------------------------------------------ what
 
@@ -285,44 +168,6 @@ export function leaveRefusal(days: number, left: number): string | null {
     );
   }
   return null;
-}
-
-/**
- * Who may read a diagnosis or a document photo: the trooper himself, his PC
- * and PS, and OC/2IC/CSM. Not a GC, not another platoon, not an admin. Every
- * read is audited (lib/wb/medical.ts).
- */
-export function canSeeMedical(viewer: { personId: string | null; grants: readonly GrantRow[] }, r: Where & { personId: string }): boolean {
-  return (!!viewer.personId && viewer.personId === r.personId) || canDecide(viewer.grants, r);
-}
-
-// ------------------------------------------------------------------ what a viewer may do
-
-export interface RecordAccess {
-  view: boolean;
-  decide: boolean;
-  undo: boolean;
-  sayWhy: boolean;
-  void: boolean;
-  withdraw: boolean;
-}
-
-/** What this member may do with this record, for the Mini App's buttons. The decision core re-checks all of it. */
-export function accessTo(
-  viewer: { id: string; personId: string | null; grants: readonly GrantRow[] },
-  r: Request & Decided & { decisionNote: string | null },
-  now: Date = new Date(),
-): RecordAccess {
-  const owner = !!viewer.personId && viewer.personId === r.personId;
-  const decider = canDecide(viewer.grants, r);
-  return {
-    view: owner || decider,
-    decide: r.state === "PENDING" && canDecideRequest(viewer, r),
-    undo: decider && undoRefusal(r, viewer.id, "", now) === null,
-    sayWhy: r.state === "REJECTED" && r.decidedBy === viewer.id && !r.decisionNote,
-    void: decider && nextState(r.state, "void") !== null,
-    withdraw: owner && nextState(r.state, "withdraw") !== null,
-  };
 }
 
 // ------------------------------------------------------------------ what's current

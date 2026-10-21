@@ -1,19 +1,17 @@
 import { CalendarX } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { CampCard } from "@/components/tg/day-camp-card";
 import { DateStrip, type StripDay } from "@/components/tg/date-strip";
 import { Grid, Legend } from "@/components/tg/forecast-grid";
 import { Header } from "@/components/tg/form-bits";
 import { EmptyState, Group, Segmented } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
-import { hasGrant, requireRegistered } from "@/lib/wb/auth";
+import { requireScreenPage, type GrantRow } from "@/lib/wb/auth";
+import { manAccess, screens } from "@/lib/wb/domain/access";
 import { nextDays } from "@/lib/wb/domain/forecast";
-import { canDecide, forecastsAnything } from "@/lib/wb/domain/rules";
 import { WEEKDAY_NAMES, weekdayOf } from "@/lib/wb/domain/shifts";
 import { dayMonthYear, todaySgt } from "@/lib/wb/domain/timeline";
 import { campsInfo, dayView, FORECAST_DAYS, forecastScope, grid } from "@/lib/wb/forecast-data";
-import { PARADE_STATE_ROLES } from "@/lib/wb/permissions";
 import { paradeStatusesOf, type ParadeStatus } from "@/lib/wb/projection";
 
 type Search = { date?: string | string[]; camp?: string | string[]; view?: string | string[] };
@@ -26,8 +24,7 @@ const one = (v: string | string[] | undefined) => (typeof v === "string" ? v : n
 // platoon, OC/2IC/CSM everyone, a GC his own camp (without opening records).
 export default async function ManpowerPage({ searchParams }: { searchParams: Promise<Search> }) {
   await requireFeaturePage();
-  const member = await requireRegistered();
-  if (!forecastsAnything(member.grants)) redirect("/tg");
+  const member = await requireScreenPage("manpower");
   const sp = await searchParams;
   const today = todaySgt();
   const raw = one(sp.date);
@@ -103,7 +100,7 @@ function DayView({
   today: string;
   q: string;
   parade: ReadonlyMap<string, ParadeStatus>;
-  grants: Parameters<typeof canDecide>[0];
+  grants: readonly GrantRow[];
 }) {
   const strip: StripDay[] = nextDays(today, FORECAST_DAYS).map((d) => {
     const cells = rows.flatMap((r) => r.cells.filter((c) => c.date === d));
@@ -119,7 +116,7 @@ function DayView({
   const short = onShift.filter((d) => d.short).length;
   const platoons = [...new Map(days.map((d) => [d.info.subunitId, d.info.subunitName]))];
   // the parade state is today's: each camp links to its v1 screen
-  const paradeToday = date === today && hasGrant(grants, PARADE_STATE_ROLES, "any");
+  const paradeToday = date === today && screens({ grants }).parade;
 
   return (
     <>
@@ -142,7 +139,7 @@ function DayView({
                 d={d}
                 i={i}
                 parade={parade}
-                canOpen={canDecide(grants, { subunitId: d.info.subunitId, campId: d.info.id })}
+                canOpen={manAccess({ grants }, { subunitId: d.info.subunitId, campId: d.info.id }).commands}
                 onParadeState={paradeToday}
               />
             ))}

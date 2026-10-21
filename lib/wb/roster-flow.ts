@@ -11,7 +11,8 @@ import { inTx, Refusal, type Actor } from "@/lib/wb/core";
 import { wbAssignment, wbGrant, wbMember, wbProjection, wbRecord, wbRfRequest } from "@/lib/wb/db/schema";
 import { stateAfter } from "@/lib/wb/domain/rf";
 import { RANKS, rolesFor } from "@/lib/wb/domain/roles";
-import { addedText, canRemoveFromRoster, inRosterScope, removalRefusal, type RemovalCounts } from "@/lib/wb/domain/roster-flow";
+import { inReach, manAccess, reach } from "@/lib/wb/domain/access";
+import { addedText, removalRefusal, type RemovalCounts } from "@/lib/wb/domain/roster-flow";
 import { STANDING_STATES } from "@/lib/wb/domain/rules";
 import { place } from "@/lib/wb/format";
 import { ensureProjectorUser, PROJECTOR_USER } from "@/lib/wb/projection";
@@ -179,7 +180,8 @@ export async function redrawAfter(c: Courier, cleanup: Cleanup) {
 export async function removeFromRoster(c: Courier, actor: Actor, personId: string) {
   const p = await personWhere(personId);
   if (!p) return { ok: false as const, error: "He's no longer on the roster." };
-  if (!canRemoveFromRoster(actor.grants, p)) return { ok: false as const, error: `Only ${p.subunitName}'s PC or PS (or company command) can remove ${p.rank} ${p.name}.` };
+  // by where he stands only: removalRefusal says why not yourself
+  if (!manAccess(actor, { subunitId: p.subunitId, campId: p.campId }).removes) return { ok: false as const, error: `Only ${p.subunitName}'s PC or PS (or company command) can remove ${p.rank} ${p.name}.` };
   const self = removalRefusal({ self: actor.personId === personId, lastAdmin: false });
   if (self) return { ok: false as const, error: self };
   const label = await memberLabel(actor.id);
@@ -236,7 +238,7 @@ async function waitingMember(actor: Actor, memberId: string) {
     .leftJoin(camp, eq(camp.id, wbMember.selfCampId))
     .where(eq(wbMember.id, memberId));
   if (!row || !row.m.active || !row.m.registeredAt) return { error: "That account is no longer waiting." };
-  if (!inRosterScope(actor.grants, { subunitId: row.subunitId, campId: row.campId })) return { error: "He isn't in your platoon or camp." };
+  if (!inReach(reach(actor, "roster"), { subunitId: row.subunitId, campId: row.campId })) return { error: "He isn't in your platoon or camp." };
   if (row.m.personId) return { error: "Someone has just added him." };
   return { member: row.m, campId: row.campId };
 }
@@ -290,7 +292,7 @@ async function checkPerson(actor: Actor, input: PersonInput, keep?: { rank: stri
     .innerJoin(subunit, eq(subunit.id, camp.subunitId))
     .where(eq(camp.id, input.campId));
   if (!target) return { ok: false as const, error: "Pick his camp again." };
-  if (!inRosterScope(actor.grants, { subunitId: target.subunitId, campId: target.id })) return { ok: false as const, error: `${target.name} isn't in your platoon or camp.` };
+  if (!inReach(reach(actor, "roster"), { subunitId: target.subunitId, campId: target.id })) return { ok: false as const, error: `${target.name} isn't in your platoon or camp.` };
   const rank = input.rank.trim().toUpperCase();
   const name = input.name.trim().toUpperCase().split(/\s+/).filter(Boolean).join(" ");
   if (!(RANKS as readonly string[]).includes(rank) && rank !== keep?.rank) return { ok: false as const, error: "Pick his rank." };
@@ -345,7 +347,7 @@ export async function linkToRoster(c: Courier, actor: Actor, memberId: string, p
   if (!w.member) return { ok: false as const, error: w.error };
   const p = await personWhere(personId);
   if (!p) return { ok: false as const, error: "That person is no longer on the roster." };
-  if (!inRosterScope(actor.grants, p)) return { ok: false as const, error: `${p.rank} ${p.name} isn't in your platoon or camp.` };
+  if (!inReach(reach(actor, "roster"), p)) return { ok: false as const, error: `${p.rank} ${p.name} isn't in your platoon or camp.` };
   if (p.campId !== w.campId) return { ok: false as const, error: `${p.rank} ${p.name} is in ${p.campName}, not the camp he registered with.` };
   const res = await inTx(async (t) => {
     const tx = asTx(t);
@@ -394,7 +396,7 @@ export async function addPersonToRoster(actor: Actor, input: PersonInput) {
 export async function editRosterPerson(actor: Actor, personId: string, input: PersonInput) {
   const p = await personWhere(personId);
   if (!p) return { ok: false as const, error: "He's no longer on the roster." };
-  if (!inRosterScope(actor.grants, p)) return { ok: false as const, error: `${p.rank} ${p.name} isn't in your platoon or camp.` };
+  if (!inReach(reach(actor, "roster"), p)) return { ok: false as const, error: `${p.rank} ${p.name} isn't in your platoon or camp.` };
   const [current] = await db.select({ rank: person.rank, role: person.role }).from(person).where(eq(person.id, personId));
   const checked = await checkPerson(actor, input, current);
   if (!checked.ok) return checked;

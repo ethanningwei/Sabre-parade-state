@@ -316,6 +316,10 @@ describe("bot: approval cards (fake Telegram)", () => {
     expect(r.find((x) => x.method === "sendMessage" && x.payload.chat_id === TROOPER)!.payload.text).toMatch(/^💬 Why LCP CHUN HEI said no/);
     expect(r.at(-1)!.payload).toMatchObject({ chat_id: GROUP.id, text: "✅ Sent to PTE IRFAN.", message_thread_id: 7 });
     expect(await db.select().from(wbConversation)).toEqual([]);
+
+    // a stale Say why button: the reason is in, so it can't be overwritten (2026-10-21)
+    expect(answerOf(await send(tap(`d:${recordId}:w`, { from: PS, messageId: cardMessage, topic: 7 })))).toMatchObject({ show_alert: true, text: "You've already said why." });
+    expect(await db.select().from(wbConversation)).toEqual([]);
   });
 
   it("a Say why reply after ten minutes is dropped", async (ctx) => {

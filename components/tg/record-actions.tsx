@@ -7,11 +7,11 @@ import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import type { ActionResult } from "@/lib/actions/shared";
 import { decideRecord, giveReason, undoDecision, voidEntry, withdrawRecord } from "@/lib/wb/actions/records";
-import type { RecordAccess } from "@/lib/wb/domain/rules";
+import type { RecordAccess } from "@/lib/wb/domain/access";
 import { BigButton, ErrorBox, textareaClass, useAction } from "./form-bits";
 
 // The buttons a viewer may use on one record. The server works out `can`
-// (lib/wb/domain/rules accessTo) and the decision core checks it all again.
+// (lib/wb/domain/access recordAccess) and the decision core checks it all again.
 
 type Open = null | "reject" | "void" | "why" | "withdraw";
 

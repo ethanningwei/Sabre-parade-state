@@ -7,13 +7,12 @@ import { StateChip } from "@/components/tg/record-summary";
 import { Tile } from "@/components/tg/tile";
 import { Group } from "@/components/tg/ui";
 import { isEnabled, requireFeaturePage } from "@/lib/flags";
-import { getMember, hasGrant, type GrantRow } from "@/lib/wb/auth";
+import { getMember, type GrantRow } from "@/lib/wb/auth";
+import { companyOnly, screens } from "@/lib/wb/domain/access";
 import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
 import type { GridRow } from "@/lib/wb/domain/forecast";
 import { needsYou } from "@/lib/wb/domain/needs-you";
-import { isWaiting, seesRoster } from "@/lib/wb/domain/roster-flow";
-import { rfAnything } from "@/lib/wb/domain/rf";
-import { COMPANY_DECIDERS, decidesAnything, forecastsAnything, hotosAnything, PLATOON_DECIDERS, proxiesAnything } from "@/lib/wb/domain/rules";
+import { isWaiting } from "@/lib/wb/domain/roster-flow";
 import { todaySgt } from "@/lib/wb/domain/timeline";
 import { waitingCount } from "@/lib/wb/admin-data";
 import { campsInfo, forecastScope, grid } from "@/lib/wb/forecast-data";
@@ -21,7 +20,6 @@ import { place } from "@/lib/wb/format";
 import { rosterSelf } from "@/lib/wb/me";
 import { profileOf } from "@/lib/wb/members";
 import { paradeIssueCount } from "@/lib/wb/parade-link";
-import { PARADE_STATE_ROLES } from "@/lib/wb/permissions";
 import { nowAndNext, onensOwedFor, pendingFor, type RecordView } from "@/lib/wb/records";
 import { assignmentsOf, openRequests } from "@/lib/wb/rf-data";
 
@@ -34,14 +32,10 @@ export default async function TgHome() {
   if (!member) return null; // the layout is signing them in
   if (!member.registeredAt) redirect("/tg/register");
   if (isWaiting(member)) redirect("/tg/waiting");
-  const decides = decidesAnything(member.grants);
-  const hoto = hotosAnything(member.grants);
-  const manpower = forecastsAnything(member.grants);
-  const rf = rfAnything(member.grants);
-  const roster = seesRoster(member.grants);
+  const sees = screens(member);
+  const { inbox: decides, hoto, manpower, rf, roster, parade } = sees;
   const now = new Date();
   const today = todaySgt(now);
-  const parade = hasGrant(member.grants, PARADE_STATE_ROLES, "any");
   const [[me, self], pending, owed, openRf, short, waiting, paradeIssues] = await Promise.all([
     Promise.all([profileOf(member), rosterSelf(member)]),
     decides ? pendingFor(member) : Promise.resolve([] as RecordView[]),
@@ -56,9 +50,8 @@ export default async function TgHome() {
     self ? nowAndNext(self.personId) : { current: null, next: null },
     self ? assignmentsOf(self.personId) : [],
   ]);
-  const companyOnly = hasGrant(member.grants, COMPANY_DECIDERS, "company") && !hasGrant(member.grants, PLATOON_DECIDERS, "any");
-  const needs = needsYou({ pending, short, companyOnly, now, today, paradeIssues });
-  const commands = parade || decides || manpower || hoto || rf || proxiesAnything(member.grants) || roster;
+  const needs = needsYou({ pending, short, companyOnly: companyOnly(member), now, today, paradeIssues });
+  const commands = parade || decides || manpower || hoto || rf || sees.add || roster;
 
   return (
     <div className="flex flex-col gap-6">
@@ -124,8 +117,8 @@ export default async function TgHome() {
             {decides && <Tile href="/tg/inbox" icon={<Inbox />} title="Inbox" badge={pending.length + owed.length} hint={inboxHint(pending, owed.length, now)} />}
             {hoto && <Tile href="/tg/hoto" icon={<ArrowLeftRight />} title="HOTO" hint="Log a handover" />}
             {rf && <Tile href="/tg/rf" icon={<Bus />} title="RF and duties" badge={openRf.length} hint={rfHint(openRf.map((r) => r.campName))} />}
-            {decides && <Tile href="/tg/people" icon={<History />} title="Person history" hint="Anyone's records; void a mistake" />}
-            {proxiesAnything(member.grants) && <Tile href="/tg/add" icon={<UsersRound />} title="Add for several men" hint="A course or duty they've been detailed for" />}
+            {sees.people && <Tile href="/tg/people" icon={<History />} title="Person history" hint="Anyone's records; void a mistake" />}
+            {sees.add && <Tile href="/tg/add" icon={<UsersRound />} title="Add for several men" hint="A course or duty they've been detailed for" />}
             {roster && (
               <Tile
                 href="/tg/roster"

@@ -5,8 +5,8 @@ import { db } from "@/lib/db";
 import { camp, duty, person, subunit } from "@/lib/db/schema";
 import { wbAssignment, wbMember, wbRecord, wbRfRequest } from "@/lib/wb/db/schema";
 import { costOfSending, manningOf, snapshotFor } from "@/lib/wb/domain/forecast";
-import type { GrantRow } from "@/lib/wb/domain/grants";
-import { assignmentLine, BOARD_HISTORY_MS, busyOver, canDeployRf, deployRefusal, rankCandidates, type Candidate, type LiveAssignment, type RfRequestView, type WbAssignmentType } from "@/lib/wb/domain/rf";
+import { manAccess, type GrantRow } from "@/lib/wb/domain/access";
+import { assignmentLine, BOARD_HISTORY_MS, busyOver, deployRefusal, rankCandidates, type Candidate, type LiveAssignment, type RfRequestView, type WbAssignmentType } from "@/lib/wb/domain/rf";
 import { clashLines } from "@/lib/wb/domain/clash";
 import { DEAD_STATES } from "@/lib/wb/domain/rules";
 import { roleOf } from "@/lib/wb/domain/roles";
@@ -194,7 +194,7 @@ export async function assignmentView(id: string, tx: Db = db): Promise<Assignmen
 /** Live Extra/RF/SOL not yet over, of the men this member may send (the Assign screen's list). */
 export async function assignmentsInScope(grants: readonly GrantRow[], now: Date = new Date()): Promise<AssignmentView[]> {
   const rows = await assignmentViews(and(eq(wbAssignment.state, "ACTIVE"), gt(wbAssignment.endAt, now))!);
-  return rows.filter((a) => canDeployRf(grants, { subunitId: a.subunitId, campId: a.homeCampId }));
+  return rows.filter((a) => manAccess({ grants }, { subunitId: a.subunitId, campId: a.homeCampId }).sends);
 }
 
 /** A man's own live Extra/RF/SOL, not yet over (Home). */
@@ -211,7 +211,7 @@ export async function peopleToSend(grants: readonly GrantRow[]) {
     .innerJoin(subunit, eq(subunit.id, camp.subunitId))
     .where(eq(person.active, true))
     .orderBy(asc(subunit.sortOrder), asc(camp.sortOrder), asc(person.sortOrder));
-  return rows.filter((p) => canDeployRf(grants, p));
+  return rows.filter((p) => manAccess({ grants }, p).sends);
 }
 
 // ------------------------------------------------------------------ the deploy screen
@@ -235,7 +235,7 @@ export async function candidatesFor(r: RfRequestView, grants: readonly GrantRow[
     .where(and(eq(person.active, true), eq(camp.coyId, (await db.select({ c: camp.coyId }).from(camp).where(eq(camp.id, r.campId)))[0].c)))
     .orderBy(asc(subunit.sortOrder), asc(camp.sortOrder), asc(person.sortOrder));
   // the camp's own men can never answer its request, so they aren't offered
-  const mine = people.filter((p) => p.campId !== r.campId && canDeployRf(grants, p));
+  const mine = people.filter((p) => p.campId !== r.campId && manAccess({ grants }, p).sends);
   if (!mine.length) return [];
 
   const [input, minimums, camps, assignments] = await Promise.all([forecastInput(r, [r.campId], now), loadMinimums(), campsInfo(), liveAssignments(r, mine.map((p) => p.personId))]);

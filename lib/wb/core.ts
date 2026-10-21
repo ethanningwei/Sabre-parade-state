@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
-import type { GrantRow } from "@/lib/wb/domain/grants";
+import type { GrantRow } from "@/lib/wb/domain/access";
 import { syncQuietly } from "@/lib/wb/projection";
 import type { Db } from "@/lib/wb/records";
 

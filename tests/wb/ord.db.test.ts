@@ -10,7 +10,7 @@ import { writeCoy } from "@/lib/data/write-coy";
 import { db } from "@/lib/db";
 import { absence, camp, person, subunit } from "@/lib/db/schema";
 import { wbAssignment, wbAudit, wbCard, wbGrant, wbMember, wbProjection, wbRecord, wbRfRequest } from "@/lib/wb/db/schema";
-import type { GrantRow } from "@/lib/wb/domain/grants";
+import type { GrantRow } from "@/lib/wb/domain/access";
 import { addDays, todaySgt } from "@/lib/wb/domain/timeline";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
 import { recordingCourier, type Sent } from "./recording-courier";

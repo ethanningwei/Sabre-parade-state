@@ -1,15 +1,14 @@
 import { ClipboardCheck, CloudCheck } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Header } from "@/components/tg/form-bits";
 import { OnensButton } from "@/components/tg/onens-button";
 import { RecordActions } from "@/components/tg/record-actions";
 import { RecordSummary } from "@/components/tg/record-summary";
 import { EmptyState, enter, Segmented } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
-import { requireRegistered } from "@/lib/wb/auth";
+import { requireScreenPage } from "@/lib/wb/auth";
 import { recordWhat } from "@/lib/wb/domain/describe";
-import { accessTo, decidesAnything } from "@/lib/wb/domain/rules";
+import { recordAccess } from "@/lib/wb/domain/access";
 import { onensOwedFor, pendingFor } from "@/lib/wb/records";
 
 // Inbox: what's waiting on this commander, as two tabs (it replaces Approvals
@@ -22,8 +21,7 @@ import { onensOwedFor, pendingFor } from "@/lib/wb/records";
 // Approvals opens first, unless it's empty and ONENS isn't.
 export default async function InboxPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[] }> }) {
   await requireFeaturePage();
-  const member = await requireRegistered();
-  if (!decidesAnything(member.grants)) redirect("/tg");
+  const member = await requireScreenPage("inbox");
   const [pending, owed] = await Promise.all([pendingFor(member), onensOwedFor(member.grants)]);
   const asked = (await searchParams).tab;
   const onens = asked === "onens" || (asked !== "approvals" && pending.length === 0 && owed.length > 0);
@@ -64,7 +62,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
       ) : (
         pending.map((r, i) => (
           <RecordSummary key={r.id} r={r} i={i} showWho href={`/tg/records/${r.id}`}>
-            <RecordActions recordId={r.id} can={accessTo(member, r)} />
+            <RecordActions recordId={r.id} can={recordAccess(member, r)} />
           </RecordSummary>
         ))
       )}

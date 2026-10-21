@@ -2,8 +2,7 @@ import { ShiftOverride } from "@/components/tg/admin/shift-override";
 import { Header } from "@/components/tg/form-bits";
 import { Group } from "@/components/tg/ui";
 import { isEnabled, requireFeaturePage } from "@/lib/flags";
-import { requireGrantPage } from "@/lib/wb/auth";
-import { ADMIN_ROLES } from "@/lib/wb/permissions";
+import { requireScreenPage } from "@/lib/wb/auth";
 import { weekdayCamps } from "@/lib/wb/forecast-data";
 import { diffNow, projectedCounts } from "@/lib/wb/projection";
 
@@ -13,7 +12,7 @@ import { diffNow, projectedCounts } from "@/lib/wb/projection";
 // FEATURE_PROJECTION on Vercel.
 export default async function ProjectionPage() {
   await requireFeaturePage();
-  await requireGrantPage(ADMIN_ROLES);
+  await requireScreenPage("admin");
   const live = isEnabled("PROJECTION");
   const [diff, counts, weekday] = await Promise.all([diffNow(), projectedCounts(), weekdayCamps()]);
   return (

@@ -1,10 +1,10 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { BigLink, DoneScreen, Header } from "@/components/tg/form-bits";
 import { DeployList } from "@/components/tg/rf/deploy-list";
 import { RfSummary } from "@/components/tg/rf/rf-summary";
 import { requireFeaturePage } from "@/lib/flags";
-import { requireRegistered } from "@/lib/wb/auth";
-import { isOver, rfAnything, shortBy, wants } from "@/lib/wb/domain/rf";
+import { requireScreenPage } from "@/lib/wb/auth";
+import { isOver, shortBy, wants } from "@/lib/wb/domain/rf";
 import { candidatesFor, rfView } from "@/lib/wb/rf-data";
 
 // Deploy someone (the card's 📌 button): the men this commander may send,
@@ -12,8 +12,7 @@ import { candidatesFor, rfView } from "@/lib/wb/rf-data";
 // he's already down for.
 export default async function DeployPage({ params }: { params: Promise<{ id: string }> }) {
   await requireFeaturePage();
-  const member = await requireRegistered();
-  if (!rfAnything(member.grants)) redirect("/tg");
+  const member = await requireScreenPage("rf");
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/.test(id)) notFound();
   const r = await rfView(id);

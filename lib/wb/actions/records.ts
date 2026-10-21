@@ -9,7 +9,8 @@ import type { Actor, Delivery } from "@/lib/wb/core";
 import { decide, sayWhy, submit, undo, voidRecord, withdraw, type NewRecord, type Result } from "@/lib/wb/decide";
 import { eventDetail, leaveDetail, overseasWhere, reasonText } from "@/lib/wb/domain/describe";
 import { AL_PLACES, LEAVE_REASONS } from "@/lib/wb/domain/roles";
-import { canProxy, isAbsentKind, leaveRefusal, NOT_ON_ROSTER } from "@/lib/wb/domain/rules";
+import { manAccess } from "@/lib/wb/domain/access";
+import { isAbsentKind, leaveRefusal, NOT_ON_ROSTER } from "@/lib/wb/domain/rules";
 import { checkRange, dayCount, dayRange, daysTouched, MAX_DAYS, todaySgt, type Range } from "@/lib/wb/domain/timeline";
 import { clashFor, personWhere } from "@/lib/wb/records";
 import { courier } from "@/lib/wb/telegram/courier";
@@ -222,7 +223,7 @@ export async function addEventFor(input: z.input<typeof proxyInput>) {
     const rec = eventRecord(a);
     const ids = [...new Set(a.personIds)];
     const people = await Promise.all(ids.map((id) => personWhere(id)));
-    const out = people.find((p) => !p || !canProxy(member.grants, p));
+    const out = people.find((p) => !p || !manAccess(member, p).proxies);
     if (out !== undefined) throw new UserError(out ? `${out.rank} ${out.name} isn't in your scope.` : "Someone on that list has left the roster.");
     const { records } = await submit(
       await courier(),

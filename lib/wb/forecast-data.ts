@@ -20,8 +20,7 @@ import {
   type GridRow,
   type TimelineRow,
 } from "@/lib/wb/domain/forecast";
-import type { GrantRow } from "@/lib/wb/domain/grants";
-import { canForecast } from "@/lib/wb/domain/rules";
+import { campAccess, type GrantRow } from "@/lib/wb/domain/access";
 import { minimumLabel, onShiftAt, overrideLabel, overrideWindow, stintAround, usable, type Minimum, type ShiftPattern } from "@/lib/wb/domain/shifts";
 import { addDays, dayMonth, dayRange, rangeLabel, todaySgt, type Range } from "@/lib/wb/domain/timeline";
 import { memberLabel, type Db, type RecordView } from "@/lib/wb/records";
@@ -206,7 +205,7 @@ export async function campManningLine(campId: string, range: Range, now: Date = 
 
 /** The camps a member may forecast: their platoon's (PC/PS) or all (OC/2IC/CSM). */
 export function forecastScope(grants: readonly GrantRow[], camps: readonly CampInfo[]): CampInfo[] {
-  return camps.filter((c) => canForecast(grants, { subunitId: c.subunitId, campId: c.id }));
+  return camps.filter((c) => campAccess({ grants }, { subunitId: c.subunitId, campId: c.id }).forecast);
 }
 
 export async function grid(campIds: readonly string[], from = todaySgt(), days = FORECAST_DAYS, now: Date = new Date()): Promise<GridRow[]> {

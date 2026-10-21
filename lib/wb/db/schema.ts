@@ -193,7 +193,7 @@ export const wbRecord = pgTable(
     /** MA only, HHMM */
     maTiming: text("ma_timing"),
     // ---- Phase 3: medical. diagnosis and evidence_file_id are read only
-    // through lib/wb/medical.ts, which checks canSeeMedical and audits the read.
+    // through lib/wb/medical.ts, which checks recordAccess().seeMedical and audits the read.
     /** MC/HL: one of MC_CATEGORIES, or "Other". What a card may show. */
     mcCategory: text("mc_category"),
     /** MC/HL: the doctor's words. Never on a card, never in a group chat. */

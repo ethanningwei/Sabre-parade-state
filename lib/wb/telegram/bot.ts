@@ -6,7 +6,8 @@ import { db } from "@/lib/db";
 import { isEnabled } from "@/lib/flags";
 import { subunit } from "@/lib/db/schema";
 import { wbAudit } from "@/lib/wb/audit";
-import { hasGrant, type GrantRow } from "@/lib/wb/auth";
+import type { GrantRow } from "@/lib/wb/auth";
+import { platoonAccess, recordAccess } from "@/lib/wb/domain/access";
 import type { Actor } from "@/lib/wb/core";
 import { decide, sayWhy, undo } from "@/lib/wb/decide";
 import { wbCommanderChat, wbConversation, wbGrant, wbMember } from "@/lib/wb/db/schema";
@@ -83,9 +84,7 @@ async function here(ctx: Context) {
 
   const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
   if (!member?.registeredAt) return void (await reply("Open Sabre and register first, then try again."));
-  const allowed =
-    hasGrant(member.grants, ["PC", "PS"], { subunitId: target.id }) || hasGrant(member.grants, ["ADMIN"], "any");
-  if (!allowed) return void (await reply(`Only ${target.name}'s PC or PS (or a Sabre admin) can link this chat.`));
+  if (!platoonAccess(member, target.id).linkChat) return void (await reply(`Only ${target.name}'s PC or PS (or a Sabre admin) can link this chat.`));
 
   const chatId = ctx.chat!.id;
   const chatTitle = (ctx.chat && "title" in ctx.chat ? ctx.chat.title : "") ?? "";
@@ -161,7 +160,7 @@ async function onCard(ctx: Context) {
   // Say why: a prompt the decider answers by replying. Named and threaded under
   // the card, since two commanders can be writing in the same chat at once.
   const r = await recordView(recordId);
-  if (!r || r.state !== "REJECTED" || r.decidedBy !== member.id) return void (await alert("Only whoever rejected it can say why."));
+  if (!r || !recordAccess(member, r).sayWhy) return void (await alert(r?.decisionNote && r.decidedBy === member.id ? "You've already said why." : "Only whoever rejected it can say why."));
   await ctx.answerCallbackQuery();
   const card = ctx.callbackQuery?.message;
   const who = await memberLabel(member.id);

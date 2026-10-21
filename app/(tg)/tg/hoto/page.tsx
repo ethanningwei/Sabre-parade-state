@@ -1,13 +1,12 @@
 import { ArrowLeftRight } from "lucide-react";
-import { redirect } from "next/navigation";
 import { Header } from "@/components/tg/form-bits";
 import { HotoPanel } from "@/components/tg/shifts/hoto-panel";
 import { EmptyState, enter, Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { onShiftAt } from "@/lib/wb/domain/shifts";
 import { toSgt } from "@/lib/parade/time";
-import { requireRegistered } from "@/lib/wb/auth";
-import { canHoto, hotosAnything } from "@/lib/wb/domain/rules";
+import { requireScreenPage } from "@/lib/wb/auth";
+import { postAccess } from "@/lib/wb/domain/access";
 import { dayMonth } from "@/lib/wb/domain/timeline";
 import { campsInfo, loadPatterns, postsOf, shiftNote } from "@/lib/wb/forecast-data";
 import { recentHotos } from "@/lib/wb/shifts";
@@ -17,11 +16,10 @@ import { recentHotos } from "@/lib/wb/shifts";
 // (that's Phase 6): the web app's toggle still decides the parade state.
 export default async function HotoPage() {
   await requireFeaturePage();
-  const member = await requireRegistered();
-  if (!hotosAnything(member.grants)) redirect("/tg");
+  const member = await requireScreenPage("hoto");
   const [camps, patterns] = await Promise.all([campsInfo(), loadPatterns()]);
   const posts = postsOf(camps).filter(
-    (p) => p.teams.some((t) => patterns.get(t.id)?.kind === "CYCLE") && canHoto(member.grants, p.subunitId, p.teams.map((t) => t.id)),
+    (p) => p.teams.some((t) => patterns.get(t.id)?.kind === "CYCLE") && postAccess(member, p).hoto,
   );
   const now = new Date();
   const recent = await recentHotos(posts.flatMap((p) => p.teams.map((t) => t.id)), 20);

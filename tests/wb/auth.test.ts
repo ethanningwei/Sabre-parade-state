@@ -1,12 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   bootstrapAdminIds,
-  grantCovers,
-  hasGrant,
   signSession,
   verifyInitData,
   verifySession,
-  type GrantRow,
 } from "@/lib/wb/auth";
 import { signInitData, TEST_BOT_TOKEN, tgUser } from "./helpers";
 
@@ -76,46 +73,6 @@ describe("session cookie", () => {
     expect(verifySession(undefined, SECRET, NOW)).toBeNull();
     expect(verifySession("abc", SECRET, NOW)).toBeNull();
     expect(verifySession(`${token}.x`, SECRET, NOW)).toBeNull();
-  });
-});
-
-describe("grant scope", () => {
-  const PL6 = "pl6";
-  const PL7 = "pl7";
-  const SFT_A = "sft-a";
-  const company: GrantRow = { role: "OC", subunitId: null, campId: null };
-  const ps6: GrantRow = { role: "PS", subunitId: PL6, campId: null };
-  const gcSftA: GrantRow = { role: "GC", subunitId: null, campId: SFT_A };
-
-  it("checks the role", () => {
-    expect(grantCovers(ps6, ["PC"], "any")).toBe(false);
-    expect(grantCovers(ps6, ["PC", "PS"], "any")).toBe(true);
-  });
-
-  it("a company-wide grant covers everything", () => {
-    expect(grantCovers(company, ["OC"], "company")).toBe(true);
-    expect(grantCovers(company, ["OC"], { subunitId: PL7 })).toBe(true);
-    expect(grantCovers(company, ["OC"], { subunitId: PL7, campId: SFT_A })).toBe(true);
-  });
-
-  it("a platoon grant covers that platoon and its camps only", () => {
-    expect(grantCovers(ps6, ["PS"], { subunitId: PL6 })).toBe(true);
-    expect(grantCovers(ps6, ["PS"], { subunitId: PL6, campId: SFT_A })).toBe(true);
-    expect(grantCovers(ps6, ["PS"], { subunitId: PL7 })).toBe(false);
-    expect(grantCovers(ps6, ["PS"], "company")).toBe(false);
-  });
-
-  it("a camp grant covers that camp only", () => {
-    expect(grantCovers(gcSftA, ["GC"], { subunitId: PL6, campId: SFT_A })).toBe(true);
-    expect(grantCovers(gcSftA, ["GC"], { subunitId: PL6, campId: "sft-b" })).toBe(false);
-    expect(grantCovers(gcSftA, ["GC"], { subunitId: PL6 })).toBe(false);
-  });
-
-  it("ADMIN is a role like any other, not a wildcard", () => {
-    const admin: GrantRow = { role: "ADMIN", subunitId: null, campId: null };
-    expect(hasGrant([admin], ["PS", "PC"], { subunitId: PL6 })).toBe(false);
-    expect(hasGrant([admin], ["PS", "PC", "ADMIN"], { subunitId: PL6 })).toBe(true);
-    expect(hasGrant([], ["ADMIN"], "any")).toBe(false);
   });
 });
 

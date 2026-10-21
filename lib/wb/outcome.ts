@@ -5,7 +5,8 @@ import { wbAudit } from "@/lib/wb/audit";
 import { inTx, Refusal, type Actor, type Delivery, type Via } from "@/lib/wb/core";
 import { wbRecord } from "@/lib/wb/db/schema";
 import { outcomeOrder, recordWhat } from "@/lib/wb/domain/describe";
-import { asksSeenBy, canDecide, isLive, isOutcome, kinOf, MAX_STATUSES, onensFor, outcomeParentRefusal, VISIT_KINDS, type WbSeenBy } from "@/lib/wb/domain/rules";
+import { recordAccess } from "@/lib/wb/domain/access";
+import { asksSeenBy, isLive, isOutcome, kinOf, MAX_STATUSES, onensFor, outcomeParentRefusal, VISIT_KINDS, type WbSeenBy } from "@/lib/wb/domain/rules";
 import { addDays, dateRange, dayCount, todaySgt } from "@/lib/wb/domain/timeline";
 import { memberLabel, recordView, recordViews, type RecordView } from "@/lib/wb/records";
 import type { Courier } from "@/lib/wb/telegram/courier";
@@ -231,8 +232,7 @@ function ownSummary(batch: RecordView[], corrected: boolean): string {
 export async function markOnens(courier: Courier, actor: Actor, recordId: string, via: Via): Promise<{ ok: true; record: RecordView } | { ok: false; error: string }> {
   const r = await recordView(recordId);
   if (!r) return { ok: false, error: "That record has gone." };
-  const owner = !!actor.personId && actor.personId === r.personId;
-  if (!owner && !canDecide(actor.grants, r)) return { ok: false, error: "That isn't yours." };
+  if (!recordAccess(actor, r).markOnens) return { ok: false, error: "That isn't yours." };
   const res = await inTx(async (tx) => {
     const [row] = await tx
       .update(wbRecord)

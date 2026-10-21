@@ -197,6 +197,13 @@ describe("raising an RF (DB)", () => {
     expect(await raise({ need: 0 })).toMatchObject({ ok: false });
     expect(await raise()).toMatchObject({ ok: true, data: { delivery: "no-chat", chats: 0 } });
   });
+
+  it("a GC grant without a camp asks for nothing (the user, 2026-10-21)", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await member(GC_SLR, people.SLR[0], [{ role: "GC" }]);
+    await as(GC_SLR);
+    expect(await raise({ campId: ids.slr })).toEqual({ ok: false, error: "You can't ask for manpower for SLR." });
+  });
 });
 
 describe("deploying (DB)", () => {

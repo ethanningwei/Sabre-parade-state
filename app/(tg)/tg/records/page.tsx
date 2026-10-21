@@ -10,7 +10,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
 import { outcomeOrder } from "@/lib/wb/domain/describe";
-import { accessTo, awaitsOutcome, isCurrent, nestOutcomes } from "@/lib/wb/domain/rules";
+import { recordAccess } from "@/lib/wb/domain/access";
+import { awaitsOutcome, isCurrent, nestOutcomes } from "@/lib/wb/domain/rules";
 import { rosterSelf } from "@/lib/wb/me";
 import { recordsOfPerson } from "@/lib/wb/records";
 
@@ -52,7 +53,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
         </EmptyState>
       ) : (
         records.map((r, i) => {
-          const can = accessTo(member, r);
+          const can = recordAccess(member, r);
           return (
             <RecordSummary key={r.id} r={r} i={i} href={`/tg/records/${r.id}`} under={under.get(r.id)}>
               {can.withdraw && <RecordActions recordId={r.id} can={{ ...can, decide: false, undo: false, sayWhy: false, void: false }} />}
