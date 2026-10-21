@@ -37,3 +37,13 @@ _Avoid_: permission, rights, can
 **Reach**:
 How far a member's grants carry for one kind of access: the whole company, some platoons and camps, or nothing.
 _Avoid_: scope, coverage
+
+## Writes
+
+**Write**:
+One change to whereabouts by a member or the system: refused whole, or committed with its audit row, then the parade state brought in line and the Courier told.
+_Avoid_: mutation, transaction, action
+
+**Refusal**:
+Why a write didn't happen, in words for whoever tried.
+_Avoid_: error, rejection (a rejection is a commander's decision on a request)

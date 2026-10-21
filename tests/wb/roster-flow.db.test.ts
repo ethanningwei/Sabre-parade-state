@@ -113,7 +113,7 @@ async function member(opts: { personId?: string | null; grants?: G[]; self?: { n
     .returning();
   const grants: GrantRow[] = (opts.grants ?? []).map((g) => ({ role: g.role, subunitId: g.subunitId ?? null, campId: g.campId ?? null }));
   for (const g of grants) await db.insert(wbGrant).values({ memberId: m.id, ...g });
-  return { ...m, grants, actor: { id: m.id, personId: m.personId, grants } };
+  return { ...m, grants, by: { actor: { id: m.id, personId: m.personId, grants, registered: !!m.registeredAt }, via: "MINIAPP" as const } };
 }
 const record = (personId: string, state: "PENDING" | "APPROVED", startAt: Date, days = 2) =>
   db
@@ -145,7 +145,7 @@ describe("Remove from roster", () => {
     expect(await removalPreview(slr[1].id, now)).toEqual({ absences: 1, duties: 1, assignments: 1, pending: 1, grants: ["PS · PLATOON 6"], account: true, ahead: 1 });
 
     const c = recordingCourier();
-    const res = await removeFromRoster(c, remover.actor, slr[1].id);
+    const res = await removeFromRoster(c, remover.by, slr[1].id);
     expect(res).toMatchObject({ ok: true, value: { duties: 1, assignments: 1, withdrawn: 1, grants: 1, account: true, projections: 1 } });
 
     expect((await db.select().from(person).where(eq(person.id, slr[1].id)))[0].active).toBe(false);
@@ -167,7 +167,7 @@ describe("Remove from roster", () => {
 
     // he can't decide any more: no grants, no account
     const left = await db.select({ role: wbGrant.role, subunitId: wbGrant.subunitId, campId: wbGrant.campId }).from(wbGrant).where(eq(wbGrant.memberId, target.id));
-    expect((await decide(c, { id: target.id, personId: slr[1].id, grants: left }, other.id, "approve", "MINIAPP")).ok).toBe(false);
+    expect((await decide(c, { actor: { id: target.id, personId: slr[1].id, grants: left, registered: true }, via: "MINIAPP" }, other.id, "approve")).ok).toBe(false);
     jar.clear();
     await signIn({ id: target.telegramUserId, first_name: "T" });
     await expect(requireMember()).rejects.toThrow("REDIRECT /tg");
@@ -181,11 +181,11 @@ describe("Remove from roster", () => {
     if (!reachable) ctx.skip();
     const c = recordingCourier();
     const pl7 = await member({ personId: bdk[0].id, grants: [{ role: "PS", subunitId: ids.pl7 }] });
-    expect(await removeFromRoster(c, pl7.actor, slr[1].id)).toEqual({ ok: false, error: `Only PLATOON 6's PC or PS (or company command) can remove ${slr[1].rank} ${slr[1].name}.` });
+    expect(await removeFromRoster(c, pl7.by, slr[1].id)).toEqual({ ok: false, error: `Only PLATOON 6's PC or PS (or company command) can remove ${slr[1].rank} ${slr[1].name}.` });
     const ps = await member({ personId: slr[0].id, grants: [{ role: "PS", subunitId: ids.pl6 }] });
-    expect(await removeFromRoster(c, ps.actor, slr[0].id)).toMatchObject({ ok: false, error: expect.stringMatching(/yourself/) });
+    expect(await removeFromRoster(c, ps.by, slr[0].id)).toMatchObject({ ok: false, error: expect.stringMatching(/yourself/) });
     await member({ personId: slr[1].id, grants: [{ role: "ADMIN" }] });
-    expect(await removeFromRoster(c, ps.actor, slr[1].id)).toEqual({ ok: false, error: "He's the last Sabre admin. Make someone else an admin first." });
+    expect(await removeFromRoster(c, ps.by, slr[1].id)).toEqual({ ok: false, error: "He's the last Sabre admin. Make someone else an admin first." });
     expect((await db.select().from(person).where(eq(person.id, slr[1].id)))[0].active).toBe(true);
     expect(await auditActions()).toEqual([]);
     expect(c.sent).toEqual([]);
@@ -200,7 +200,7 @@ describe("Add to roster", () => {
     const ps = await member({ personId: slr[0].id, grants: [{ role: "PS", subunitId: ids.pl6 }] });
     const w = await waiting();
     const c = recordingCourier();
-    const res = await addToRoster(c, ps.actor, { memberId: w.id, campId: ids.slr, rank: "pte", name: " new   guy ", role: "ST CBT" });
+    const res = await addToRoster(c, ps.by, { memberId: w.id, campId: ids.slr, rank: "pte", name: " new   guy ", role: "ST CBT" });
     expect(res).toMatchObject({ ok: true, value: { label: "PTE NEW GUY" } });
     const [p] = await db.select().from(person).where(and(eq(person.campId, ids.slr), eq(person.name, "NEW GUY"), eq(person.active, true)));
     expect(p).toMatchObject({ rank: "PTE", role: "ST CBT" });
@@ -219,16 +219,16 @@ describe("Add to roster", () => {
     const pl7 = await member({ personId: bdk[0].id, grants: [{ role: "PS", subunitId: ids.pl7 }] });
     const w = await waiting();
     const base = { memberId: w.id, campId: ids.slr, rank: "PTE", name: "NEW GUY", role: "ST CBT" };
-    expect(await addToRoster(c, pl7.actor, base)).toEqual({ ok: false, error: "He isn't in your platoon or camp." });
-    expect(await addToRoster(c, ps.actor, { ...base, campId: ids.bdk })).toEqual({ ok: false, error: "BDK isn't in your platoon or camp." });
-    expect(await addToRoster(c, ps.actor, { ...base, role: "PS" })).toEqual({ ok: false, error: "Pick a role that fits that camp." });
-    expect(await addToRoster(c, ps.actor, { ...base, name: slr[3].name.toLowerCase() })).toEqual({
+    expect(await addToRoster(c, pl7.by, base)).toEqual({ ok: false, error: "He isn't in your platoon or camp." });
+    expect(await addToRoster(c, ps.by, { ...base, campId: ids.bdk })).toEqual({ ok: false, error: "BDK isn't in your platoon or camp." });
+    expect(await addToRoster(c, ps.by, { ...base, role: "PS" })).toEqual({ ok: false, error: "Pick a role that fits that camp." });
+    expect(await addToRoster(c, ps.by, { ...base, name: slr[3].name.toLowerCase() })).toEqual({
       ok: false,
       error: `There's already a ${slr[3].rank} ${slr[3].name} in SLR. Link him to that person, or add a surname.`,
     });
     // someone linked him first
     await db.update(wbMember).set({ personId: slr[4].id }).where(eq(wbMember.id, w.id));
-    expect(await addToRoster(c, ps.actor, base)).toEqual({ ok: false, error: "Someone has just added him." });
+    expect(await addToRoster(c, ps.by, base)).toEqual({ ok: false, error: "Someone has just added him." });
     expect(await db.select().from(person).where(and(eq(person.name, "NEW GUY"), eq(person.active, true)))).toEqual([]);
     expect(c.sent).toEqual([]);
   });
@@ -237,7 +237,7 @@ describe("Add to roster", () => {
     if (!reachable) ctx.skip();
     const asa = await member({ grants: [{ role: "ASA" }] });
     const w = await waiting(undefined, ids.bdk);
-    expect(await addToRoster(recordingCourier(), asa.actor, { memberId: w.id, campId: ids.bdk, rank: "PTE", name: "NEW GUY", role: "ST SVC" })).toMatchObject({ ok: true });
+    expect(await addToRoster(recordingCourier(), asa.by, { memberId: w.id, campId: ids.bdk, rank: "PTE", name: "NEW GUY", role: "ST SVC" })).toMatchObject({ ok: true });
   });
 });
 
@@ -248,7 +248,7 @@ describe("Roster: add and edit", () => {
   it("a GC adds a man to his own camp, at its end, and nowhere else", async (ctx) => {
     if (!reachable) ctx.skip();
     const gc = await member({ personId: slr[0].id, grants: [{ role: "GC", campId: ids.slr }] });
-    const res = await addPersonToRoster(gc.actor, { campId: ids.slr, rank: "pte", name: " fresh   man ", role: "ST SVC" });
+    const res = await addPersonToRoster(gc.by, { campId: ids.slr, rank: "pte", name: " fresh   man ", role: "ST SVC" });
     expect(res).toMatchObject({ ok: true, value: { label: "PTE FRESH MAN" } });
     if (!res.ok) return;
     const p = await row(res.value.personId);
@@ -259,14 +259,14 @@ describe("Roster: add and edit", () => {
     expect(await db.select().from(wbMember).where(eq(wbMember.personId, p.id))).toEqual([]);
 
     const base = { campId: ids.slr, rank: "PTE", name: "OTHER MAN", role: "ST SVC" };
-    expect(await addPersonToRoster(gc.actor, { ...base, campId: ids.bdk })).toEqual({ ok: false, error: "BDK isn't in your platoon or camp." });
+    expect(await addPersonToRoster(gc.by, { ...base, campId: ids.bdk })).toEqual({ ok: false, error: "BDK isn't in your platoon or camp." });
     const [srfA] = await db.select().from(camp).where(eq(camp.name, "SRF A"));
-    expect(await addPersonToRoster(gc.actor, { ...base, campId: srfA.id })).toEqual({ ok: false, error: "SRF A isn't in your platoon or camp." });
-    expect(await addPersonToRoster(gc.actor, { ...base, name: slr[3].name })).toEqual({
+    expect(await addPersonToRoster(gc.by, { ...base, campId: srfA.id })).toEqual({ ok: false, error: "SRF A isn't in your platoon or camp." });
+    expect(await addPersonToRoster(gc.by, { ...base, name: slr[3].name })).toEqual({
       ok: false,
       error: `There's already a ${slr[3].rank} ${slr[3].name} in SLR. Add a surname to tell them apart.`,
     });
-    expect(await addPersonToRoster(gc.actor, { ...base, rank: "GEN" })).toEqual({ ok: false, error: "Pick his rank." });
+    expect(await addPersonToRoster(gc.by, { ...base, rank: "GEN" })).toEqual({ ok: false, error: "Pick his rank." });
     expect(await auditActions()).toEqual(["roster-add"]);
   });
 
@@ -278,16 +278,16 @@ describe("Roster: add and edit", () => {
     const man = slr[2];
     const edit = { campId: ids.slr, rank: "CPL", name: `${man.name} TAN`, role: "ST CBT" };
 
-    expect(await editRosterPerson(gc.actor, man.id, edit)).toEqual({ ok: true, value: { changed: true, moved: false, label: `CPL ${man.name} TAN`, campName: "SLR" } });
+    expect(await editRosterPerson(gc.by, man.id, edit)).toEqual({ ok: true, value: { changed: true, moved: false, label: `CPL ${man.name} TAN`, campName: "SLR" } });
     expect(await row(man.id)).toMatchObject({ campId: ids.slr, rank: "CPL", name: `${man.name} TAN`, role: "ST CBT" });
     const [audit] = await db.select().from(wbAudit).where(eq(wbAudit.action, "roster-edit"));
     expect(audit).toMatchObject({ memberId: gc.id, entityId: man.id, before: { rank: man.rank, name: man.name, role: "" }, after: edit });
 
-    expect(await editRosterPerson(gc.actor, bdk[1].id, { ...edit, campId: ids.bdk })).toEqual({ ok: false, error: `${bdk[1].rank} ${bdk[1].name} isn't in your platoon or camp.` });
-    expect(await editRosterPerson(gc.actor, man.id, { ...edit, campId: srfA.id })).toEqual({ ok: false, error: "SRF A isn't in your platoon or camp." });
+    expect(await editRosterPerson(gc.by, bdk[1].id, { ...edit, campId: ids.bdk })).toEqual({ ok: false, error: `${bdk[1].rank} ${bdk[1].name} isn't in your platoon or camp.` });
+    expect(await editRosterPerson(gc.by, man.id, { ...edit, campId: srfA.id })).toEqual({ ok: false, error: "SRF A isn't in your platoon or camp." });
     expect((await row(man.id)).campId).toBe(ids.slr);
 
-    expect(await editRosterPerson(ps.actor, man.id, { ...edit, campId: srfA.id })).toMatchObject({ ok: true, value: { moved: true, campName: "SRF A" } });
+    expect(await editRosterPerson(ps.by, man.id, { ...edit, campId: srfA.id })).toMatchObject({ ok: true, value: { moved: true, campName: "SRF A" } });
     const moved = await row(man.id);
     expect(moved.campId).toBe(srfA.id);
     expect(moved.sortOrder).toBe(await lastIn(srfA.id));
@@ -302,23 +302,23 @@ describe("Roster: add and edit", () => {
     const base = { campId: ids.slr, rank: "SCT", name: man.name, role: "GUARD COMM" };
 
     // nothing changed: nothing written
-    expect(await editRosterPerson(ps.actor, man.id, base)).toMatchObject({ ok: true, value: { changed: false } });
+    expect(await editRosterPerson(ps.by, man.id, base)).toMatchObject({ ok: true, value: { changed: false } });
     expect(await auditActions()).toEqual([]);
     // a rename keeps the old rank and role as v1 has them
-    expect(await editRosterPerson(ps.actor, man.id, { ...base, name: `${man.name} B` })).toMatchObject({ ok: true, value: { changed: true } });
+    expect(await editRosterPerson(ps.by, man.id, { ...base, name: `${man.name} B` })).toMatchObject({ ok: true, value: { changed: true } });
     expect(await row(man.id)).toMatchObject({ rank: "SCT", role: "GUARD COMM", name: `${man.name} B` });
     // a blank role, left alone, stays blank
-    expect(await editRosterPerson(ps.actor, slr[5].id, { campId: ids.slr, rank: "CPL", name: slr[5].name, role: "" })).toMatchObject({ ok: true });
+    expect(await editRosterPerson(ps.by, slr[5].id, { campId: ids.slr, rank: "CPL", name: slr[5].name, role: "" })).toMatchObject({ ok: true });
     expect(await row(slr[5].id)).toMatchObject({ rank: "CPL", role: "" });
 
-    expect(await editRosterPerson(ps.actor, man.id, { ...base, role: "PS" })).toEqual({ ok: false, error: "Pick a role that fits that camp." });
-    expect(await editRosterPerson(ps.actor, man.id, { ...base, rank: "GEN" })).toEqual({ ok: false, error: "Pick his rank." });
-    expect(await editRosterPerson(ps.actor, man.id, { ...base, name: slr[3].name })).toEqual({
+    expect(await editRosterPerson(ps.by, man.id, { ...base, role: "PS" })).toEqual({ ok: false, error: "Pick a role that fits that camp." });
+    expect(await editRosterPerson(ps.by, man.id, { ...base, rank: "GEN" })).toEqual({ ok: false, error: "Pick his rank." });
+    expect(await editRosterPerson(ps.by, man.id, { ...base, name: slr[3].name })).toEqual({
       ok: false,
       error: `There's already a ${slr[3].rank} ${slr[3].name} in SLR. Add a surname to tell them apart.`,
     });
     await db.update(person).set({ active: false }).where(eq(person.id, slr[4].id));
-    expect(await editRosterPerson(ps.actor, slr[4].id, { ...base, name: slr[4].name })).toEqual({ ok: false, error: "He's no longer on the roster." });
+    expect(await editRosterPerson(ps.by, slr[4].id, { ...base, name: slr[4].name })).toEqual({ ok: false, error: "He's no longer on the roster." });
   });
 
   it("a GC adds a waiting account from his camp, and his badge counts it", async (ctx) => {
@@ -327,7 +327,7 @@ describe("Roster: add and edit", () => {
     const w = await member({ self: { name: "NEW GUY", rank: "PTE", role: "ST CBT", campId: ids.slr } });
     await member({ self: { name: "BDK GUY", rank: "PTE", role: "ST CBT", campId: ids.bdk } });
     expect(await waitingCount(gc.grants)).toBe(1);
-    expect(await addToRoster(recordingCourier(), gc.actor, { memberId: w.id, campId: ids.slr, rank: "PTE", name: "NEW GUY", role: "ST CBT" })).toMatchObject({ ok: true });
+    expect(await addToRoster(recordingCourier(), gc.by, { memberId: w.id, campId: ids.slr, rank: "PTE", name: "NEW GUY", role: "ST CBT" })).toMatchObject({ ok: true });
     expect(await waitingCount(gc.grants)).toBe(0);
   });
 });
@@ -339,15 +339,15 @@ describe("Link to existing", () => {
     const ps = await member({ personId: slr[0].id, grants: [{ role: "PS", subunitId: ids.pl6 }] });
     const pl7 = await member({ personId: bdk[0].id, grants: [{ role: "PS", subunitId: ids.pl7 }] });
     const w = await member({ self: { name: slr[5].name.split(" ")[0], rank: "PTE", role: "ST CBT", campId: ids.slr } });
-    expect(await linkToRoster(c, pl7.actor, w.id, slr[5].id)).toEqual({ ok: false, error: "He isn't in your platoon or camp." });
-    expect(await linkToRoster(c, ps.actor, w.id, bdk[1].id)).toMatchObject({ ok: false, error: `${bdk[1].rank} ${bdk[1].name} isn't in your platoon or camp.` });
-    expect(await linkToRoster(c, ps.actor, w.id, slr[0].id)).toEqual({ ok: false, error: "Someone else is already registered as that person." });
+    expect(await linkToRoster(c, pl7.by, w.id, slr[5].id)).toEqual({ ok: false, error: "He isn't in your platoon or camp." });
+    expect(await linkToRoster(c, ps.by, w.id, bdk[1].id)).toMatchObject({ ok: false, error: `${bdk[1].rank} ${bdk[1].name} isn't in your platoon or camp.` });
+    expect(await linkToRoster(c, ps.by, w.id, slr[0].id)).toEqual({ ok: false, error: "Someone else is already registered as that person." });
     expect(c.sent).toEqual([]);
 
-    expect(await linkToRoster(c, ps.actor, w.id, slr[5].id)).toEqual({ ok: true, value: { label: `${slr[5].rank} ${slr[5].name}` } });
+    expect(await linkToRoster(c, ps.by, w.id, slr[5].id)).toEqual({ ok: true, value: { label: `${slr[5].rank} ${slr[5].name}` } });
     expect((await db.select().from(wbMember).where(eq(wbMember.id, w.id)))[0]).toMatchObject({ personId: slr[5].id, source: "ROSTER" });
     expect(c.sent).toHaveLength(1);
-    expect(await linkToRoster(c, ps.actor, w.id, slr[6].id)).toEqual({ ok: false, error: "Someone has just added him." });
+    expect(await linkToRoster(c, ps.by, w.id, slr[6].id)).toEqual({ ok: false, error: "Someone has just added him." });
   });
 });
 

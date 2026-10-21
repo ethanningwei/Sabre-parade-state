@@ -5,13 +5,13 @@ import type { Tx } from "@/lib/core/audit";
 import { removePersonCore } from "@/lib/core/people";
 import { db } from "@/lib/db";
 import { camp, person, subunit } from "@/lib/db/schema";
-import { wbAudit } from "@/lib/wb/audit";
 import { bootstrapAdminIds } from "@/lib/wb/auth";
 import { wbAudit as wbAuditTable, wbMember } from "@/lib/wb/db/schema";
 import { ORD_ACTION, ordText, type OrdMan } from "@/lib/wb/domain/ord";
-import { ensureProjectorUser, PROJECTOR_USER, syncQuietly } from "@/lib/wb/projection";
+import { ensureProjectorUser, PROJECTOR_USER } from "@/lib/wb/projection";
 import { cleanupWhereabouts, lastAdmin, redrawAfter, type Cleanup } from "@/lib/wb/roster-flow";
 import type { Courier } from "@/lib/wb/telegram/courier";
+import { write, type System } from "@/lib/wb/write";
 
 // ORD (status §5, 2026-10-17): at the evening round, everyone whose ORD date
 // has come is sent off with a DM and taken off the roster exactly as Remove
@@ -19,6 +19,9 @@ import type { Courier } from "@/lib/wb/telegram/courier";
 // platoon is warned so a wrong one is caught. Once per member and ORD date (an
 // `ord` wb_audit row): an admin reopening his account sticks, and a corrected
 // date is acted on when it comes.
+
+/** The evening round, at a man's ORD: named "ORD" in the audit's `after.by`. */
+const ORD: System = { system: "SYSTEM", label: "ORD" };
 
 const selfCamp = alias(camp, "ord_self_camp");
 const selfSubunit = alias(subunit, "ord_self_subunit");
@@ -84,9 +87,9 @@ export interface OrdResult {
 }
 
 /**
- * The evening round's ORD step. Each man in his own transaction, so one
- * failure (logged, retried the next evening) doesn't hold up the rest. The DM
- * goes after the commit: a removal that failed never says "closes tonight".
+ * The evening round's ORD step. Each man is his own Write, so one failure
+ * (logged, retried the next evening) doesn't hold up the rest. The DM goes
+ * after the commit: a removal that failed never says "closes tonight".
  */
 export async function retireOrd(courier: Courier, now: Date, today: string): Promise<OrdResult> {
   const out: OrdResult = { retired: [], kept: [] };
@@ -97,31 +100,36 @@ export async function retireOrd(courier: Courier, now: Date, today: string): Pro
       continue;
     }
     try {
-      const done = await db.transaction(async (tx: Tx): Promise<{ kept: true } | { kept: false; cleanup: Cleanup | null }> => {
-        if (await lastAdmin(tx, m.memberId)) return { kept: true };
-        let cleanup: Cleanup | null = null;
-        if (m.personId) {
-          await ensureProjectorUser(tx);
-          await removePersonCore(tx, PROJECTOR_USER.id, m.personId);
-          cleanup = await cleanupWhereabouts(tx, m.personId, { memberId: null, label: "ORD", via: "SYSTEM", v1UserId: PROJECTOR_USER.id }, now);
-        } else {
-          await tx.update(wbMember).set({ active: false }).where(eq(wbMember.id, m.memberId));
-          await wbAudit(tx, { memberId: null, via: "SYSTEM", action: "deactivate", entity: "wb_member", entityId: m.memberId, before: { active: true }, after: { active: false, reason: "ORD" } });
-        }
-        await wbAudit(tx, { memberId: null, via: "SYSTEM", action: ORD_ACTION, entity: "wb_member", entityId: m.memberId, after: { ordDate: m.ordDate, removed: !!m.personId, personId: m.personId } });
-        return { kept: false, cleanup };
+      const res = await write(courier, ORD, {
+        parade: true,
+        async change(c) {
+          const tx = c.tx as Tx;
+          if (await lastAdmin(tx, m.memberId)) return { kept: true as const, cleanup: null };
+          let cleanup: Cleanup | null = null;
+          if (m.personId) {
+            await ensureProjectorUser(tx);
+            await removePersonCore(tx, PROJECTOR_USER.id, m.personId);
+            cleanup = await cleanupWhereabouts(c, ORD, m.personId, { label: "ORD", v1UserId: PROJECTOR_USER.id }, now);
+          } else {
+            await tx.update(wbMember).set({ active: false }).where(eq(wbMember.id, m.memberId));
+            await c.audit({ action: "deactivate", entity: "wb_member", entityId: m.memberId, before: { active: true }, after: { active: false, reason: "ORD" } });
+          }
+          await c.audit({ action: ORD_ACTION, entity: "wb_member", entityId: m.memberId, after: { ordDate: m.ordDate, removed: !!m.personId, personId: m.personId } });
+          return { kept: false as const, cleanup };
+        },
+        async tell(done, c) {
+          if (done.kept) return done;
+          if (done.cleanup) await redrawAfter(c, done.cleanup);
+          await c.send({ telegramId: m.telegramUserId }, ordText(m, m.ordDate, today));
+          return done;
+        },
       });
-      if (done.kept) {
-        out.kept.push({ ...m, why: "last-admin" });
-        continue;
-      }
-      if (done.cleanup) await redrawAfter(courier, done.cleanup);
-      await courier.send({ telegramId: m.telegramUserId }, ordText(m, m.ordDate, today));
-      out.retired.push({ ...m, removed: !!m.personId });
+      if (!res.ok) throw new Error(res.error);
+      if (res.value.kept) out.kept.push({ ...m, why: "last-admin" });
+      else out.retired.push({ ...m, removed: !!m.personId });
     } catch (e) {
       console.error(`wb ORD ${m.memberId}:`, e);
     }
   }
-  if (out.retired.length) await syncQuietly();
   return out;
 }

@@ -10,7 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { writeCoy } from "@/lib/data/write-coy";
 import { db } from "@/lib/db";
 import { camp, person, subunit } from "@/lib/db/schema";
-import { wbCard, wbCommanderChat, wbMember, wbRecord, wbRfCard, wbRfRequest } from "@/lib/wb/db/schema";
+import { wbCard, wbCommanderChat, wbGrant, wbMember, wbRecord, wbRfCard, wbRfRequest } from "@/lib/wb/db/schema";
 import { addDays, dayRange, todaySgt } from "@/lib/wb/domain/timeline";
 import { courierOf, type Courier } from "@/lib/wb/telegram/courier";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
@@ -57,6 +57,7 @@ async function clean() {
   await db.delete(wbCard);
   await db.delete(wbRecord);
   await db.delete(wbCommanderChat);
+  await db.delete(wbGrant);
   await db.delete(wbMember);
 }
 beforeEach(async () => {
@@ -117,6 +118,18 @@ describe("a record's card (DB)", () => {
     tg.calls = [];
     await offline.redraw({ record: id });
     expect(tg.calls).toEqual([]);
+  });
+
+  it("a PC's own pending request goes to COY HQ's chat too, for OC/2IC/CSM, and both copies are remembered", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await link(ids.pl6, CHAT6, 66);
+    await link(ids.hq, CHAT_HQ, null);
+    const [pc] = await db.insert(wbMember).values({ telegramUserId: 3001, tgName: "PC", personId: ids.man, registeredAt: new Date(), source: "ROSTER" }).returning();
+    await db.insert(wbGrant).values({ memberId: pc.id, role: "PC", subunitId: ids.pl6 });
+    const id = await offRecord();
+    expect(await online.postCard({ record: id })).toEqual({ delivery: "sent", chats: 2 });
+    expect(sends().map((c) => c.payload.chat_id)).toEqual([CHAT6, CHAT_HQ]);
+    expect(await db.select().from(wbCard).where(eq(wbCard.recordId, id))).toHaveLength(2);
   });
 
   it("a redraw Telegram calls unchanged is quiet; a failed post is failed, not thrown", async (ctx) => {

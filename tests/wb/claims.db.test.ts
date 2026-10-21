@@ -1,9 +1,10 @@
-// Transport claims through the database: submit (one row per day, onto the
-// OC's sheet with his columns untouched), the sheet not set or failing (saved,
-// sent at the evening round), reading his verdicts back wherever his script
-// moved the row (approved, rejected with remarks, deleted), the trooper's DM
-// once, COY HQ's digest line, and nothing at all with FEATURE_CLAIMS off. The
-// sheet is in memory; Telegram is faked. Uses sabre_test; skipped if unreachable.
+// Transport claims through the database, called as the Mini App calls the
+// write: submit (one row per day, onto the OC's sheet with his columns
+// untouched), the sheet not set or failing (saved, sent at the evening
+// round), reading his verdicts back wherever his script moved the row
+// (approved, rejected with remarks, deleted), the trooper's DM once, COY HQ's
+// digest line, and nothing at all with FEATURE_CLAIMS off. The sheet is in
+// memory; the Courier records. Uses sabre_test; skipped if unreachable.
 
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,30 +13,9 @@ import { db } from "@/lib/db";
 import { camp, person, subunit } from "@/lib/db/schema";
 import { wbAudit, wbClaim, wbCommanderChat, wbGrant, wbMember } from "@/lib/wb/db/schema";
 import { CLAIM_HEADERS } from "@/lib/wb/domain/claims";
-import { addDays, todaySgt } from "@/lib/wb/domain/timeline";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
-
-const jar = new Map<string, string>();
-vi.mock("next/headers", () => ({
-  cookies: async () => ({
-    get: (name: string) => (jar.has(name) ? { name, value: jar.get(name)! } : undefined),
-    set: (name: string, value: string) => void jar.set(name, value),
-    delete: (name: string) => void jar.delete(name),
-  }),
-}));
-vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
-
-const tg = vi.hoisted(() => ({ calls: [] as { method: string; payload: Record<string, unknown> }[], next: 100 }));
-vi.mock("@/lib/wb/telegram/outbound", async () => {
-  const { Api } = await import("grammy");
-  const api = new Api("123:TEST");
-  api.config.use(async (_prev, method, payload) => {
-    tg.calls.push({ method, payload: payload as Record<string, unknown> });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return { ok: true, result: { message_id: ++tg.next, date: 0, chat: { id: 0, type: "private" } } } as any;
-  });
-  return { outbound: async () => ({ api, botUsername: "sabrecoybot" }) };
-});
+import { recordingCourier } from "./recording-courier";
+import { acting, day } from "./writes";
 
 // the OC's sheet, in memory; null = not configured
 const sheetState = vi.hoisted(() => ({ tabs: null as Record<string, string[][]> | null, fail: false }));
@@ -59,12 +39,10 @@ vi.mock("@/lib/wb/sheets", async (orig) => {
   };
 });
 
-const { signIn } = await import("@/lib/wb/auth");
 const actions = await import("@/lib/wb/actions/claims");
 const claims = await import("@/lib/wb/claims");
 const { eveningRound } = await import("@/lib/wb/evening");
-const { courier } = await import("@/lib/wb/telegram/courier");
-const { ClaimSheet, memorySheet } = await import("@/lib/wb/sheets");
+const { ClaimSheet, claimSheet, memorySheet } = await import("@/lib/wb/sheets");
 
 let reachable = true;
 const ids = { hq: "", bdk: "", srfA: "", man: "", srfMan: "" };
@@ -78,7 +56,6 @@ beforeAll(async () => {
   }
   vi.stubEnv("FEATURE_WHEREABOUTS", "1");
   vi.stubEnv("FEATURE_CLAIMS", "1");
-  vi.stubEnv("AUTH_SECRET", "a-test-secret-of-enough-length");
   vi.stubEnv("WB_APP_URL", "https://sabre.example");
   await writeCoy(db, { ...exampleSnapshot(), telegram: { chatId: null, threadId: null } });
   ids.hq = (await db.select({ id: subunit.id }).from(subunit).where(eq(subunit.isHq, true)))[0].id;
@@ -99,8 +76,6 @@ async function clean() {
 const fresh = () => ({ "Pending Requests": [[...CLAIM_HEADERS]], "Processed Requests": [[...CLAIM_HEADERS]] });
 beforeEach(async () => {
   if (!reachable) return;
-  jar.clear();
-  tg.calls = [];
   sheetState.tabs = fresh();
   sheetState.fail = false;
   vi.stubEnv("FEATURE_CLAIMS", "1");
@@ -120,25 +95,30 @@ async function setup() {
     { telegramUserId: SRF, tgName: "Srf", personId: ids.srfMan, registeredAt: new Date(), source: "ROSTER" },
   ]);
   await db.insert(wbCommanderChat).values({ subunitId: ids.hq, chatId: -1000, threadId: null, chatTitle: "HQ" });
-  tg.calls = [];
 }
-async function as(tgId: number) {
-  jar.clear();
-  await signIn({ id: tgId, first_name: `T${tgId}` });
-}
-const day = (n: number) => addDays(todaySgt(), n);
 const slash = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
-const send = (over: Record<string, unknown> = {}) =>
-  actions.sendClaim({ vehicle: "TAXI", first: day(1), also: [], start: { kind: "HOME" }, end: { kind: "OFFICE" }, reason: "ct scan", roundTrip: false, ...over } as Parameters<typeof actions.sendClaim>[0]);
-const dms = () => tg.calls.filter((c) => c.method === "sendMessage");
+const input = (over: Partial<Parameters<typeof claims.submitClaim>[2]> = {}): Parameters<typeof claims.submitClaim>[2] => ({
+  vehicle: "TAXI",
+  first: day(1),
+  also: [],
+  start: { kind: "HOME" },
+  end: { kind: "OFFICE" },
+  reason: "ct scan",
+  roundTrip: false,
+  ...over,
+});
+/** His claim, as the Mini App sends it, to whatever the sheet is now. */
+const send = async (tgId: number, over: Partial<Parameters<typeof claims.submitClaim>[2]> = {}) => claims.submitClaim(claimSheet(), await acting(tgId), input(over));
+const toMan = (c: ReturnType<typeof recordingCourier>) => c.sent.flatMap((x) => ("send" in x && "person" in x.send && x.send.person === ids.man ? [x.text] : []));
 
 describe("submitting a claim (DB)", () => {
   it("one row per day, appended to the sheet under the OC's columns, with his full name and his camp's address", async (ctx) => {
     if (!reachable) ctx.skip();
     await setup();
-    await as(MAN);
-    const res = await send({ also: [day(3), day(2)], roundTrip: true });
-    expect(res).toMatchObject({ ok: true, data: { days: [day(1), day(2), day(3)], sheet: "sent" } });
+    const res = await send(MAN, { also: [day(3), day(2)], roundTrip: true });
+    expect(res).toMatchObject({ ok: true, value: { sheet: "sent" } });
+    expect(res.ok && res.value.rows.map((r) => r.tripDate)).toEqual([day(1), day(2), day(3)]);
+    expect(await db.select({ action: wbAudit.action, via: wbAudit.via }).from(wbAudit)).toEqual([{ action: "claim-submit", via: "MINIAPP" }]);
 
     const rows = await db.select().from(wbClaim).orderBy(wbClaim.tripDate);
     expect(rows).toHaveLength(3);
@@ -151,15 +131,12 @@ describe("submitting a claim (DB)", () => {
     expect(sheet[1].slice(0, 3)).toEqual(["", "", ""]);
     expect(sheet[1].slice(3, 12)).toEqual([rows[0].rank, "TAN AH KOW BIN ABDULLAH", "PLATOON 7", "TAXI", slash(day(1)), "HOME", "BEDOK CAMP", "CT SCAN", "YES"]);
     expect(sheet[1][12]).toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/);
-    // nothing is said on Telegram: the OC decides on his sheet
-    expect(dms()).toHaveLength(0);
   });
 
   it("a pair's man claims to his camp's one address; without a full name, his roster name", async (ctx) => {
     if (!reachable) ctx.skip();
     await setup();
-    await as(SRF);
-    expect((await send({ start: { kind: "OFFICE" }, end: { kind: "OTHER", text: "sgh" } })).ok).toBe(true);
+    expect((await send(SRF, { start: { kind: "OFFICE" }, end: { kind: "OTHER", text: "sgh" } })).ok).toBe(true);
     const [r] = await db.select().from(wbClaim);
     expect([r.startPlace, r.endPlace, r.platoon]).toEqual(["SELARANG CAMP", "SGH", "PLATOON 6"]);
     const [p] = await db.select({ name: person.name }).from(person).where(eq(person.id, ids.srfMan));
@@ -169,10 +146,9 @@ describe("submitting a claim (DB)", () => {
   it("refuses the past and a day outside the fortnight, and writes nothing", async (ctx) => {
     if (!reachable) ctx.skip();
     await setup();
-    await as(MAN);
-    expect(await send({ first: day(-1) })).toMatchObject({ ok: false, error: expect.stringMatching(/before the trip/) });
-    expect(await send({ also: [day(20)] })).toMatchObject({ ok: false });
-    expect(await send({ reason: "" })).toMatchObject({ ok: false });
+    expect(await send(MAN, { first: day(-1) })).toMatchObject({ ok: false, error: expect.stringMatching(/before the trip/) });
+    expect(await send(MAN, { also: [day(20)] })).toMatchObject({ ok: false });
+    expect(await send(MAN, { start: { kind: "HOME" }, end: { kind: "HOME" } })).toEqual({ ok: false, error: "The trip starts and ends in the same place. Is it a round trip?" });
     expect(await db.select().from(wbClaim)).toHaveLength(0);
     expect(sheetState.tabs!["Pending Requests"]).toHaveLength(1);
   });
@@ -180,19 +156,18 @@ describe("submitting a claim (DB)", () => {
   it("with the sheet not set or failing, the claim is saved and the evening round sends it", async (ctx) => {
     if (!reachable) ctx.skip();
     await setup();
-    await as(MAN);
     const tabs = sheetState.tabs;
     sheetState.tabs = null;
-    expect(await send()).toMatchObject({ ok: true, data: { sheet: "not-set" } });
+    expect(await send(MAN)).toMatchObject({ ok: true, value: { sheet: "not-set" } });
     sheetState.tabs = tabs;
     sheetState.fail = true;
-    expect(await send({ first: day(2) })).toMatchObject({ ok: true, data: { sheet: "failed" } });
+    expect(await send(MAN, { first: day(2) })).toMatchObject({ ok: true, value: { sheet: "failed" } });
     let rows = await db.select().from(wbClaim);
     expect(rows.every((r) => !r.exportedAt)).toBe(true);
     expect(rows.find((r) => r.tripDate === day(2))!.exportError).toMatch(/503/);
 
     sheetState.fail = false;
-    await eveningRound(await courier(), new Date(), { force: true });
+    await eveningRound(recordingCourier(), new Date(), { force: true });
     rows = await db.select().from(wbClaim);
     expect(rows.every((r) => r.exportedAt)).toBe(true);
     expect(sheetState.tabs!["Pending Requests"]).toHaveLength(3);
@@ -203,8 +178,7 @@ describe("the OC's verdicts (DB)", () => {
   it("read back from any tab: approved, rejected with remarks, deleted (gone, untold); the man told once", async (ctx) => {
     if (!reachable) ctx.skip();
     await setup();
-    await as(MAN);
-    await send({ also: [day(2), day(3)] });
+    await send(MAN, { also: [day(2), day(3)] });
     const pending = sheetState.tabs!["Pending Requests"];
     // the OC approves day 1 in place; his script moves day 2, rejected, to Processed; a PS deletes day 3
     pending[1][0] = "APPROVED";
@@ -223,29 +197,30 @@ describe("the OC's verdicts (DB)", () => {
     ]);
     expect((await claims.myClaims(ids.man)).map((c) => c.state)).toEqual(["REJECTED", "APPROVED"]);
 
-    const s = await eveningRound(await courier(), new Date(), { force: true });
+    const c = recordingCourier();
+    const s = await eveningRound(c, new Date(), { force: true });
     expect(s.claimsDecided).toBe(0);
     expect(s.claimsTold).toBe(1);
-    const told = dms().filter((c) => c.payload.chat_id === MAN);
+    const told = toMan(c);
     expect(told).toHaveLength(1);
-    expect(String(told[0].payload.text)).toMatch(/^✅ Transport claim approved\n\n• TAXI .+ · HOME → BEDOK CAMP · CT SCAN\n\n❌ Transport claim rejected\n\n.+\n  OC: Take the bus$/);
+    expect(told[0]).toMatch(/^✅ Transport claim approved\n\n• TAXI .+ · HOME → BEDOK CAMP · CT SCAN\n\n❌ Transport claim rejected\n\n.+\n  OC: Take the bus$/);
     expect((await db.select().from(wbClaim)).every((r) => r.toldAt)).toBe(true);
 
-    tg.calls = [];
-    const again = await eveningRound(await courier(), new Date(), { force: true });
+    const c2 = recordingCourier();
+    const again = await eveningRound(c2, new Date(), { force: true });
     expect(again.claimsTold).toBe(0);
-    expect(dms().filter((c) => c.payload.chat_id === MAN)).toHaveLength(0);
+    expect(toMan(c2)).toHaveLength(0);
   });
 
   it("COY HQ hears about claims the OC has left more than 12 hours", async (ctx) => {
     if (!reachable) ctx.skip();
     await setup();
-    await as(MAN);
-    await send();
+    await send(MAN);
     await db.update(wbClaim).set({ createdAt: new Date(Date.now() - 13 * 60 * 60 * 1000) });
-    await eveningRound(await courier(), new Date(), { force: true });
-    const hq = dms().find((c) => c.payload.chat_id === -1000);
-    expect(String(hq?.payload.text)).toMatch(/🚕 1 transport claim waiting on the OC's sheet more than 12 hours\nhttps:\/\/sheet.example/);
+    const c = recordingCourier();
+    await eveningRound(c, new Date(), { force: true });
+    const hq = c.sent.find((x) => "send" in x && "platoon" in x.send && x.send.platoon === ids.hq && x.text.includes("🚕"));
+    expect(hq && "text" in hq ? hq.text : "").toMatch(/🚕 1 transport claim waiting on the OC's sheet more than 12 hours\nhttps:\/\/sheet.example/);
   });
 });
 
@@ -253,13 +228,13 @@ describe("FEATURE_CLAIMS off (DB)", () => {
   it("the action 404s, nothing is written, the evening round leaves claims alone", async (ctx) => {
     if (!reachable) ctx.skip();
     await setup();
-    await as(MAN);
-    await send();
+    await send(MAN);
     vi.stubEnv("FEATURE_CLAIMS", "");
-    await expect(send({ first: day(2) })).rejects.toThrow();
+    // the server action is a 404 before it reads anything
+    await expect(actions.sendClaim({ ...input({ first: day(2) }), also: [] })).rejects.toThrow();
     expect(await db.select().from(wbClaim)).toHaveLength(1);
     sheetState.tabs!["Pending Requests"][1][0] = "APPROVED";
-    const s = await eveningRound(await courier(), new Date(), { force: true });
+    const s = await eveningRound(recordingCourier(), new Date(), { force: true });
     expect([s.claimsDecided, s.claimsTold]).toEqual([0, 0]);
     expect((await db.select().from(wbClaim))[0].state).toBe("PENDING");
   });

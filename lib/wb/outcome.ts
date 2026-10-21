@@ -1,8 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
-import { wbAudit } from "@/lib/wb/audit";
-import { inTx, Refusal, type Actor, type Delivery, type Via } from "@/lib/wb/core";
+import { Refusal, type Delivery } from "@/lib/wb/core";
 import { wbRecord } from "@/lib/wb/db/schema";
 import { outcomeOrder, recordWhat } from "@/lib/wb/domain/describe";
 import { recordAccess } from "@/lib/wb/domain/access";
@@ -10,6 +9,7 @@ import { asksSeenBy, isLive, isOutcome, kinOf, MAX_STATUSES, onensFor, outcomePa
 import { addDays, dateRange, dayCount, todaySgt } from "@/lib/wb/domain/timeline";
 import { memberLabel, recordView, recordViews, type RecordView } from "@/lib/wb/records";
 import type { Courier } from "@/lib/wb/telegram/courier";
+import { write, type Acting, type Outcome } from "@/lib/wb/write";
 
 // What the doctor gave him (ports Sabre Bot's _commit_outcome). One visit to
 // a doctor becomes the rows it produced: an MC or HL, and any statuses on the
@@ -76,146 +76,170 @@ function checkDates(what: string, start: string, end: string | null, maxDays: nu
  * Then the card goes to the commanders (no diagnosis, no photo) and the
  * trooper gets his summary.
  */
-export async function saveOutcome(courier: Courier, actor: Actor, input: OutcomeInput, via: Via): Promise<{ ok: true; value: Recorded } | { ok: false; error: string }> {
-  const personId = actor.personId;
-  if (!personId) return { ok: false, error: "Ask your PS to add you to the parade state first." };
-  if (input.statuses.length > MAX_STATUSES) return { ok: false, error: `${MAX_STATUSES} statuses at a time. Record the rest as a second entry.` };
-  const by = await memberLabel(actor.id);
+export async function saveOutcome(courier: Courier, acting: Acting, input: OutcomeInput): Promise<Outcome<Recorded>> {
+  const { actor } = acting;
   const today = todaySgt();
 
-  const res = await inTx(async (tx) => {
-    // ---------------------------------------------------------------- what it hangs off, and what it replaces
-    let parent: typeof wbRecord.$inferSelect | null = null;
-    let previous: { id: string; evidenceFileId: string | null }[] = [];
-    if (input.anchorId) {
-      const [anchor] = await tx.select().from(wbRecord).where(eq(wbRecord.id, input.anchorId)).for("update");
-      if (!anchor) throw new Refusal("That record has gone.");
-      if (VISIT_KINDS.includes(anchor.kind)) {
-        const refusal = outcomeParentRefusal(anchor, personId);
-        if (refusal) throw new Refusal(refusal);
-        parent = anchor;
-        const kids = await tx.select().from(wbRecord).where(eq(wbRecord.parentId, anchor.id));
-        previous = kids.filter((k) => isOutcome(k.kind) && isLive(k.state));
-      } else if (isOutcome(anchor.kind) && anchor.parentId === null && anchor.personId === personId && isLive(anchor.state)) {
-        const kids = await tx.select().from(wbRecord).where(eq(wbRecord.parentId, anchor.id));
-        previous = kinOf(anchor, kids);
-      } else {
-        throw new Refusal("That isn't an outcome you can change.");
+  return write(courier, acting, {
+    parade: true,
+    async change({ tx, audit }) {
+      const personId = actor.personId;
+      if (!personId) throw new Refusal("Ask your PS to add you to the parade state first.");
+      if (input.statuses.length > MAX_STATUSES) throw new Refusal(`${MAX_STATUSES} statuses at a time. Record the rest as a second entry.`);
+      const by = await memberLabel(actor.id, tx);
+      // ---------------------------------------------------------------- what it hangs off, and what it replaces
+      let parent: typeof wbRecord.$inferSelect | null = null;
+      let previous: { id: string; evidenceFileId: string | null }[] = [];
+      if (input.anchorId) {
+        const [anchor] = await tx.select().from(wbRecord).where(eq(wbRecord.id, input.anchorId)).for("update");
+        if (!anchor) throw new Refusal("That record has gone.");
+        if (VISIT_KINDS.includes(anchor.kind)) {
+          const refusal = outcomeParentRefusal(anchor, personId);
+          if (refusal) throw new Refusal(refusal);
+          parent = anchor;
+          const kids = await tx.select().from(wbRecord).where(eq(wbRecord.parentId, anchor.id));
+          previous = kids.filter((k) => isOutcome(k.kind) && isLive(k.state));
+        } else if (isOutcome(anchor.kind) && anchor.parentId === null && anchor.personId === personId && isLive(anchor.state)) {
+          const kids = await tx.select().from(wbRecord).where(eq(wbRecord.parentId, anchor.id));
+          previous = kinOf(anchor, kids);
+        } else {
+          throw new Refusal("That isn't an outcome you can change.");
+        }
       }
-    }
-    const parentKind = parent?.kind ?? null;
-    const now = new Date();
+      const parentKind = parent?.kind ?? null;
+      const now = new Date();
 
-    const replaced = previous.map((p) => p.id);
-    const cancel = async () => {
-      if (!replaced.length) return;
-      await tx
-        .update(wbRecord)
-        .set({ state: "CANCELLED", decisionNote: `Corrected by ${by}`, updatedAt: now })
-        .where(inArray(wbRecord.id, replaced));
-    };
+      const replaced = previous.map((p) => p.id);
+      const cancel = async () => {
+        if (!replaced.length) return;
+        await tx
+          .update(wbRecord)
+          .set({
+            state: "CANCELLED",
+            decisionNote: `Corrected by ${by}`,
+            updatedAt: now,
+          })
+          .where(inArray(wbRecord.id, replaced));
+      };
 
-    // ---------------------------------------------------------------- nothing given
-    if (!input.mc && !input.statuses.length) {
-      if (!parent) throw new Refusal(replaced.length ? "To take an MC or status off, ask your PS to void it." : "Nothing to record.");
+      // ---------------------------------------------------------------- nothing given
+      if (!input.mc && !input.statuses.length) {
+        if (!parent) throw new Refusal(replaced.length ? "To take an MC or status off, ask your PS to void it." : "Nothing to record.");
+        await cancel();
+        await tx.update(wbRecord).set({ outcomeAt: now, updatedAt: now }).where(eq(wbRecord.id, parent.id));
+        await audit({
+          action: "record-outcome",
+          entity: "wb_record",
+          entityId: parent.id,
+          after: {
+            nothing: true,
+            replaces: replaced.length ? replaced : undefined,
+          },
+        });
+        return { ids: [] as string[], anchorId: parent.id, replaced };
+      }
+
+      // ---------------------------------------------------------------- the paper
+      let fileId = input.photoFileId;
+      if (!fileId) fileId = previous.find((p) => p.evidenceFileId)?.evidenceFileId ?? null;
+      if (!fileId) throw new Refusal("Add a photo of the document.");
+
+      const mc = input.mc;
+      if (mc) {
+        if (!mc.category.trim()) throw new Refusal(`Say what the ${mc.kind} was for.`);
+        if (!mc.diagnosis.trim()) throw new Refusal("Copy the diagnosis from the paper.");
+        if (asksSeenBy(parentKind) && !mc.seenBy) throw new Refusal("Say who you saw: the camp MO or a civilian doctor.");
+        checkDates(`The ${mc.kind}`, mc.startDate, mc.endDate, MC_MAX_DAYS, today);
+      }
+      input.statuses.forEach((st, i) => {
+        if (!st.label.trim()) throw new Refusal(`Say which status (status ${i + 1}).`);
+        checkDates(`Status ${i + 1}`, st.startDate, st.endDate, STATUS_MAX_DAYS, today);
+      });
+
+      // one created_at for every row: it's what ties one outcome together (records.ts outcomeBatch)
+      const headId = randomUUID();
+      const hangOff = parent?.id ?? null;
+      const common = {
+        personId,
+        memberId: actor.id,
+        state: "RECORDED" as const,
+        evidenceFileId: fileId,
+        createdBy: actor.id,
+        createdVia: "SELF" as const,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const rows: (typeof wbRecord.$inferInsert)[] = [];
+      if (mc) {
+        const r = dateRange(mc.startDate, mc.endDate);
+        rows.push({
+          ...common,
+          id: headId,
+          parentId: hangOff,
+          kind: mc.kind,
+          startAt: r.startAt,
+          endAt: r.endAt,
+          absent: true,
+          detail: mc.kind,
+          mcCategory: mc.category.trim().slice(0, 40),
+          diagnosis: mc.diagnosis.trim().slice(0, 200),
+          seenBy: asksSeenBy(parentKind) ? mc.seenBy : null,
+          onens: onensFor(mc.kind, parentKind, mc.seenBy, input.onensUploaded),
+        });
+      }
+      input.statuses.forEach((st) => {
+        const r = st.endDate
+          ? dateRange(st.startDate, st.endDate)
+          : {
+              startAt: dateRange(st.startDate, st.startDate).startAt,
+              endAt: null,
+            };
+        const first = rows.length === 0;
+        rows.push({
+          ...common,
+          id: first ? headId : randomUUID(),
+          // standalone: the first row is the head and the rest hang off it
+          parentId: hangOff ?? (first ? null : headId),
+          kind: "STATUS",
+          startAt: r.startAt,
+          endAt: r.endAt,
+          absent: false,
+          detail: st.label.trim().toUpperCase().slice(0, 60),
+        });
+      });
+
       await cancel();
-      await tx.update(wbRecord).set({ outcomeAt: now, updatedAt: now }).where(eq(wbRecord.id, parent.id));
-      await wbAudit(tx, { memberId: actor.id, via, action: "record-outcome", entity: "wb_record", entityId: parent.id, after: { nothing: true, replaces: replaced.length ? replaced : undefined } });
-      return { ids: [] as string[], anchorId: parent.id, replaced };
-    }
-
-    // ---------------------------------------------------------------- the paper
-    let fileId = input.photoFileId;
-    if (!fileId) fileId = previous.find((p) => p.evidenceFileId)?.evidenceFileId ?? null;
-    if (!fileId) throw new Refusal("Add a photo of the document.");
-
-    const mc = input.mc;
-    if (mc) {
-      if (!mc.category.trim()) throw new Refusal(`Say what the ${mc.kind} was for.`);
-      if (!mc.diagnosis.trim()) throw new Refusal("Copy the diagnosis from the paper.");
-      if (asksSeenBy(parentKind) && !mc.seenBy) throw new Refusal("Say who you saw: the camp MO or a civilian doctor.");
-      checkDates(`The ${mc.kind}`, mc.startDate, mc.endDate, MC_MAX_DAYS, today);
-    }
-    input.statuses.forEach((st, i) => {
-      if (!st.label.trim()) throw new Refusal(`Say which status (status ${i + 1}).`);
-      checkDates(`Status ${i + 1}`, st.startDate, st.endDate, STATUS_MAX_DAYS, today);
-    });
-
-    // one created_at for every row: it's what ties one outcome together (records.ts outcomeBatch)
-    const headId = randomUUID();
-    const hangOff = parent?.id ?? null;
-    const common = {
-      personId,
-      memberId: actor.id,
-      state: "RECORDED" as const,
-      evidenceFileId: fileId,
-      createdBy: actor.id,
-      createdVia: "SELF" as const,
-      createdAt: now,
-      updatedAt: now,
-    };
-    const rows: (typeof wbRecord.$inferInsert)[] = [];
-    if (mc) {
-      const r = dateRange(mc.startDate, mc.endDate);
-      rows.push({
-        ...common,
-        id: headId,
-        parentId: hangOff,
-        kind: mc.kind,
-        startAt: r.startAt,
-        endAt: r.endAt,
-        absent: true,
-        detail: mc.kind,
-        mcCategory: mc.category.trim().slice(0, 40),
-        diagnosis: mc.diagnosis.trim().slice(0, 200),
-        seenBy: asksSeenBy(parentKind) ? mc.seenBy : null,
-        onens: onensFor(mc.kind, parentKind, mc.seenBy, input.onensUploaded),
+      await tx.insert(wbRecord).values(rows);
+      if (parent) await tx.update(wbRecord).set({ outcomeAt: now, updatedAt: now }).where(eq(wbRecord.id, parent.id));
+      // the audit names what was recorded, never the diagnosis
+      await audit({
+        action: "record-outcome",
+        entity: "wb_record",
+        entityId: headId,
+        after: {
+          kinds: rows.map((r) => r.kind),
+          parentId: parent?.id ?? null,
+          replaces: replaced.length ? replaced : undefined,
+        },
       });
-    }
-    input.statuses.forEach((st) => {
-      const r = st.endDate ? dateRange(st.startDate, st.endDate) : { startAt: dateRange(st.startDate, st.startDate).startAt, endAt: null };
-      const first = rows.length === 0;
-      rows.push({
-        ...common,
-        id: first ? headId : randomUUID(),
-        // standalone: the first row is the head and the rest hang off it
-        parentId: hangOff ?? (first ? null : headId),
-        kind: "STATUS",
-        startAt: r.startAt,
-        endAt: r.endAt,
-        absent: false,
-        detail: st.label.trim().toUpperCase().slice(0, 60),
-      });
-    });
-
-    await cancel();
-    await tx.insert(wbRecord).values(rows);
-    if (parent) await tx.update(wbRecord).set({ outcomeAt: now, updatedAt: now }).where(eq(wbRecord.id, parent.id));
-    // the audit names what was recorded, never the diagnosis
-    await wbAudit(tx, {
-      memberId: actor.id,
-      via,
-      action: "record-outcome",
-      entity: "wb_record",
-      entityId: headId,
-      after: { kinds: rows.map((r) => r.kind), parentId: parent?.id ?? null, replaces: replaced.length ? replaced : undefined },
-    });
-    return { ids: rows.map((r) => r.id!), anchorId: parent?.id ?? headId, replaced };
+      return {
+        ids: rows.map((r) => r.id!),
+        anchorId: parent?.id ?? headId,
+        replaced,
+      };
+    },
+    async tell({ ids, anchorId, replaced }, c): Promise<Recorded> {
+      const made = await recordViews(ids);
+      const old = outcomeOrder(await recordViews(replaced));
+      for (const o of old) await c.redraw({ record: o });
+      if (!made.length) return { recordIds: [], anchorId, delivery: null, nothing: true };
+      // the rows just saved are the whole outcome (one created_at); the card is posted on its head
+      const batch = outcomeOrder(made);
+      const { delivery } = await c.postCard({ record: batch[0] }, { replaces: old.map(recordWhat) });
+      await c.send({ telegramId: batch[0].ownerTelegramId }, ownSummary(batch, old.length > 0));
+      return { recordIds: ids, anchorId, delivery, nothing: false };
+    },
   });
-  if (!res.ok) return res;
-
-  const { ids, anchorId, replaced } = res.value;
-  const made = await recordViews(ids);
-  const old = outcomeOrder(await recordViews(replaced));
-  for (const o of old) await courier.redraw({ record: o });
-  if (!made.length) {
-    return { ok: true, value: { recordIds: [], anchorId, delivery: null, nothing: true } };
-  }
-  // the rows just saved are the whole outcome (one created_at); the card is posted on its head
-  const batch = outcomeOrder(made);
-  const { delivery } = await courier.postCard({ record: batch[0] }, { replaces: old.map(recordWhat) });
-  await courier.send({ telegramId: batch[0].ownerTelegramId }, ownSummary(batch, old.length > 0));
-  return { ok: true, value: { recordIds: ids, anchorId, delivery, nothing: false } };
 }
 
 function ownSummary(batch: RecordView[], corrected: boolean): string {
@@ -229,21 +253,32 @@ function ownSummary(batch: RecordView[], corrected: boolean): string {
  * "Uploaded to ONENS": the trooper on his own MC, or a commander who decides
  * for him. Only an MC that is owed.
  */
-export async function markOnens(courier: Courier, actor: Actor, recordId: string, via: Via): Promise<{ ok: true; record: RecordView } | { ok: false; error: string }> {
-  const r = await recordView(recordId);
-  if (!r) return { ok: false, error: "That record has gone." };
-  if (!recordAccess(actor, r).markOnens) return { ok: false, error: "That isn't yours." };
-  const res = await inTx(async (tx) => {
-    const [row] = await tx
-      .update(wbRecord)
-      .set({ onens: "DONE", updatedAt: new Date() })
-      .where(and(eq(wbRecord.id, recordId), eq(wbRecord.onens, "OWED"), inArray(wbRecord.state, ["RECORDED"])))
-      .returning({ id: wbRecord.id });
-    if (!row) throw new Refusal("Nothing is owed on ONENS for that.");
-    await wbAudit(tx, { memberId: actor.id, via, action: "onens-done", entity: "wb_record", entityId: recordId, before: { onens: "OWED" }, after: { onens: "DONE" } });
+export async function markOnens(courier: Courier, by: Acting, recordId: string): Promise<Outcome<RecordView>> {
+  const { actor } = by;
+  return write(courier, by, {
+    parade: false,
+    async change({ tx, audit }) {
+      const r = await recordView(recordId, tx);
+      if (!r) throw new Refusal("That record has gone.");
+      if (!recordAccess(actor, r).markOnens) throw new Refusal("That isn't yours.");
+      const [row] = await tx
+        .update(wbRecord)
+        .set({ onens: "DONE", updatedAt: new Date() })
+        .where(and(eq(wbRecord.id, recordId), eq(wbRecord.onens, "OWED"), inArray(wbRecord.state, ["RECORDED"])))
+        .returning({ id: wbRecord.id });
+      if (!row) throw new Refusal("Nothing is owed on ONENS for that.");
+      await audit({
+        action: "onens-done",
+        entity: "wb_record",
+        entityId: recordId,
+        before: { onens: "OWED" },
+        after: { onens: "DONE" },
+      });
+    },
+    async tell(_, c) {
+      const after = (await recordView(recordId))!;
+      await c.redraw({ record: after });
+      return after;
+    },
   });
-  if (!res.ok) return res;
-  const after = (await recordView(recordId))!;
-  await courier.redraw({ record: after });
-  return { ok: true, record: after };
 }

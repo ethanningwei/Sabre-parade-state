@@ -6,10 +6,8 @@ import type { Tx } from "@/lib/core/audit";
 import { db } from "@/lib/db";
 import { absence, camp, duty, person, subunit } from "@/lib/db/schema";
 import { UserError } from "@/lib/errors";
-import { wbAudit } from "@/lib/wb/audit";
-import { inTx, Refusal, type Actor } from "@/lib/wb/core";
-import { wbAssignment, wbGrant, wbMember, wbProjection, wbRecord, wbRfRequest } from "@/lib/wb/db/schema";
-import { stateAfter } from "@/lib/wb/domain/rf";
+import { Refusal } from "@/lib/wb/core";
+import { wbAssignment, wbGrant, wbMember, wbProjection, wbRecord } from "@/lib/wb/db/schema";
 import { RANKS, rolesFor } from "@/lib/wb/domain/roles";
 import { inReach, manAccess, reach } from "@/lib/wb/domain/access";
 import { addedText, removalRefusal, type RemovalCounts } from "@/lib/wb/domain/roster-flow";
@@ -17,8 +15,9 @@ import { STANDING_STATES } from "@/lib/wb/domain/rules";
 import { place } from "@/lib/wb/format";
 import { ensureProjectorUser, PROJECTOR_USER } from "@/lib/wb/projection";
 import { memberLabel, personWhere, type Db } from "@/lib/wb/records";
-import { rfView } from "@/lib/wb/rf-data";
+import { recountRequest } from "@/lib/wb/rf";
 import { courier as liveCourier, type Courier } from "@/lib/wb/telegram/courier";
+import { joinWrite, write, type Acting, type By, type Change } from "@/lib/wb/write";
 
 // The roster flow between the Mini App and the parade state (status §3a).
 // Removing a man takes everything whereabouts holds for him with him: his
@@ -30,19 +29,17 @@ import { courier as liveCourier, type Courier } from "@/lib/wb/telegram/courier"
 // The v1 author of what the Mini App writes into v1 is the projector's user,
 // "Sabre (whereabouts)"; who really did it is in wb_audit.
 
-export interface RemovedBy {
-  /** wb_member.id; null when it came from the v1 web app */
-  memberId: string | null;
+/** Who is taking him off, beyond the Write's By. */
+export interface Removal {
+  /** in the withdrawn requests' note: "Removed from roster by <label>", or "at ORD" for the evening round */
   label: string;
-  /** SYSTEM: the evening round, at his ORD */
-  via: "MINIAPP" | "WEB" | "SYSTEM";
   /** the v1 user for v1's audit_log and closed_by */
   v1UserId: string;
 }
 
 const REASON = "removed from roster";
 
-/** inTx always hands over its transaction; v1's cores want it typed as one. */
+/** A Write always hands over its transaction; v1's cores want it typed as one. */
 const asTx = (t: Db) => t as Tx;
 
 function uniqueViolation(e: unknown): boolean {
@@ -105,13 +102,15 @@ export interface Cleanup {
 }
 
 /**
- * Everything whereabouts holds for a man leaving the roster, inside the
- * caller's transaction (after v1's removePersonCore). Throws UserError for the
- * last admin. Sends nothing: the caller redraws the cards once it commits.
+ * Everything whereabouts holds for a man leaving the roster, inside a Write
+ * (after v1's removePersonCore). Throws UserError for the last admin. Sends
+ * nothing: the Write redraws the cards once it commits (redrawAfter).
  */
-export async function cleanupWhereabouts(tx: Tx, personId: string, by: RemovedBy, now: Date = new Date()): Promise<Cleanup> {
+export async function cleanupWhereabouts({ tx: t, audit: write }: Change, by: By, personId: string, removal: Removal, now: Date = new Date()): Promise<Cleanup> {
+  const tx = asTx(t);
+  const memberId = "actor" in by ? by.actor.id : null;
   const audit = (action: string, entity: string, entityId: string, before: unknown, after: Record<string, unknown> = {}) =>
-    wbAudit(tx, { memberId: by.memberId, via: by.via, action, entity, entityId, before, after: { ...after, reason: REASON, ...(by.memberId ? {} : { by: by.label }) } });
+    write({ action, entity, entityId, before, after: { ...after, reason: REASON } });
 
   const [member] = await tx.select().from(wbMember).where(eq(wbMember.personId, personId)).for("update");
   if (member && (await lastAdmin(tx, member.id))) throw new UserError(removalRefusal({ self: false, lastAdmin: true })!);
@@ -119,29 +118,24 @@ export async function cleanupWhereabouts(tx: Tx, personId: string, by: RemovedBy
   // his open v1 duties, with their "RF @ X" home absences
   const duties = await tx.select({ id: duty.id }).from(duty).where(and(eq(duty.personId, personId), isNull(duty.closedAt)));
   for (const d of duties) {
-    await endDutyCore(tx, by.v1UserId, d.id);
+    await endDutyCore(tx, removal.v1UserId, d.id);
     await audit("end-duty", "duty", d.id, null);
   }
 
   // his Extra/RF/SOL in Sabre, now or to come; a request he was filling opens again
   const stood = await tx
     .update(wbAssignment)
-    .set({ state: "CANCELLED", cancelledBy: by.memberId, cancelledAt: now })
+    .set({ state: "CANCELLED", cancelledBy: memberId, cancelledAt: now })
     .where(and(eq(wbAssignment.personId, personId), eq(wbAssignment.state, "ACTIVE"), gt(wbAssignment.endAt, now)))
     .returning({ id: wbAssignment.id, rfRequestId: wbAssignment.rfRequestId });
   const rfIds = [...new Set(stood.flatMap((a) => (a.rfRequestId ? [a.rfRequestId] : [])))];
-  for (const id of rfIds) {
-    await tx.select({ id: wbRfRequest.id }).from(wbRfRequest).where(eq(wbRfRequest.id, id)).for("update");
-    const r = (await rfView(id, tx))!;
-    const next = stateAfter(r.state, r.need, r.deployed.length);
-    if (next !== r.state) await tx.update(wbRfRequest).set({ state: next }).where(eq(wbRfRequest.id, id));
-  }
+  for (const id of rfIds) await recountRequest(tx, id);
   for (const a of stood) await audit("stand-down", "wb_assignment", a.id, { state: "ACTIVE" }, { state: "CANCELLED", rfRequestId: a.rfRequestId });
 
   // his requests still waiting on a decision
   const withdrawn = await tx
     .update(wbRecord)
-    .set({ state: "WITHDRAWN", decisionNote: by.via === "SYSTEM" ? `Removed from roster at ${by.label}` : `Removed from roster by ${by.label}`, updatedAt: now })
+    .set({ state: "WITHDRAWN", decisionNote: "system" in by && by.system === "SYSTEM" ? `Removed from roster at ${removal.label}` : `Removed from roster by ${removal.label}`, updatedAt: now })
     .where(and(eq(wbRecord.personId, personId), eq(wbRecord.state, "PENDING")))
     .returning({ id: wbRecord.id });
   for (const r of withdrawn) await audit("withdraw", "wb_record", r.id, { state: "PENDING" }, { state: "WITHDRAWN" });
@@ -176,44 +170,47 @@ export async function redrawAfter(c: Courier, cleanup: Cleanup) {
   for (const id of cleanup.rfIds) await c.redraw({ rf: id });
 }
 
-/** Remove from roster in the Mini App: v1's removal and the whereabouts cleanup, in one transaction. */
-export async function removeFromRoster(c: Courier, actor: Actor, personId: string) {
-  const p = await personWhere(personId);
-  if (!p) return { ok: false as const, error: "He's no longer on the roster." };
-  // by where he stands only: removalRefusal says why not yourself
-  if (!manAccess(actor, { subunitId: p.subunitId, campId: p.campId }).removes) return { ok: false as const, error: `Only ${p.subunitName}'s PC or PS (or company command) can remove ${p.rank} ${p.name}.` };
-  const self = removalRefusal({ self: actor.personId === personId, lastAdmin: false });
-  if (self) return { ok: false as const, error: self };
-  const label = await memberLabel(actor.id);
-
-  let res;
-  try {
-    res = await inTx(async (t) => {
-      const tx = asTx(t);
+/** Remove from roster in the Mini App: v1's removal and the whereabouts cleanup, in one Write. */
+export async function removeFromRoster(courier: Courier, by: Acting, personId: string) {
+  return write(courier, by, {
+    parade: true,
+    async change(c) {
+      const tx = asTx(c.tx);
+      const p = await personWhere(personId, tx);
+      if (!p) throw new Refusal("He's no longer on the roster.");
+      // by where he stands only: removalRefusal says why not yourself
+      if (!manAccess(by.actor, { subunitId: p.subunitId, campId: p.campId }).removes) throw new Refusal(`Only ${p.subunitName}'s PC or PS (or company command) can remove ${p.rank} ${p.name}.`);
+      const self = removalRefusal({ self: by.actor.personId === personId, lastAdmin: false });
+      if (self) throw new Refusal(self);
       const [row] = await tx.select({ active: person.active }).from(person).where(eq(person.id, personId)).for("update");
       if (!row?.active) throw new Refusal("He's already been taken off the roster.");
       await ensureProjectorUser(tx);
       await removePersonCore(tx, PROJECTOR_USER.id, personId);
-      return cleanupWhereabouts(tx, personId, { memberId: actor.id, label, via: "MINIAPP", v1UserId: PROJECTOR_USER.id });
-    });
-  } catch (e) {
-    if (e instanceof UserError) return { ok: false as const, error: e.message };
-    throw e;
-  }
-  if (!res.ok) return res;
-  await redrawAfter(c, res.value);
-  return { ok: true as const, value: { name: `${p.rank} ${p.name}`, ...res.value.counts } };
+      const cleanup = await cleanupWhereabouts(c, by, personId, { label: await memberLabel(by.actor.id, tx), v1UserId: PROJECTOR_USER.id });
+      return { name: `${p.rank} ${p.name}`, cleanup };
+    },
+    async tell({ name, cleanup }, c) {
+      await redrawAfter(c, cleanup);
+      return { name, ...cleanup.counts };
+    },
+  });
 }
 
 /**
  * v1's Admin › People › Remove, when FEATURE_WHEREABOUTS is on: the same
- * cleanup in v1's transaction. Returns what to do once it has committed.
+ * cleanup, joining v1's transaction. Returns what to do once it has committed:
+ * bring the parade state in line and redraw the cards.
  */
 export async function removeFromWhereabouts(tx: Tx, personId: string, v1: { v1UserId: string; v1Name: string }): Promise<() => Promise<void>> {
-  const cleanup = await cleanupWhereabouts(tx, personId, { memberId: null, label: v1.v1Name, via: "WEB", v1UserId: v1.v1UserId });
+  const by: By = { system: "WEB", label: v1.v1Name };
+  const { finish } = await joinWrite(tx, liveCourier, by, {
+    parade: true,
+    change: (c) => cleanupWhereabouts(c, by, personId, { label: v1.v1Name, v1UserId: v1.v1UserId }),
+    tell: (cleanup, c) => redrawAfter(c, cleanup),
+  });
   return async () => {
     try {
-      await redrawAfter(await liveCourier(), cleanup);
+      await finish();
     } catch (e) {
       console.error("wb roster removal redraw:", e);
     }
@@ -231,20 +228,20 @@ export interface NewRosterPerson {
 }
 
 /** The account waiting to be added, if the actor can see him on Roster. */
-async function waitingMember(actor: Actor, memberId: string) {
-  const [row] = await db
+async function waitingMember(tx: Db, actor: Acting["actor"], memberId: string) {
+  const [row] = await tx
     .select({ m: wbMember, campId: camp.id, subunitId: camp.subunitId })
     .from(wbMember)
     .leftJoin(camp, eq(camp.id, wbMember.selfCampId))
     .where(eq(wbMember.id, memberId));
-  if (!row || !row.m.active || !row.m.registeredAt) return { error: "That account is no longer waiting." };
-  if (!inReach(reach(actor, "roster"), { subunitId: row.subunitId, campId: row.campId })) return { error: "He isn't in your platoon or camp." };
-  if (row.m.personId) return { error: "Someone has just added him." };
+  if (!row || !row.m.active || !row.m.registeredAt) throw new Refusal("That account is no longer waiting.");
+  if (!inReach(reach(actor, "roster"), { subunitId: row.subunitId, campId: row.campId })) throw new Refusal("He isn't in your platoon or camp.");
+  if (row.m.personId) throw new Refusal("Someone has just added him.");
   return { member: row.m, campId: row.campId };
 }
 
-/** Link the account to the person, unless someone beat us to it. Inside the transaction. */
-async function link(tx: Tx, actorId: string, memberId: string, personId: string) {
+/** Link the account to the person, unless someone beat us to it. Inside the Write. */
+async function link({ tx, audit }: Change, memberId: string, personId: string) {
   let rows;
   try {
     rows = await tx
@@ -257,7 +254,7 @@ async function link(tx: Tx, actorId: string, memberId: string, personId: string)
     throw e;
   }
   if (!rows.length) throw new Refusal("Someone has just added him.");
-  await wbAudit(tx, { memberId: actorId, via: "MINIAPP", action: "link", entity: "wb_member", entityId: memberId, before: { personId: null }, after: { personId } });
+  await audit({ action: "link", entity: "wb_member", entityId: memberId, before: { personId: null }, after: { personId } });
 }
 
 async function tell(c: Courier, telegramUserId: number, personId: string) {
@@ -285,21 +282,21 @@ interface Target {
  * the man's rank and role as v1 has them: sent back untouched they stay, even
  * if they're free text from the old roster ("GUARD COMM").
  */
-async function checkPerson(actor: Actor, input: PersonInput, keep?: { rank: string; role: string }) {
-  const [target] = await db
+async function checkPerson(tx: Db, actor: Acting["actor"], input: PersonInput, keep?: { rank: string; role: string }) {
+  const [target] = await tx
     .select({ id: camp.id, name: camp.name, subunitId: camp.subunitId, isHq: subunit.isHq })
     .from(camp)
     .innerJoin(subunit, eq(subunit.id, camp.subunitId))
     .where(eq(camp.id, input.campId));
-  if (!target) return { ok: false as const, error: "Pick his camp again." };
-  if (!inReach(reach(actor, "roster"), { subunitId: target.subunitId, campId: target.id })) return { ok: false as const, error: `${target.name} isn't in your platoon or camp.` };
+  if (!target) throw new Refusal("Pick his camp again.");
+  if (!inReach(reach(actor, "roster"), { subunitId: target.subunitId, campId: target.id })) throw new Refusal(`${target.name} isn't in your platoon or camp.`);
   const rank = input.rank.trim().toUpperCase();
   const name = input.name.trim().toUpperCase().split(/\s+/).filter(Boolean).join(" ");
-  if (!(RANKS as readonly string[]).includes(rank) && rank !== keep?.rank) return { ok: false as const, error: "Pick his rank." };
-  if (name.length < 2) return { ok: false as const, error: "Type his name as it should be on the parade state." };
+  if (!(RANKS as readonly string[]).includes(rank) && rank !== keep?.rank) throw new Refusal("Pick his rank.");
+  if (name.length < 2) throw new Refusal("Type his name as it should be on the parade state.");
   const kept = !!keep && input.role === keep.role;
-  if (!kept && !rolesFor(target.isHq).includes(input.role)) return { ok: false as const, error: "Pick a role that fits that camp." };
-  return { ok: true as const, target: target as Target, values: { campId: target.id, rank, name, role: input.role } };
+  if (!kept && !rolesFor(target.isHq).includes(input.role)) throw new Refusal("Pick a role that fits that camp.");
+  return { target: target as Target, values: { campId: target.id, rank, name, role: input.role } };
 }
 
 /** Someone else active in that camp under that name. Inside the transaction, so a race meets v1's unique index instead. */
@@ -311,53 +308,54 @@ async function refuseDuplicate(tx: Tx, target: Target, name: string, hint: strin
   if (same) throw new Refusal(`There's already a ${same.rank} ${name} in ${target.name}. ${hint}`);
 }
 
-/** Add to roster (a waiting account): a v1 person from what he registered with (checked by the PS), linked to his account. */
-export async function addToRoster(c: Courier, actor: Actor, input: NewRosterPerson) {
-  const w = await waitingMember(actor, input.memberId);
-  if (!w.member) return { ok: false as const, error: w.error };
-  const checked = await checkPerson(actor, input);
-  if (!checked.ok) return checked;
-  const { target, values } = checked;
-  const { rank, name } = values;
-
-  let res;
-  try {
-    res = await inTx(async (t) => {
-      const tx = asTx(t);
-      await refuseDuplicate(tx, target, name, "Link him to that person, or add a surname.");
+/**
+ * Add to roster (a waiting account): a v1 person from what he registered with
+ * (checked by the PS), linked to his account. Nothing of his is on the parade
+ * state yet. v1's duplicate-name UserError, if someone added the same name in
+ * between, comes back as a refusal.
+ */
+export async function addToRoster(courier: Courier, by: Acting, input: NewRosterPerson) {
+  return write(courier, by, {
+    parade: false,
+    async change(c) {
+      const tx = asTx(c.tx);
+      const w = await waitingMember(tx, by.actor, input.memberId);
+      const { target, values } = await checkPerson(tx, by.actor, input);
+      await refuseDuplicate(tx, target, values.name, "Link him to that person, or add a surname.");
       await ensureProjectorUser(tx);
       const row = await savePersonCore(tx, PROJECTOR_USER.id, values);
-      await wbAudit(tx, { memberId: actor.id, via: "MINIAPP", action: "roster-add", entity: "person", entityId: row.id, after: { memberId: input.memberId, ...values } });
-      await link(tx, actor.id, input.memberId, row.id);
-      return row.id;
-    });
-  } catch (e) {
-    // v1's duplicate-name refusal, if someone added the same name in between
-    if (e instanceof UserError) return { ok: false as const, error: e.message };
-    throw e;
-  }
-  if (!res.ok) return res;
-  await tell(c, w.member.telegramUserId, res.value);
-  return { ok: true as const, value: { personId: res.value, label: `${rank} ${name}` } };
+      await c.audit({ action: "roster-add", entity: "person", entityId: row.id, after: { memberId: input.memberId, ...values } });
+      await link(c, input.memberId, row.id);
+      return { personId: row.id, telegramUserId: w.member.telegramUserId, label: `${values.rank} ${values.name}` };
+    },
+    async tell({ personId, telegramUserId, label }, c) {
+      await tell(c, telegramUserId, personId);
+      return { personId, label };
+    },
+  });
 }
 
 /** Link to existing (a waiting account): he's on the roster already, under a name nobody has registered as. */
-export async function linkToRoster(c: Courier, actor: Actor, memberId: string, personId: string) {
-  const w = await waitingMember(actor, memberId);
-  if (!w.member) return { ok: false as const, error: w.error };
-  const p = await personWhere(personId);
-  if (!p) return { ok: false as const, error: "That person is no longer on the roster." };
-  if (!inReach(reach(actor, "roster"), p)) return { ok: false as const, error: `${p.rank} ${p.name} isn't in your platoon or camp.` };
-  if (p.campId !== w.campId) return { ok: false as const, error: `${p.rank} ${p.name} is in ${p.campName}, not the camp he registered with.` };
-  const res = await inTx(async (t) => {
-    const tx = asTx(t);
-    const [taken] = await tx.select({ id: wbMember.id }).from(wbMember).where(eq(wbMember.personId, personId));
-    if (taken) throw new Refusal("Someone else is already registered as that person.");
-    await link(tx, actor.id, memberId, personId);
+export async function linkToRoster(courier: Courier, by: Acting, memberId: string, personId: string) {
+  return write(courier, by, {
+    parade: false,
+    async change(c) {
+      const tx = asTx(c.tx);
+      const w = await waitingMember(tx, by.actor, memberId);
+      const p = await personWhere(personId, tx);
+      if (!p) throw new Refusal("That person is no longer on the roster.");
+      if (!inReach(reach(by.actor, "roster"), p)) throw new Refusal(`${p.rank} ${p.name} isn't in your platoon or camp.`);
+      if (p.campId !== w.campId) throw new Refusal(`${p.rank} ${p.name} is in ${p.campName}, not the camp he registered with.`);
+      const [taken] = await tx.select({ id: wbMember.id }).from(wbMember).where(eq(wbMember.personId, personId));
+      if (taken) throw new Refusal("Someone else is already registered as that person.");
+      await link(c, memberId, personId);
+      return { telegramUserId: w.member.telegramUserId, label: `${p.rank} ${p.name}` };
+    },
+    async tell({ telegramUserId, label }, c) {
+      await tell(c, telegramUserId, personId);
+      return { label };
+    },
   });
-  if (!res.ok) return res;
-  await tell(c, w.member.telegramUserId, personId);
-  return { ok: true as const, value: { label: `${p.rank} ${p.name}` } };
 }
 
 // ------------------------------------------------------------------ add and edit (Roster)
@@ -366,68 +364,53 @@ export async function linkToRoster(c: Courier, actor: Actor, memberId: string, p
  * + Add person on Roster: a man who hasn't opened Sabre yet. Nobody is linked
  * and nobody is told; registering later finds him by name like anyone else.
  */
-export async function addPersonToRoster(actor: Actor, input: PersonInput) {
-  const checked = await checkPerson(actor, input);
-  if (!checked.ok) return checked;
-  const { target, values } = checked;
-  let res;
-  try {
-    res = await inTx(async (t) => {
-      const tx = asTx(t);
+export async function addPersonToRoster(by: Acting, input: PersonInput) {
+  return write(null, by, {
+    parade: false,
+    async change(c) {
+      const tx = asTx(c.tx);
+      const { target, values } = await checkPerson(tx, by.actor, input);
       await refuseDuplicate(tx, target, values.name, "Add a surname to tell them apart.");
       await ensureProjectorUser(tx);
       const row = await savePersonCore(tx, PROJECTOR_USER.id, values);
-      await wbAudit(tx, { memberId: actor.id, via: "MINIAPP", action: "roster-add", entity: "person", entityId: row.id, after: values });
-      return row.id;
-    });
-  } catch (e) {
-    if (e instanceof UserError) return { ok: false as const, error: e.message };
-    throw e;
-  }
-  if (!res.ok) return res;
-  return { ok: true as const, value: { personId: res.value, label: `${values.rank} ${values.name}` } };
+      await c.audit({ action: "roster-add", entity: "person", entityId: row.id, after: values });
+      return { personId: row.id, label: `${values.rank} ${values.name}` };
+    },
+  });
 }
 
 /**
  * Edit on Roster: rank, name, role, or a move to another camp. Both the camp
  * he's in and the one he's going to must be in the actor's Roster scope, so a
- * GC can't send a man out of his camp; a move puts him at the end of the new one.
+ * GC can't send a man out of his camp; a move puts him at the end of the new
+ * one, and the parade state is brought in line (he counts somewhere else now).
  */
-export async function editRosterPerson(actor: Actor, personId: string, input: PersonInput) {
-  const p = await personWhere(personId);
-  if (!p) return { ok: false as const, error: "He's no longer on the roster." };
-  if (!inReach(reach(actor, "roster"), p)) return { ok: false as const, error: `${p.rank} ${p.name} isn't in your platoon or camp.` };
-  const [current] = await db.select({ rank: person.rank, role: person.role }).from(person).where(eq(person.id, personId));
-  const checked = await checkPerson(actor, input, current);
-  if (!checked.ok) return checked;
-  const { target, values } = checked;
-  let res;
-  try {
-    res = await inTx(async (t) => {
-      const tx = asTx(t);
+export async function editRosterPerson(by: Acting, personId: string, input: PersonInput) {
+  return write(null, by, {
+    parade: true,
+    async change(c) {
+      const tx = asTx(c.tx);
+      const p = await personWhere(personId, tx);
+      if (!p) throw new Refusal("He's no longer on the roster.");
+      if (!inReach(reach(by.actor, "roster"), p)) throw new Refusal(`${p.rank} ${p.name} isn't in your platoon or camp.`);
       const [before] = await tx.select().from(person).where(eq(person.id, personId)).for("update");
       if (!before?.active) throw new Refusal("He's no longer on the roster.");
       if (before.campId !== p.campId) throw new Refusal("Someone has just moved him. Open Roster again.");
+      const { target, values } = await checkPerson(tx, by.actor, input, before);
+      const done = { moved: target.id !== p.campId, label: `${values.rank} ${values.name}`, campName: target.name };
       const same = before.rank === values.rank && before.name === values.name && before.role === values.role && before.campId === values.campId;
-      if (same) return false;
+      if (same) return { changed: false, ...done };
       await refuseDuplicate(tx, target, values.name, "Add a surname to tell them apart.", personId);
       await ensureProjectorUser(tx);
       await savePersonCore(tx, PROJECTOR_USER.id, { personId, ...values });
-      await wbAudit(tx, {
-        memberId: actor.id,
-        via: "MINIAPP",
+      await c.audit({
         action: "roster-edit",
         entity: "person",
         entityId: personId,
         before: { campId: before.campId, rank: before.rank, name: before.name, role: before.role },
         after: values,
       });
-      return true;
-    });
-  } catch (e) {
-    if (e instanceof UserError) return { ok: false as const, error: e.message };
-    throw e;
-  }
-  if (!res.ok) return res;
-  return { ok: true as const, value: { changed: res.value, moved: target.id !== p.campId, label: `${values.rank} ${values.name}`, campName: target.name } };
+      return { changed: true, ...done };
+    },
+  });
 }
