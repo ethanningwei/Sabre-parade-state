@@ -239,6 +239,24 @@ describe("timeline (DB)", () => {
     expect(await leaveOf(TROOPER)).toBe(11);
   });
 
+  it("undo: only while the decider still commands there, as the Mini App's button asks (2026-10-22)", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await setup();
+    const id = await applyAl();
+    const c = recordingCourier();
+    await decide(c, await acting(PS, "BOT"), id, "approve");
+    // within the ten minutes, he's moved to PLATOON 5's PS
+    const [{ id: pl5 }] = await db.select({ id: subunit.id }).from(subunit).where(eq(subunit.name, "PLATOON 5"));
+    const ps = (await acting(PS)).actor.id;
+    await db.update(wbGrant).set({ subunitId: pl5 }).where(eq(wbGrant.memberId, ps));
+    c.sent.length = 0;
+    expect(await undo(c, await acting(PS, "BOT"), id)).toEqual({ ok: false, error: "You're no longer PLATOON 6's PC or PS, so you can't take that back." });
+    expect(await view(id)).toMatchObject({ state: "APPROVED", decidedBy: ps });
+    expect(await leaveOf(TROOPER)).toBe(11);
+    expect(c.sent).toEqual([]);
+    expect(await db.select({ action: wbAudit.action }).from(wbAudit).where(eq(wbAudit.action, "undo"))).toEqual([]);
+  });
+
   it("approving more leave than he has left is refused, changes nothing and tells nobody", async (ctx) => {
     if (!reachable) ctx.skip();
     await setup();

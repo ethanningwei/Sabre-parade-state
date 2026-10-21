@@ -220,6 +220,9 @@ export async function undo(courier: Courier, by: Acting, recordId: string): Prom
       const label = row.decidedBy ? await memberLabel(row.decidedBy, tx) : "whoever decided it";
       const refusal = undoRefusal(row, by.actor.id, label);
       if (refusal) throw new Refusal(refusal);
+      const view = (await recordView(recordId, tx))!;
+      // the decider must still command there, as the Mini App's Undo button asks
+      if (!recordAccess(by.actor, view).commands) throw new Refusal(`You're no longer ${view.subunitName}'s PC or PS, so you can't take that back.`);
       const outcome = await tx.select({ id: wbRecord.id, state: wbRecord.state }).from(wbRecord).where(eq(wbRecord.parentId, recordId));
       if (outcome.some((o) => isLive(o.state))) throw new Refusal("He's already recorded what the doctor gave him. Void it instead.");
       await tx
@@ -233,7 +236,6 @@ export async function undo(courier: Courier, by: Acting, recordId: string): Prom
         })
         .where(eq(wbRecord.id, recordId));
       const delta = leaveChange(row.kind, row.state, "undo", row.leaveDays);
-      const view = (await recordView(recordId, tx))!;
       if (delta) await moveLeave(tx, row.personId, delta, `${view.rank} ${view.name}`);
       await audit({
         action: "undo",
