@@ -107,7 +107,7 @@ describe("ORD at the evening round", () => {
     expect(await db.select().from(wbGrant).where(eq(wbGrant.memberId, ps.id))).toEqual([]);
     expect((await db.select().from(wbRecord).where(eq(wbRecord.id, pending.id)))[0]).toMatchObject({ state: "WITHDRAWN", decisionNote: "Removed from roster at ORD" });
     const ord = await db.select({ after: wbAudit.after, via: wbAudit.via }).from(wbAudit).where(and(eq(wbAudit.action, "ord"), eq(wbAudit.entityId, ps.id)));
-    expect(ord).toEqual([{ via: "SYSTEM", after: { ordDate: today, removed: true, personId: slr[1].id } }]);
+    expect(ord).toEqual([{ via: "SYSTEM", after: { ordDate: today, removed: true, personId: slr[1].id, by: "ORD" } }]);
 
     expect(dmTo(c.sent, ps.telegramUserId)).toEqual([
       `OWADIOOOO 🎉\n\nToday's your ORD, ${slr[1].rank} ${slr[1].name}. Thank you for your service, and all the best from Sabre coy!\n\nYour Sabre account closes tonight; your PS can reopen it if anything's left to settle.`,

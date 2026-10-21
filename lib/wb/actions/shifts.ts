@@ -3,23 +3,15 @@
 import { z } from "zod";
 import { run, UserError } from "@/lib/actions/shared";
 import { requireFeature } from "@/lib/flags";
-import { parseHhmm, sgtToInstant } from "@/lib/parade/time";
-import { actionMember, type Member } from "@/lib/wb/auth";
-import type { Actor } from "@/lib/wb/core";
+import { sgtToInstant } from "@/lib/parade/time";
+import { actionMember } from "@/lib/wb/auth";
 import { WB_SHIFT_KINDS } from "@/lib/wb/domain/shifts";
+import { miniApp, zDate, zTime } from "@/lib/wb/input";
 import { clearShiftOverride, keepShift, logHoto, saveShift } from "@/lib/wb/shifts";
 import { courier } from "@/lib/wb/telegram/courier";
 
 // The Mini App's shift actions: a camp's pattern and minimum manning, and the
 // HOTO. Rules and permissions are in lib/wb/shifts.ts and lib/wb/domain.
-
-const zDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date.");
-const zTime = z
-  .string()
-  .transform((t) => parseHhmm(t))
-  .refine((t): t is string => t !== null, "Give the time as HHMM, e.g. 2100.");
-
-const actorOf = (m: Member): Actor => ({ id: m.id, personId: m.personId, grants: m.grants });
 
 const shiftInput = z.object({
   campIds: z.array(z.string().uuid()).min(1).max(4),
@@ -39,8 +31,7 @@ const shiftInput = z.object({
 export async function saveShiftPattern(input: z.input<typeof shiftInput>) {
   requireFeature();
   return run(async () => {
-    const member = await actionMember();
-    const res = await saveShift(actorOf(member), shiftInput.parse(input));
+    const res = await saveShift(miniApp(await actionMember()), shiftInput.parse(input));
     if (!res.ok) throw new UserError(res.error);
     return res.value;
   });
@@ -57,9 +48,9 @@ const hotoInput = z.object({
 export async function recordHoto(input: z.input<typeof hotoInput>) {
   requireFeature();
   return run(async () => {
-    const member = await actionMember();
+    const by = miniApp(await actionMember());
     const a = hotoInput.parse(input);
-    const res = await logHoto(await courier(), actorOf(member), { campId: a.campId, on: a.on, at: sgtToInstant({ date: a.date, time: a.time }) });
+    const res = await logHoto(await courier(), by, { campId: a.campId, on: a.on, at: sgtToInstant({ date: a.date, time: a.time }) });
     if (!res.ok) throw new UserError(res.error);
     return { matched: res.value.matched, alerted: !!res.value.alert };
   });
@@ -71,9 +62,9 @@ const keepInput = z.object({ campId: z.string().uuid(), on: z.boolean() });
 export async function keepCampShift(input: z.input<typeof keepInput>) {
   requireFeature();
   return run(async () => {
-    const member = await actionMember();
+    const by = miniApp(await actionMember());
     const a = keepInput.parse(input);
-    const res = await keepShift(actorOf(member), a.campId, a.on, "MINIAPP");
+    const res = await keepShift(by, a.campId, a.on);
     if (!res.ok) throw new UserError(res.error);
     return undefined;
   });
@@ -83,8 +74,7 @@ export async function keepCampShift(input: z.input<typeof keepInput>) {
 export async function clearCampShift(overrideId: string) {
   requireFeature();
   return run(async () => {
-    const member = await actionMember();
-    const res = await clearShiftOverride(actorOf(member), z.string().uuid().parse(overrideId), "MINIAPP");
+    const res = await clearShiftOverride(miniApp(await actionMember()), z.string().uuid().parse(overrideId));
     if (!res.ok) throw new UserError(res.error);
     return undefined;
   });

@@ -1,17 +1,14 @@
 "use server";
 
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { run, UserError } from "@/lib/actions/shared";
-import { db } from "@/lib/db";
-import { camp, subunit } from "@/lib/db/schema";
 import { requireFeature } from "@/lib/flags";
-import { wbAudit } from "@/lib/wb/audit";
 import { actionMember } from "@/lib/wb/auth";
-import { wbMember } from "@/lib/wb/db/schema";
-import { ddmmyy, leaveDays, linkedToSomeoneElse, matchName, nric4, TAKEN_MESSAGE } from "@/lib/wb/domain/registration";
-import { RANKS, rolesFor } from "@/lib/wb/domain/roles";
-import { rosterContaining, rosterPerson } from "@/lib/wb/roster";
+import { miniApp } from "@/lib/wb/input";
+import { ddmmyy, leaveDays, linkedToSomeoneElse, matchName, nric4 } from "@/lib/wb/domain/registration";
+import { RANKS } from "@/lib/wb/domain/roles";
+import { registerMember } from "@/lib/wb/register";
+import { rosterContaining } from "@/lib/wb/roster";
 import { toSgt } from "@/lib/parade/time";
 
 export interface FoundPerson {
@@ -108,68 +105,13 @@ const registerInput = z
 
 export type RegisterInput = z.input<typeof registerInput>;
 
-function uniqueViolation(e: unknown): boolean {
-  const code = (e as { code?: string; cause?: { code?: string } })?.code ?? (e as { cause?: { code?: string } })?.cause?.code;
-  return code === "23505";
-}
-
 /** Registration's last step: link to the roster person (or record a SELF sign-up) and save the details. */
 export async function register(raw: RegisterInput) {
   requireFeature();
   return run(async () => {
     const me = await actionMember();
-    const input = registerInput.parse(raw);
-    // the evening round takes him off the roster on this date; a date already stored is kept (a reopened account)
-    if (input.details.ordDate < toSgt(new Date()).date && input.details.ordDate !== me.ordDate) throw new UserError("Your ORD date can't be in the past.");
-
-    let link: Partial<typeof wbMember.$inferInsert>;
-    if (input.personId) {
-      const p = await rosterPerson(input.personId);
-      if (!p || !p.active) throw new UserError("That person is no longer on the roster. Try your name again.");
-      if (linkedToSomeoneElse(p, me.id)) throw new UserError(TAKEN_MESSAGE);
-      link = { personId: p.personId, source: "ROSTER", selfName: null, selfRank: null, selfRole: null, selfCampId: null };
-    } else {
-      const self = input.self!;
-      const [c] = await db
-        .select({ id: camp.id, isHq: subunit.isHq })
-        .from(camp)
-        .innerJoin(subunit, eq(subunit.id, camp.subunitId))
-        .where(eq(camp.id, self.campId));
-      if (!c) throw new UserError("Pick your camp again.");
-      if (!rolesFor(c.isHq).includes(self.role)) throw new UserError("Pick a role that fits that camp.");
-      link = {
-        personId: null,
-        source: "SELF",
-        selfName: self.name.toUpperCase().split(/\s+/).join(" "),
-        selfRank: self.rank,
-        selfRole: self.role,
-        selfCampId: c.id,
-      };
-    }
-
-    const now = new Date();
-    try {
-      await db.transaction(async (tx) => {
-        await tx
-          .update(wbMember)
-          .set({ ...link, ...input.details, registeredAt: me.registeredAt ?? now })
-          .where(eq(wbMember.id, me.id));
-        await wbAudit(tx, {
-          memberId: me.id,
-          via: "MINIAPP",
-          action: me.registeredAt ? "re-register" : "register",
-          entity: "wb_member",
-          entityId: me.id,
-          before: { personId: me.personId, source: me.source },
-          // never the NRIC digits in the audit trail
-          after: { personId: link.personId, source: link.source, selfCampId: link.selfCampId ?? null },
-        });
-      });
-    } catch (e) {
-      // someone else linked the same person between the check and the write
-      if (uniqueViolation(e)) throw new UserError(TAKEN_MESSAGE);
-      throw e;
-    }
+    const res = await registerMember(miniApp(me), registerInput.parse(raw));
+    if (!res.ok) throw new UserError(res.error);
     return undefined;
   });
 }

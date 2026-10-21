@@ -3,8 +3,8 @@
 import { z } from "zod";
 import { run, UserError } from "@/lib/actions/shared";
 import { requireFeature } from "@/lib/flags";
-import { actionMember, type Member } from "@/lib/wb/auth";
-import type { Actor } from "@/lib/wb/core";
+import { actionMember } from "@/lib/wb/auth";
+import { miniApp, zId } from "@/lib/wb/input";
 import { addPersonToRoster, addToRoster, editRosterPerson, linkToRoster, removeFromRoster } from "@/lib/wb/roster-flow";
 import { courier } from "@/lib/wb/telegram/courier";
 
@@ -12,19 +12,12 @@ import { courier } from "@/lib/wb/telegram/courier";
 // roster / Link to existing for a waiting account, and + Add person and Edit
 // (Roster). Rules and scope are in lib/wb/roster-flow.ts.
 
-const zId = z.uuid();
-const actorOf = (m: Member): Actor => ({ id: m.id, personId: m.personId, grants: m.grants });
-
-async function commander(): Promise<Member> {
-  const member = await actionMember();
-  if (!member.registeredAt) throw new UserError("Register first.");
-  return member;
-}
+const commander = async () => miniApp(await actionMember());
 
 export async function removeFromRosterAction(personId: string) {
   requireFeature();
   return run(async () => {
-    const res = await removeFromRoster(await courier(), actorOf(await commander()), zId.parse(personId));
+    const res = await removeFromRoster(await courier(), await commander(), zId.parse(personId));
     if (!res.ok) throw new UserError(res.error);
     return res.value;
   });
@@ -43,7 +36,7 @@ const editInput = personInput.extend({ role: z.string().max(100) });
 export async function addToRosterAction(raw: z.input<typeof addInput>) {
   requireFeature();
   return run(async () => {
-    const res = await addToRoster(await courier(), actorOf(await commander()), addInput.parse(raw));
+    const res = await addToRoster(await courier(), await commander(), addInput.parse(raw));
     if (!res.ok) throw new UserError(res.error);
     return res.value;
   });
@@ -52,7 +45,7 @@ export async function addToRosterAction(raw: z.input<typeof addInput>) {
 export async function linkToRosterAction(memberId: string, personId: string) {
   requireFeature();
   return run(async () => {
-    const res = await linkToRoster(await courier(), actorOf(await commander()), zId.parse(memberId), zId.parse(personId));
+    const res = await linkToRoster(await courier(), await commander(), zId.parse(memberId), zId.parse(personId));
     if (!res.ok) throw new UserError(res.error);
     return res.value;
   });
@@ -61,7 +54,7 @@ export async function linkToRosterAction(memberId: string, personId: string) {
 export async function addPersonAction(raw: z.input<typeof personInput>) {
   requireFeature();
   return run(async () => {
-    const res = await addPersonToRoster(actorOf(await commander()), personInput.parse(raw));
+    const res = await addPersonToRoster(await commander(), personInput.parse(raw));
     if (!res.ok) throw new UserError(res.error);
     return res.value;
   });
@@ -70,7 +63,7 @@ export async function addPersonAction(raw: z.input<typeof personInput>) {
 export async function editPersonAction(personId: string, raw: z.input<typeof editInput>) {
   requireFeature();
   return run(async () => {
-    const res = await editRosterPerson(actorOf(await commander()), zId.parse(personId), editInput.parse(raw));
+    const res = await editRosterPerson(await commander(), zId.parse(personId), editInput.parse(raw));
     if (!res.ok) throw new UserError(res.error);
     return res.value;
   });

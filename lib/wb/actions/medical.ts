@@ -3,11 +3,11 @@
 import { z } from "zod";
 import { run, UserError } from "@/lib/actions/shared";
 import { requireFeature } from "@/lib/flags";
-import { actionMember, type Member } from "@/lib/wb/auth";
-import type { Actor } from "@/lib/wb/core";
+import { actionMember } from "@/lib/wb/auth";
 import { mcCategoryOf, statusLabel } from "@/lib/wb/domain/describe";
 import { MC_CATEGORIES, STATUSES } from "@/lib/wb/domain/roles";
 import { MAX_STATUSES, NOT_ON_ROSTER } from "@/lib/wb/domain/rules";
+import { miniApp, zDate } from "@/lib/wb/input";
 import { markOnens, saveOutcome } from "@/lib/wb/outcome";
 import { verifyPhotoToken } from "@/lib/wb/photo";
 import { personWhere } from "@/lib/wb/records";
@@ -16,10 +16,6 @@ import { courier } from "@/lib/wb/telegram/courier";
 // The Mini App's medical actions: what the doctor gave (outcome, correction,
 // nothing given) and "Uploaded to ONENS". Report sick itself is in records.ts
 // with the other requests. Every rule lives in lib/wb/domain and lib/wb/outcome.
-
-const zDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date.");
-
-const actorOf = (m: Member): Actor => ({ id: m.id, personId: m.personId, grants: m.grants });
 
 const outcomeInput = z.object({
   anchorId: z.string().uuid().nullable(),
@@ -59,7 +55,6 @@ export async function recordOutcome(input: z.input<typeof outcomeInput>) {
   requireFeature();
   return run(async () => {
     const member = await actionMember();
-    if (!member.registeredAt) throw new UserError("Register first.");
     if (!member.personId || !(await personWhere(member.personId))) throw new UserError(NOT_ON_ROSTER);
     const a = outcomeInput.parse(input);
 
@@ -73,18 +68,13 @@ export async function recordOutcome(input: z.input<typeof outcomeInput>) {
       if (!st.permanent && !st.endDate) throw new UserError(`Say when status ${i + 1} ends.`);
     }
 
-    const res = await saveOutcome(
-      await courier(),
-      actorOf(member),
-      {
+    const res = await saveOutcome(await courier(), miniApp(member), {
         anchorId: a.anchorId,
         mc: a.mc ? { ...a.mc, category: mcCategoryOf(a.mc.category) } : null,
         statuses: a.statuses.map((st) => ({ label: statusLabel(st.type, st.other), startDate: st.startDate, endDate: st.permanent ? null : st.endDate })),
         photoFileId,
         onensUploaded: a.onensUploaded,
-      },
-      "MINIAPP",
-    );
+      });
     if (!res.ok) throw new UserError(res.error);
     return res.value;
   });
@@ -96,9 +86,8 @@ const idInput = z.object({ recordId: z.string().uuid() });
 export async function markUploaded(input: z.input<typeof idInput>) {
   requireFeature();
   return run(async () => {
-    const member = await actionMember();
-    const res = await markOnens(await courier(), actorOf(member), idInput.parse(input).recordId, "MINIAPP");
+    const res = await markOnens(await courier(), miniApp(await actionMember()), idInput.parse(input).recordId);
     if (!res.ok) throw new UserError(res.error);
-    return { onens: res.record.onens };
+    return { onens: res.value.onens };
   });
 }

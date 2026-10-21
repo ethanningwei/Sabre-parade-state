@@ -23,3 +23,13 @@ _Avoid_: recipient, target
 **Courier**:
 The one place whereabouts speaks on Telegram on its own initiative, by audience or by card; replies to a tap are not the Courier's.
 _Avoid_: notifier, outbound, sender
+
+## Writes
+
+**Write**:
+One change to whereabouts by a member or the system: refused whole, or committed with its audit row, then the parade state brought in line and the Courier told.
+_Avoid_: mutation, transaction, action
+
+**Refusal**:
+Why a write didn't happen, in words for whoever tried.
+_Avoid_: error, rejection (a rejection is a commander's decision on a request)

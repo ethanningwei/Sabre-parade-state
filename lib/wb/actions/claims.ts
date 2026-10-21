@@ -6,12 +6,12 @@ import { requireFeature } from "@/lib/flags";
 import { actionMember } from "@/lib/wb/auth";
 import { submitClaim } from "@/lib/wb/claims";
 import { MAX_PLACE, MAX_REASON, VEHICLE_TYPES } from "@/lib/wb/domain/claims";
+import { miniApp, zDate } from "@/lib/wb/input";
 import { claimSheet, claimSheetUrl } from "@/lib/wb/sheets";
 
 // The Mini App's transport claim (Phase 7, FEATURE_CLAIMS). Rules are in
 // lib/wb/claims.ts and lib/wb/domain/claims.ts; this checks input.
 
-const zDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date.");
 const zPlace = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("HOME") }),
   z.object({ kind: z.literal("OFFICE") }),
@@ -32,10 +32,9 @@ export async function sendClaim(input: z.input<typeof claimInput>) {
   requireFeature();
   requireFeature("CLAIMS");
   return run(async () => {
-    const member = await actionMember();
-    if (!member.registeredAt) throw new UserError("Register first.");
+    const by = miniApp(await actionMember());
     const a = claimInput.parse(input);
-    const res = await submitClaim(claimSheet(), member, a, "MINIAPP");
+    const res = await submitClaim(claimSheet(), by, a);
     if (!res.ok) throw new UserError(res.error);
     return { days: res.value.rows.map((r) => r.tripDate), sheet: res.value.sheet, url: claimSheetUrl() };
   });

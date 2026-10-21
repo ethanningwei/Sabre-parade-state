@@ -22,7 +22,6 @@ vi.mock("@/lib/session", () => ({ sessionUser: async () => session.user }));
 const { PROJECTOR_USER, syncProjection } = await import("@/lib/wb/projection");
 const { currentSnapshot } = await import("@/lib/data/current");
 const { generateParadeState } = await import("@/lib/actions/parade");
-const { inTx } = await import("@/lib/wb/core");
 const { confirmBack, dueBack, paradeStatuses } = await import("@/lib/wb/projection");
 const { eveningRound } = await import("@/lib/wb/evening");
 const { recordingCourier } = await import("./recording-courier");
@@ -140,16 +139,16 @@ describe("Back?", () => {
 
     const [m] = await db.insert(wbMember).values({ telegramUserId: TG, registeredAt: new Date() }).returning();
     const tftSub = (await db.select({ s: camp.subunitId }).from(camp).where(eq(camp.id, ids.tft)))[0].s;
-    const bdkGc = { id: m.id, personId: null, grants: [{ role: "GC" as const, subunitId: null, campId: ids.bdk }] };
-    expect(await confirmBack(bdkGc, due[0].projectionId, "BOT")).toMatchObject({ ok: false });
-    const ps = { id: m.id, personId: null, grants: [{ role: "PS" as const, subunitId: tftSub, campId: null }] };
+    const bdkGc = { actor: { id: m.id, personId: null, grants: [{ role: "GC" as const, subunitId: null, campId: ids.bdk }], registered: true }, via: "BOT" as const };
+    expect(await confirmBack(bdkGc, due[0].projectionId)).toMatchObject({ ok: false });
+    const ps = { actor: { id: m.id, personId: null, grants: [{ role: "PS" as const, subunitId: tftSub, campId: null }], registered: true }, via: "BOT" as const };
     // confirmed the evening before: noted, still MC until it ends (syncs run at the real time, long after)
     await db.update(wbRecord).set({ endAt: new Date(Date.now() + 86_400_000) }).where(eq(wbRecord.personId, t1));
     await syncProjection(new Date());
     // only his: t2's AL (to 20/10) is in force too once the real clock reaches it
     const his = async () => (await dueBack(new Date(Date.now() + 2 * 86_400_000))).filter((d) => d.personId === t1);
     const [pending] = await his();
-    expect(await confirmBack(ps, pending.projectionId, "BOT")).toMatchObject({ ok: true, closed: false });
+    expect(await confirmBack(ps, pending.projectionId)).toMatchObject({ ok: true, value: { closed: false } });
     expect(await openOf(t1)).toMatchObject({ type: "MC" });
     expect(await his()).toEqual([]);
     // once it has ended, the next sync closes it
@@ -313,7 +312,7 @@ describe("live (FEATURE_PROJECTION on)", () => {
     expect((await syncProjection(NOW)).plan.writes.filter((w) => w.op === "shift")).toEqual([]);
   });
 
-  it("runs before the web app shows or generates a parade state, and after a whereabouts write", async (ctx) => {
+  it("runs before the web app shows or generates a parade state (after a whereabouts write: write.db.test.ts)", async (ctx) => {
     if (!reachable) ctx.skip();
     live();
     // records in force right now, since these callers sync at the real time
@@ -327,11 +326,6 @@ describe("live (FEATURE_PROJECTION on)", () => {
     session.user = { id: GC, name: "projection test gc", role: "admin", subunitId: null, active: true };
     await generateParadeState({ date: "2026-10-14", time: "1000" });
     expect(await openOf(t2)).toMatchObject({ type: "OFF" });
-
-    const [t3] = (await db.select({ id: person.id }).from(person).where(and(eq(person.campId, ids.tft), eq(person.active, true))).orderBy(person.sortOrder)).slice(2).map((r) => r.id);
-    await record({ kind: "OL", personId: t3, startAt: new Date(today.getTime() - day), endAt: new Date(today.getTime() + day) });
-    expect(await inTx(async () => "done")).toEqual({ ok: true, value: "done" });
-    expect(await openOf(t3)).toMatchObject({ type: "OL" });
   });
 
   it("does none of that while projection is off", async (ctx) => {
@@ -340,7 +334,6 @@ describe("live (FEATURE_PROJECTION on)", () => {
     await record({ kind: "AL", personId: t1, startAt: new Date(today.getTime() - 86_400_000), endAt: new Date(today.getTime() + 86_400_000) });
     const before = await v1Counts();
     await currentSnapshot();
-    await inTx(async () => null);
     expect(await v1Counts()).toEqual(before);
   });
 
@@ -390,10 +383,10 @@ describe("weekday camps (2026-10-14)", () => {
     // only an admin overrides; kept on for the rest of the weekend
     vi.stubEnv("FEATURE_PROJECTION", ""); // keepShift's own sync would run at the real time
     const [m] = await db.insert(wbMember).values({ telegramUserId: TG, registeredAt: new Date() }).returning();
-    const gc = { id: m.id, personId: null, grants: [{ role: "GC" as const, subunitId: null, campId: ids.bdk }] };
-    expect(await keepShift(gc, ids.bdk, true, "MINIAPP", SAT)).toMatchObject({ ok: false });
-    const admin = { id: m.id, personId: null, grants: [{ role: "ADMIN" as const, subunitId: null, campId: null }] };
-    expect(await keepShift(admin, ids.bdk, true, "MINIAPP", SAT)).toMatchObject({ ok: true });
+    const gc = { actor: { id: m.id, personId: null, grants: [{ role: "GC" as const, subunitId: null, campId: ids.bdk }], registered: true }, via: "MINIAPP" as const };
+    expect(await keepShift(gc, ids.bdk, true, SAT)).toMatchObject({ ok: false });
+    const admin = { actor: { id: m.id, personId: null, grants: [{ role: "ADMIN" as const, subunitId: null, campId: null }], registered: true }, via: "MINIAPP" as const };
+    expect(await keepShift(admin, ids.bdk, true, SAT)).toMatchObject({ ok: true });
     live();
     await syncProjection(at("2026-10-18", "1000"));
     expect(await onShift(ids.bdk)).toBe(true);

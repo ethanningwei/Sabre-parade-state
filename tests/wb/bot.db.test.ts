@@ -6,9 +6,9 @@ import type { Update, UserFromGetMe } from "grammy/types";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeCoy } from "@/lib/data/write-coy";
 import { db } from "@/lib/db";
-import { person, subunit } from "@/lib/db/schema";
+import { camp, person, subunit } from "@/lib/db/schema";
 import { submit } from "@/lib/wb/decide";
-import { wbAudit, wbCard, wbCommanderChat, wbConversation, wbGrant, wbMember, wbRecord } from "@/lib/wb/db/schema";
+import { wbAudit, wbCard, wbCommanderChat, wbConversation, wbGrant, wbMember, wbRecord, wbRfCard, wbRfRequest } from "@/lib/wb/db/schema";
 import { addDays, dateRange, todaySgt } from "@/lib/wb/domain/timeline";
 import { createBot } from "@/lib/wb/telegram/bot";
 import { courierOf } from "@/lib/wb/telegram/courier";
@@ -74,6 +74,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!reachable) return;
   await db.delete(wbConversation);
+  await db.delete(wbRfCard);
+  await db.delete(wbRfRequest);
   await db.delete(wbCard);
   await db.delete(wbRecord);
   await db.delete(wbAudit);
@@ -222,12 +224,13 @@ describe("bot: approval cards (fake Telegram)", () => {
     await db.insert(wbCommanderChat).values({ subunitId: pl6, chatId: GROUP.id, threadId: 7, chatTitle: GROUP.title });
     calls = [];
     const d = addDays(todaySgt(), 10);
-    const { records, delivery } = await submit(
+    const res = await submit(
       courierOf({ api: bot.api, botUsername: "sabrecoybot" }),
-      { id: trooper.id, personId: irfan.id, grants: [] },
+      { actor: { id: trooper.id, personId: irfan.id, grants: [], registered: true }, via: "MINIAPP" },
       [{ personId: irfan.id, memberId: trooper.id, kind: "AL", ...dateRange(d, d), endAt: dateRange(d, d).endAt!, absent: true, leaveDays: 1, detail: "AL @ SINGAPORE", createdVia: "SELF" }],
-      "MINIAPP",
     );
+    if (!res.ok) throw new Error(res.error);
+    const { records, delivery } = res.value;
     expect(delivery).toBe("sent");
     recordId = records[0].id;
     expect(calls).toHaveLength(1);
@@ -342,6 +345,44 @@ describe("bot: approval cards (fake Telegram)", () => {
     expect((await send(command("/me", { from: 70 })))[0].payload.reply_markup).toEqual({
       inline_keyboard: [[{ text: "📋 My records", web_app: { url: "https://sabre.example/tg/records" } }]],
     });
+  });
+});
+
+// ------------------------------------------------------------------ an RF request's card
+
+describe("bot: an RF card's Close (fake Telegram)", () => {
+  it("works for the camp's commanders and alerts anyone else; every copy is edited", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const [slr] = await db.select({ id: camp.id }).from(camp).where(eq(camp.name, "SLR"));
+    const [{ id: pl7 }] = await db.select({ id: subunit.id }).from(subunit).where(eq(subunit.name, "PLATOON 7"));
+    const [{ id: hq }] = await db.select({ id: subunit.id }).from(subunit).where(eq(subunit.name, "COY HQ"));
+    const gc = await member(91, [{ role: "GC" }]);
+    await db.update(wbGrant).set({ campId: slr.id }).where(eq(wbGrant.memberId, gc.id));
+    await member(92, [{ role: "PS", subunitId: pl7 }]);
+    await member(93, [{ role: "PS", subunitId: pl6 }]);
+    await db.insert(wbCommanderChat).values([
+      { subunitId: pl6, chatId: GROUP.id, threadId: null, chatTitle: GROUP.title },
+      { subunitId: hq, chatId: -1000, threadId: null, chatTitle: "HQ" },
+    ]);
+    const { raiseRf } = await import("@/lib/wb/rf");
+    const d = addDays(todaySgt(), 1);
+    const res = await raiseRf(
+      courierOf({ api: bot.api, botUsername: "sabrecoybot" }),
+      { actor: { id: gc.id, personId: null, grants: [{ role: "GC", subunitId: null, campId: slr.id }], registered: true }, via: "MINIAPP" },
+      { campId: slr.id, role: "ST CBT", need: 2, reason: "TWO ON MC", ...dateRange(d, d), endAt: dateRange(d, d).endAt! },
+    );
+    if (!res.ok) throw new Error(res.error);
+    const id = res.value.request.id;
+
+    expect(answerOf(await send(tap(`f:${id}:x`, { from: 92, messageId: 5, chat: { id: -1000, type: "supergroup", title: "HQ" } })))).toMatchObject({
+      text: "Only whoever asked, or SLR's commanders, can close this.",
+      show_alert: true,
+    });
+    expect(calls.filter((c) => c.method === "editMessageText")).toEqual([]);
+    const c = await send(tap(`f:${id}:x`, { from: 93, messageId: 5 }));
+    expect(answerOf(c)).toMatchObject({ text: "Closed" });
+    expect(c.filter((x) => x.method === "editMessageText")).toHaveLength(3); // PL6, COY HQ and the raiser's own copy
+    expect((await db.select({ s: wbRfRequest.state }).from(wbRfRequest))[0].s).toBe("CLOSED");
   });
 });
 

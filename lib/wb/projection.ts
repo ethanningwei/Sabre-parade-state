@@ -10,7 +10,8 @@ import { UserError } from "@/lib/errors";
 import { isEnabled } from "@/lib/flags";
 import { wbAudit } from "@/lib/wb/audit";
 import { wbAudit as wbAuditTable } from "@/lib/wb/db/schema";
-import type { Actor, Via } from "@/lib/wb/core";
+import { Refusal } from "@/lib/wb/core";
+import { write, type Acting, type Outcome } from "@/lib/wb/write";
 import { wbAssignment, wbProjection, wbRecord, wbShiftEvent, wbShiftOverride, wbShiftPattern } from "@/lib/wb/db/schema";
 import { hasGrant } from "@/lib/wb/domain/grants";
 import { toPattern } from "@/lib/wb/forecast-data";
@@ -35,9 +36,9 @@ import { STANDING_STATES, type WbRecordKind, type WbRecordState } from "@/lib/wb
 // "Sabre (whereabouts)" v1 user, only when FEATURE_PROJECTION is on. Off, it's
 // the shadow: the same plan, reported and never written.
 //
-// It runs after every whereabouts write (inTx), before the web app loads a
-// parade state (lib/data/current.ts, generateParadeState), and in the evening
-// round. One transaction holds an advisory lock, so two syncs never race; each
+// It runs after every whereabouts write that touches the parade state
+// (lib/wb/write.ts), before the web app loads a parade state
+// (lib/data/current.ts, generateParadeState), and in the evening round. One transaction holds an advisory lock, so two syncs never race; each
 // write runs in its own savepoint, so one refusal (v1 locking an off-shift
 // team, say) doesn't hold up the rest.
 
@@ -441,30 +442,32 @@ export async function dueBack(until: Date): Promise<DueBack[]> {
   ].sort((a, b) => a.endAt.getTime() - b.endAt.getTime());
 }
 
-export type BackResult = { ok: true; label: string; closed: boolean } | { ok: false; error: string };
-
 /** "✅ Back" from the evening message: noted now, and the parade state marks him present once it has ended. */
-export async function confirmBack(actor: Actor, projectionId: string, via: Via): Promise<BackResult> {
-  const [row] = await db
-    .select({ p: wbProjection, rank: person.rank, name: person.name, campId: camp.id, subunitId: camp.subunitId })
-    .from(wbProjection)
-    .innerJoin(person, eq(person.id, wbProjection.personId))
-    .innerJoin(camp, eq(camp.id, person.campId))
-    .where(eq(wbProjection.id, projectionId));
-  if (!row) return { ok: false, error: "That's no longer on the parade state." };
-  const label = `${row.rank} ${row.name}`;
-  if (!hasGrant(actor.grants, BACK_ROLES, { subunitId: row.subunitId, campId: row.campId })) {
-    return { ok: false, error: `Only ${label}'s GC, PC or PS can say he's back.` };
-  }
-  if (row.p.closedAt) return { ok: true, label, closed: true };
-  const now = new Date();
-  await db.transaction(async (tx) => {
-    await tx.update(wbProjection).set({ backConfirmedAt: now, backConfirmedBy: actor.id, updatedAt: now }).where(and(eq(wbProjection.id, projectionId), isNull(wbProjection.closedAt)));
-    await wbAudit(tx, { memberId: actor.id, via, action: "confirm-back", entity: "wb_projection", entityId: projectionId });
+export async function confirmBack(by: Acting, projectionId: string): Promise<Outcome<{ label: string; closed: boolean }>> {
+  const res = await write(null, by, {
+    parade: true,
+    async change({ tx, audit }) {
+      const [row] = await tx
+        .select({ p: wbProjection, rank: person.rank, name: person.name, campId: camp.id, subunitId: camp.subunitId })
+        .from(wbProjection)
+        .innerJoin(person, eq(person.id, wbProjection.personId))
+        .innerJoin(camp, eq(camp.id, person.campId))
+        .where(eq(wbProjection.id, projectionId))
+        .for("update", { of: wbProjection });
+      if (!row) throw new Refusal("That's no longer on the parade state.");
+      const label = `${row.rank} ${row.name}`;
+      if (!hasGrant(by.actor.grants, BACK_ROLES, { subunitId: row.subunitId, campId: row.campId })) throw new Refusal(`Only ${label}'s GC, PC or PS can say he's back.`);
+      if (row.p.closedAt) return label;
+      const now = new Date();
+      await tx.update(wbProjection).set({ backConfirmedAt: now, backConfirmedBy: by.actor.id, updatedAt: now }).where(eq(wbProjection.id, projectionId));
+      await audit({ action: "confirm-back", entity: "wb_projection", entityId: projectionId });
+      return label;
+    },
   });
-  await syncQuietly();
+  if (!res.ok) return res;
+  // the write's sync has run: closed by now if it has already ended
   const [after] = await db.select({ closedAt: wbProjection.closedAt }).from(wbProjection).where(eq(wbProjection.id, projectionId));
-  return { ok: true, label, closed: !!after?.closedAt };
+  return { ok: true, value: { label: res.value, closed: !!after?.closedAt } };
 }
 
 // ------------------------------------------------------------------ the Mini App

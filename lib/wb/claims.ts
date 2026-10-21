@@ -2,9 +2,8 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { wbAudit } from "@/lib/wb/audit";
-import { inTx, Refusal, type Via } from "@/lib/wb/core";
-import { wbClaim } from "@/lib/wb/db/schema";
+import { Refusal } from "@/lib/wb/core";
+import { wbClaim, wbMember } from "@/lib/wb/db/schema";
 import {
   claimDates,
   claimKey,
@@ -22,6 +21,7 @@ import { addDays, todaySgt } from "@/lib/wb/domain/timeline";
 import { personWhere } from "@/lib/wb/records";
 import type { ClaimSheet } from "@/lib/wb/sheets";
 import type { Courier } from "@/lib/wb/telegram/courier";
+import { write, type Acting } from "@/lib/wb/write";
 
 // Transport claims (Phase 7): the Mini App replaces the Form SG, and the OC
 // keeps deciding on his Google Sheet (the user, 2026-10-15). Submit writes one
@@ -43,15 +43,12 @@ export interface ClaimInput {
   roundTrip: boolean;
 }
 
-export interface Claimant {
-  id: string;
-  personId: string | null;
-  fullName: string | null;
-}
-
-/** His own claim, one row per day, then onto the OC's sheet. Only for himself (the user, 2026-10-15). */
-export async function submitClaim(sheet: ClaimSheet | null, me: Claimant, input: ClaimInput, via: Via, now: Date = new Date()) {
-  const res = await inTx(async (tx) => {
+/** His own claim, one row per day, then onto the OC's sheet. Only for himself (the user, 2026-10-15). A claim is never on the parade state. */
+export async function submitClaim(sheet: ClaimSheet | null, by: Acting, input: ClaimInput, now: Date = new Date()) {
+  const me = by.actor;
+  const res = await write(null, by, {
+    parade: false,
+    async change({ tx, audit }) {
     if (!me.personId) throw new Refusal("You're not on the roster yet. Ask your PS to add you.");
     const p = await personWhere(me.personId, tx);
     if (!p) throw new Refusal("You're not on the roster yet. Ask your PS to add you.");
@@ -64,6 +61,7 @@ export async function submitClaim(sheet: ClaimSheet | null, me: Claimant, input:
     if (start.length > MAX_PLACE || end.length > MAX_PLACE) throw new Refusal("Keep each place short, e.g. SINGAPORE GENERAL HOSPITAL.");
     if (start === end && !input.roundTrip) throw new Refusal("The trip starts and ends in the same place. Is it a round trip?");
 
+    const [{ fullName }] = await tx.select({ fullName: wbMember.fullName }).from(wbMember).where(eq(wbMember.id, me.id));
     const batchId = randomUUID();
     const common = {
       batchId,
@@ -76,7 +74,7 @@ export async function submitClaim(sheet: ClaimSheet | null, me: Claimant, input:
       roundTrip: input.roundTrip,
       rank: p.rank,
       // the sheet holds full names: it's a claim against a real person
-      sheetName: (me.fullName || p.name).toUpperCase(),
+      sheetName: (fullName || p.name).toUpperCase(),
       platoon: p.subunitName,
       requested: requestStamp(now),
       createdAt: now,
@@ -85,8 +83,9 @@ export async function submitClaim(sheet: ClaimSheet | null, me: Claimant, input:
       .insert(wbClaim)
       .values(dates.map((tripDate) => ({ ...common, tripDate })))
       .returning();
-    await wbAudit(tx, { memberId: me.id, via, action: "claim-submit", entity: "wb_claim", entityId: batchId, after: { dates, start, end, vehicle: input.vehicle } });
+    await audit({ action: "claim-submit", entity: "wb_claim", entityId: batchId, after: { dates, start, end, vehicle: input.vehicle } });
     return rows;
+    },
   });
   if (!res.ok) return res;
   const sent = await exportClaims(sheet, res.value.map((r) => r.id));

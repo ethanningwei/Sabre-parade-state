@@ -5,11 +5,11 @@ import type { UserFromGetMe } from "grammy/types";
 import { db } from "@/lib/db";
 import { isEnabled } from "@/lib/flags";
 import { subunit } from "@/lib/db/schema";
-import { wbAudit } from "@/lib/wb/audit";
-import { hasGrant, type GrantRow } from "@/lib/wb/auth";
-import type { Actor } from "@/lib/wb/core";
+import { linkCommanderChat } from "@/lib/wb/admin";
+import type { GrantRow } from "@/lib/wb/auth";
+import { actorOf } from "@/lib/wb/core";
 import { decide, sayWhy, undo } from "@/lib/wb/decide";
-import { wbCommanderChat, wbConversation, wbGrant, wbMember } from "@/lib/wb/db/schema";
+import { wbConversation, wbGrant, wbMember } from "@/lib/wb/db/schema";
 import { memberLabel, recordView } from "@/lib/wb/records";
 import { markOnens } from "@/lib/wb/outcome";
 import { RF_CALLBACK } from "@/lib/wb/domain/rf";
@@ -21,6 +21,7 @@ import { CARD_CALLBACK, ONENS_CALLBACK } from "./cards";
 import { matchSubunit, QUICK_COMMANDS } from "./commands";
 import { miniAppLink, miniAppUrl } from "./links";
 import { courierOf, type Courier } from "./courier";
+import type { Acting } from "@/lib/wb/write";
 
 // The whereabouts bot (WB_BOT_TOKEN, webhook). Thin on purpose: forms live in
 // the Mini App. Privacy mode stays on, so in groups it only sees commands
@@ -82,28 +83,13 @@ async function here(ctx: Context) {
   }
 
   const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
-  if (!member?.registeredAt) return void (await reply("Open Sabre and register first, then try again."));
-  const allowed =
-    hasGrant(member.grants, ["PC", "PS"], { subunitId: target.id }) || hasGrant(member.grants, ["ADMIN"], "any");
-  if (!allowed) return void (await reply(`Only ${target.name}'s PC or PS (or a Sabre admin) can link this chat.`));
-
-  const chatId = ctx.chat!.id;
+  if (!member) return void (await reply("Open Sabre and register first, then try again."));
   const chatTitle = (ctx.chat && "title" in ctx.chat ? ctx.chat.title : "") ?? "";
-  const [before] = await db.select().from(wbCommanderChat).where(eq(wbCommanderChat.subunitId, target.id));
-  if (before && before.chatId === chatId && before.threadId === topic) {
-    return void (await reply(`This is already ${target.name}'s commanders chat.`));
-  }
+  const res = await linkCommanderChat(acting(member), { subunit: target, chatId: ctx.chat!.id, threadId: topic, chatTitle });
+  if (!res.ok) return void (await reply(res.error));
+  if (res.value === "same") return void (await reply(`This is already ${target.name}'s commanders chat.`));
 
-  await db.transaction(async (tx) => {
-    const values = { subunitId: target.id, chatId, threadId: topic, chatTitle, linkedBy: member.id, linkedAt: new Date() };
-    const [row] = await tx
-      .insert(wbCommanderChat)
-      .values(values)
-      .onConflictDoUpdate({ target: wbCommanderChat.subunitId, set: values })
-      .returning({ id: wbCommanderChat.id });
-    await wbAudit(tx, { memberId: member.id, via: "BOT", action: "link-chat", entity: "wb_commander_chat", entityId: row.id, before: before ?? null, after: values });
-  });
-
+  const before = res.value.replaced;
   const where = topic ? "this topic" : "this chat";
   const displaced = before
     ? `\n\nIt replaces ${before.chatTitle || "another chat"}${before.threadId ? ` (topic ${before.threadId})` : ""}.`
@@ -139,27 +125,27 @@ async function quick(ctx: Context) {
 const SAY_WHY_MS = 10 * 60 * 1000;
 
 const courierFor = (ctx: Context): Courier => courierOf({ api: ctx.api, botUsername: ctx.me.username });
-const actorOf = (m: NonNullable<Awaited<ReturnType<typeof memberWithGrants>>>): Actor => ({ id: m.id, personId: m.personId, grants: m.grants });
+const acting = (m: NonNullable<Awaited<ReturnType<typeof memberWithGrants>>>): Acting => ({ actor: actorOf(m), via: "BOT" });
 
 /** A tap on a card: d:<recordId>:a|r|u|w. Every decision rule lives in lib/wb/decide. */
 async function onCard(ctx: Context) {
   const [, recordId, act] = ctx.match as RegExpMatchArray;
   const alert = (text: string) => ctx.answerCallbackQuery({ text, show_alert: true });
   const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
-  if (!member?.registeredAt) return void (await alert("Open Sabre and register first."));
-  const actor = actorOf(member);
+  if (!member) return void (await alert("Open Sabre and register first."));
 
   if (act === "a" || act === "r") {
-    const res = await decide(courierFor(ctx), actor, recordId, act === "a" ? "approve" : "reject", "BOT");
+    const res = await decide(courierFor(ctx), acting(member), recordId, act === "a" ? "approve" : "reject");
     return void (await (res.ok ? ctx.answerCallbackQuery({ text: act === "a" ? "Approved" : "Rejected" }) : alert(res.error)));
   }
   if (act === "u") {
-    const res = await undo(courierFor(ctx), actor, recordId, "BOT");
+    const res = await undo(courierFor(ctx), acting(member), recordId);
     return void (await (res.ok ? ctx.answerCallbackQuery({ text: "Undone" }) : alert(res.error)));
   }
 
   // Say why: a prompt the decider answers by replying. Named and threaded under
   // the card, since two commanders can be writing in the same chat at once.
+  if (!member.registeredAt) return void (await alert("Open Sabre and register first."));
   const r = await recordView(recordId);
   if (!r || r.state !== "REJECTED" || r.decidedBy !== member.id) return void (await alert("Only whoever rejected it can say why."));
   await ctx.answerCallbackQuery();
@@ -192,8 +178,8 @@ async function onCard(ctx: Context) {
 async function onOnens(ctx: Context) {
   const [, recordId] = ctx.match as RegExpMatchArray;
   const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
-  if (!member?.registeredAt) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
-  const res = await markOnens(courierFor(ctx), actorOf(member), recordId, "BOT");
+  if (!member) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
+  const res = await markOnens(courierFor(ctx), acting(member), recordId);
   if (!res.ok) return void (await ctx.answerCallbackQuery({ text: res.error, show_alert: true }));
   await ctx.answerCallbackQuery({ text: "Marked as uploaded" });
   // drop just this button; any other MC on the same reminder keeps its own
@@ -210,8 +196,8 @@ async function onOnens(ctx: Context) {
 async function onRfClose(ctx: Context) {
   const [, requestId] = ctx.match as RegExpMatchArray;
   const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
-  if (!member?.registeredAt) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
-  const res = await closeRf(courierFor(ctx), actorOf(member), requestId, "BOT");
+  if (!member) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
+  const res = await closeRf(courierFor(ctx), acting(member), requestId);
   await ctx.answerCallbackQuery(res.ok ? { text: "Closed" } : { text: res.error, show_alert: true });
 }
 
@@ -219,10 +205,11 @@ async function onRfClose(ctx: Context) {
 async function onBack(ctx: Context) {
   const [, projectionId] = ctx.match as RegExpMatchArray;
   const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
-  if (!member?.registeredAt) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
-  const res = await confirmBack(actorOf(member), projectionId, "BOT");
+  if (!member) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
+  const res = await confirmBack(acting(member), projectionId);
   if (!res.ok) return void (await ctx.answerCallbackQuery({ text: res.error, show_alert: true }));
-  await ctx.answerCallbackQuery({ text: res.closed ? `${res.label}: marked present` : `${res.label}: noted, marked present when it ends` });
+  const { label, closed } = res.value;
+  await ctx.answerCallbackQuery({ text: closed ? `${label}: marked present` : `${label}: noted, marked present when it ends` });
   const kb = ctx.callbackQuery?.message?.reply_markup?.inline_keyboard ?? [];
   const left = kb.filter((row) => !row.some((b) => "callback_data" in b && b.callback_data === ctx.callbackQuery?.data));
   try {
@@ -250,8 +237,8 @@ async function onReply(ctx: Context, next: NextFunction) {
   if (text.startsWith("/")) return void (await answer("That looked like a command, so I dropped it. Tap Say why again."));
   const member = await memberWithGrants(ctx.from.id);
   if (!member) return;
-  const res = await sayWhy(courierFor(ctx), actorOf(member), c.recordId, text, "BOT");
-  await answer(res.ok ? `✅ Sent to ${res.record.rank} ${res.record.name}.` : res.error);
+  const res = await sayWhy(courierFor(ctx), acting(member), c.recordId, text);
+  await answer(res.ok ? `✅ Sent to ${res.value.rank} ${res.value.name}.` : res.error);
 }
 
 export function createBot(token: string, botInfo?: UserFromGetMe): Bot {
