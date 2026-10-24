@@ -6,14 +6,14 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import type { ActionResult } from "@/lib/actions/shared";
-import { decideRecord, giveReason, undoDecision, voidEntry, withdrawRecord } from "@/lib/wb/actions/records";
+import { decideRecord, giveReason, notRightRecord, undoDecision, voidEntry, withdrawRecord } from "@/lib/wb/actions/records";
 import type { RecordAccess } from "@/lib/wb/domain/access";
 import { BigButton, ErrorBox, textareaClass, useAction } from "./form-bits";
 
 // The buttons a viewer may use on one record. The server works out `can`
 // (lib/wb/domain/access recordAccess) and the decision core checks it all again.
 
-type Open = null | "reject" | "void" | "why" | "withdraw";
+type Open = null | "reject" | "void" | "why" | "withdraw" | "notRight";
 
 export function RecordActions({ recordId, can }: { recordId: string; can: RecordAccess }) {
   const router = useRouter();
@@ -29,7 +29,7 @@ export function RecordActions({ recordId, can }: { recordId: string; can: Record
       router.refresh();
     });
 
-  const any = can.decide || can.undo || can.sayWhy || can.void || can.withdraw;
+  const any = can.decide || can.undo || can.sayWhy || can.void || can.withdraw || can.notRight;
   if (!any) return null;
 
   const note = (label: string, placeholder: string) => (
@@ -95,6 +95,25 @@ export function RecordActions({ recordId, can }: { recordId: string; can: Record
           <BigButton variant="outline" onClick={() => setOpen(null)}>
             Keep it
           </BigButton>
+        </div>
+      )}
+
+      {can.notRight && open === null && (
+        <BigButton variant="outline" onClick={() => setOpen("notRight")}>
+          <X aria-hidden /> Not right
+        </BigButton>
+      )}
+      {open === "notRight" && (
+        <div className="tg-reveal flex flex-col gap-2">
+          <p className="text-xs text-muted-foreground">It comes off your records, and whoever reported it and your commanders are told.</p>
+          <div className="grid grid-cols-2 gap-2">
+            <BigButton variant="destructive" pending={pending} onClick={() => act(() => notRightRecord({ recordId }), "Taken off your records")}>
+              It&apos;s not right
+            </BigButton>
+            <BigButton variant="outline" onClick={() => setOpen(null)}>
+              Keep it
+            </BigButton>
+          </div>
         </div>
       )}
 

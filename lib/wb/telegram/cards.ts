@@ -1,6 +1,7 @@
 import type { InlineKeyboardButton, InlineKeyboardMarkup } from "grammy/types";
 import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
-import { approvedOnSave, costsLeave, NO_APPROVAL_NOTE, type WbOnens, type WbRecordKind, type WbRecordState } from "@/lib/wb/domain/rules";
+import { approvedOnSave, costsLeave, NOT_RIGHT_NOTE, REPORTED_KINDS, type WbOnens, type WbRecordKind, type WbRecordState } from "@/lib/wb/domain/rules";
+import { dayMonth, todaySgt } from "@/lib/wb/domain/timeline";
 import { place } from "@/lib/wb/format";
 import { miniAppLink } from "./links";
 
@@ -35,6 +36,9 @@ export interface CardRecord {
   deciderLabel: string | null;
   /** the trooper's balance now (after the deduction, once approved) */
   ownerLeaveLeft: number | null;
+  /** a PROXY record: who reported it for him, and as what (2026-10-24) */
+  reporterLabel?: string | null;
+  reporterRole?: string | null;
 }
 
 // ------------------------------------------------------------------ callback data
@@ -47,6 +51,10 @@ export const cardData = (recordId: string, action: CardAction) => `d:${recordId}
 /** "Uploaded to ONENS" on the evening reminder: o:<recordId> */
 export const ONENS_CALLBACK = /^o:([0-9a-f-]{36})$/;
 export const onensData = (recordId: string) => `o:${recordId}`;
+
+/** "Not right" on the DM telling a man someone reported for him: n:<recordId> */
+export const NOT_RIGHT_CALLBACK = /^n:([0-9a-f-]{36})$/;
+export const notRightData = (recordId: string) => `n:${recordId}`;
 
 // ------------------------------------------------------------------ text
 
@@ -70,7 +78,15 @@ export function recordBody(r: CardRecord): string {
     const onens = onensLine(r.onens);
     if (onens) lines.push(onens);
   }
+  const reported = reportedBy(r);
+  if (reported) lines.push(reported);
   return lines.join("\n");
+}
+
+/** "Reported by CPL TAN (GC)": a report sick or MA someone made for him (2026-10-24). */
+export function reportedBy(r: Pick<CardRecord, "createdVia" | "kind" | "reporterLabel" | "reporterRole">): string {
+  if (r.createdVia !== "PROXY" || !r.reporterLabel || !REPORTED_KINDS.includes(r.kind)) return "";
+  return `Reported by ${r.reporterLabel}${r.reporterRole ? ` (${r.reporterRole})` : ""}`;
 }
 
 const HEAD: Record<WbRecordState, string> = {
@@ -87,13 +103,13 @@ export function decisionLine(r: CardRecord): string {
   const by = r.deciderLabel ?? "a commander";
   switch (r.state) {
     case "APPROVED":
-      return approvedOnSave(r) ? `✅ ${NO_APPROVAL_NOTE}` : `✅ Approved by ${by}`;
+      return approvedOnSave(r) ? `✅ ${r.decisionNote}` : `✅ Approved by ${by}`;
     case "REJECTED":
       return `❌ Rejected by ${by}` + (r.decisionNote ? `\nWhy: ${r.decisionNote}` : "");
     case "CANCELLED":
       return `🚫 ${r.decisionNote ?? "Voided"}`;
     case "WITHDRAWN":
-      return "↩️ Withdrawn";
+      return r.decisionNote === NOT_RIGHT_NOTE ? `↩️ Withdrawn: ${NOT_RIGHT_NOTE.toLowerCase()}` : "↩️ Withdrawn";
     default:
       return "";
   }
@@ -160,6 +176,12 @@ export const outcomeKeyboard = (rows: readonly CardRecord[], botUsername: string
 /** A button straight to a record's outcome form (a Courier button: the Courier makes it a Mini App link). */
 export const outcomeButton = (recordId: string) => [[{ text: "💊 Update outcome", route: `records/${recordId}/outcome` }]];
 
+/** The man's DM about a report made for him: Update outcome once he can record one, and always Not right. */
+export function reportedButtons(r: { id: string; kind: WbRecordKind; state: WbRecordState }) {
+  const outcome = r.state === (r.kind === "MA" ? "RECORDED" : "APPROVED") ? outcomeButton(r.id) : [];
+  return [...outcome, [{ text: "❌ Not right", data: notRightData(r.id) }]];
+}
+
 // ------------------------------------------------------------------ DMs to the trooper
 
 export type Notice =
@@ -168,6 +190,9 @@ export type Notice =
   | { kind: "why"; by: string }
   | { kind: "voided"; by: string; reason: string; refunded: number }
   | { kind: "added"; by: string }
+  | { kind: "reported"; by: string }
+  | { kind: "notRight" }
+  | { kind: "register" }
   | { kind: "ending" }
   | { kind: "tomorrow"; rows: readonly CardRecord[] }
   | { kind: "onens"; rows: readonly CardRecord[] }
@@ -196,6 +221,22 @@ export function noticeText(r: CardRecord, n: Notice): string {
       );
     case "added":
       return `📝 ${n.by} recorded this for you\n\n${body}\n\nIf it's wrong, tell them.`;
+    case "reported": {
+      // word for word as agreed (§3c): "CPL X reported you sick (RSO) on 03/11. Not right?"
+      const on = dayMonth(todaySgt(r.startAt));
+      const what = r.kind === "MA" ? `reported your MA on ${on}` : `reported you sick (${r.kind}) on ${on}`;
+      const next =
+        r.kind === "MA"
+          ? "\n\nIf the doctor gives you an MC or status, tap Update outcome."
+          : r.state === "APPROVED"
+            ? "\n\nGo now. After you've seen the doctor, tap Update outcome and record what he gave you, even if it was nothing."
+            : "";
+      return `${n.by} ${what}. Not right?${next}`;
+    }
+    case "notRight":
+      return `↩️ ${r.rank} ${r.name} says this isn't right\n\n${body}${reportedBy(r) ? `\n${reportedBy(r)}` : ""}\n\nIt's off his records now.`;
+    case "register":
+      return `👤 ${r.rank} ${r.name} isn't on Sabre yet\n\n${body}\n\nYou reported this for him. Get him to register in Sabre, so he can record what the doctor gave him.`;
     case "ending":
       return `✅ That ends today\n\n${body}\n\nYou're back to full duty tomorrow. If the doctor extended it, record the new one in Sabre.`;
     case "tomorrow":

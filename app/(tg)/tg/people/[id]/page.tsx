@@ -1,5 +1,5 @@
 import { CalendarCheck, Inbox, SearchX } from "lucide-react";
-import { Header } from "@/components/tg/form-bits";
+import { BigLink, Header } from "@/components/tg/form-bits";
 import { HistoryToggle } from "@/components/tg/history-toggle";
 import { RecordActions } from "@/components/tg/record-actions";
 import { RecordSummary } from "@/components/tg/record-summary";
@@ -16,6 +16,7 @@ import { removalPreview } from "@/lib/wb/roster-flow";
 // recorded. What's still current by default; Full history (?all=1) has the rest.
 // At the bottom, Remove from roster for his PC/PS, company command and admins
 // (?from=roster: opened from Roster, so it goes back there afterwards).
+// For whoever may report for him (2026-10-24): Report sick and MA for him.
 export default async function PersonHistoryPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ all?: string | string[]; from?: string | string[] }> }) {
   await requireFeaturePage();
   const member = await requireRegistered();
@@ -35,9 +36,20 @@ export default async function PersonHistoryPage({ params, searchParams }: { para
   const kids = liveChildren(everything);
   const now = new Date();
   const records = all ? everything : everything.filter((r) => isCurrent(r, kids.get(r.id) ?? [], now));
+  const reports = can.proxies && member.personId !== p.personId;
   return (
     <div className="flex flex-col gap-4">
       <Header title={`${p.rank} ${p.name}`} hint={`${p.campName} · ${p.subunitName}${all ? " · Full history" : ""}`} />
+      {reports && (
+        <div className="grid grid-cols-2 gap-2">
+          <BigLink href={`/tg/apply/sick?for=${p.personId}`} outline>
+            Report sick
+          </BigLink>
+          <BigLink href={`/tg/apply/ma?for=${p.personId}`} outline>
+            Report an MA
+          </BigLink>
+        </div>
+      )}
       {everything.length === 0 ? (
         <EmptyState icon={<Inbox />} title="Nothing on their timeline yet" />
       ) : records.length === 0 ? (

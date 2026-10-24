@@ -14,6 +14,7 @@ import {
   reach,
   reachLabel,
   recordAccess,
+  reportAccess,
   rfAccess,
   screens,
   visitAccess,
@@ -311,12 +312,27 @@ describe("recordAccess", () => {
 
   it("the trooper sees and withdraws his own pending request; the PS decides it; his GC sees nothing", () => {
     expect(recordAccess(trooper, rec, now)).toEqual({
-      commands: false, approves: false, view: true, decide: false, undo: false, sayWhy: false, void: false, withdraw: true, markOnens: true, seeMedical: true,
+      commands: false, approves: false, view: true, decide: false, undo: false, sayWhy: false, void: false, withdraw: true, notRight: false, markOnens: true, seeMedical: true,
     });
     expect(recordAccess(ps, rec, now)).toEqual({
-      commands: true, approves: true, view: true, decide: true, undo: false, sayWhy: false, void: false, withdraw: false, markOnens: true, seeMedical: true,
+      commands: true, approves: true, view: true, decide: true, undo: false, sayWhy: false, void: false, withdraw: false, notRight: false, markOnens: true, seeMedical: true,
     });
     expect(recordAccess(gc, rec, now)).toMatchObject({ view: false, decide: false, void: false, seeMedical: false, markOnens: false });
+  });
+
+  it("a report made for him (2026-10-24): Not right instead of Withdraw, for him only, while it's pending or stands", () => {
+    const reported = { ...rec, kind: "RSO" as const, createdVia: "PROXY" };
+    expect(recordAccess(trooper, reported, now)).toMatchObject({ withdraw: false, notRight: true });
+    expect(recordAccess(trooper, { ...reported, state: "APPROVED", decidedBy: "m2", decidedAt: now }, now).notRight).toBe(true);
+    expect(recordAccess(trooper, { ...reported, kind: "MA", state: "RECORDED" }, now).notRight).toBe(true);
+    expect(recordAccess(trooper, { ...reported, state: "CANCELLED" }, now).notRight).toBe(false);
+    expect(recordAccess(ps, reported, now).notRight).toBe(false);
+    // his own report sick, or an event added for him: no Not right
+    expect(recordAccess(trooper, { ...reported, createdVia: "SELF" }, now)).toMatchObject({ withdraw: true, notRight: false });
+    expect(recordAccess(trooper, { ...reported, kind: "EVENT", state: "RECORDED" }, now).notRight).toBe(false);
+    // the GC who reported it may open it, not decide it or see its medical side; another GC can't
+    expect(recordAccess(gc, { ...reported, createdBy: "m3" }, now)).toMatchObject({ view: true, decide: false, seeMedical: false, notRight: false });
+    expect(recordAccess(gc, { ...reported, createdBy: "m-other" }, now).view).toBe(false);
   });
 
   it("a PS sees his own pending request but can't decide it", () => {
@@ -460,5 +476,38 @@ describe("an SC mirrors a GC (ROT)", () => {
   it("without a section it counts for nothing", () => {
     expect(Object.values(screens(as([g("SC")]))).some(Boolean)).toBe(false);
     expect(Object.values(screens(as([g("SC", { subunitId: PL1 })]))).some(Boolean)).toBe(false);
+  });
+});
+
+// ------------------------------------------------------------------ report for your men (2026-10-24)
+
+describe("reportAccess: report sick or an MA for one of his men", () => {
+  const man = (where: { subunitId: string; campId: string }, ownerRoles: GrantRow["role"][] = [], personId = "p-man") => ({ ...where, personId, ownerRoles });
+  const rows: [Who, { subunitId: string; campId: string }, boolean, boolean][] = [
+    // who, the man's camp, reports, saved approved
+    ["GC · SLR", SLR, true, false],
+    ["GC · SLR", SFT_A, false, false], // a sibling camp
+    ["GC · company (campless)", SLR, false, false],
+    ["PS · PLATOON 6", SLR, true, true],
+    ["PS · PLATOON 6", BDK, false, false],
+    ["PC · PLATOON 6", SFT_B, true, true],
+    ["OC", BDK, true, true],
+    ["2IC", SLR, true, true],
+    ["CSM", SLR, true, true],
+    ["ASA", SLR, false, false],
+    ["ADMIN", SLR, false, false],
+    ["nobody", SLR, false, false],
+  ];
+  it.each(rows)("%s → a man at %o: reports %s, approved on save %s", (who, where, reports, approved) => {
+    expect(reportAccess(as(W[who], "p-viewer"), man(where))).toEqual({ reports, approvesOnSave: approved });
+  });
+
+  it("never for himself; a PS reporting another PS waits for the PC", () => {
+    expect(reportAccess(as(W["PS · PLATOON 6"], "p-man"), man(SLR))).toEqual({ reports: false, approvesOnSave: false });
+    // the man is a PS: only the PC (or company) approves him, so another PS's report waits
+    expect(reportAccess(as(W["PS · PLATOON 6"], "p-viewer"), man(SLR, ["PS"]))).toEqual({ reports: true, approvesOnSave: false });
+    expect(reportAccess(as(W["PC · PLATOON 6"], "p-viewer"), man(SLR, ["PS"]))).toEqual({ reports: true, approvesOnSave: true });
+    // the man is a GC: his PC or PS approves, as for any trooper
+    expect(reportAccess(as(W["PS · PLATOON 6"], "p-viewer"), man(SLR, ["GC"]))).toEqual({ reports: true, approvesOnSave: true });
   });
 });

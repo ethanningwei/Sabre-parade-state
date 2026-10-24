@@ -5,7 +5,7 @@ import { run, UserError } from "@/lib/actions/shared";
 import { requireFeature } from "@/lib/flags";
 import { actionMember, type Member } from "@/lib/wb/auth";
 import type { Delivery } from "@/lib/wb/core";
-import { decide, sayWhy, submit, undo, voidRecord, withdraw, type Result } from "@/lib/wb/decide";
+import { decide, notRight, sayWhy, submit, undo, voidRecord, withdraw, type Result } from "@/lib/wb/decide";
 import { NOT_ON_ROSTER } from "@/lib/wb/domain/rules";
 import { eventFrom, eventInput, leaveFrom, leaveInput, maFrom, maInput, miniApp, offFrom, rangeFrom, rangeInput, sickFrom, sickInput, zId, type OwnRecord } from "@/lib/wb/input";
 import { clashFor, personWhere } from "@/lib/wb/records";
@@ -87,6 +87,38 @@ export async function reportEvent(input: z.input<typeof eventInput>) {
   return run(async () => submitOwn(await self(), eventFrom(input)));
 }
 
+// ------------------------------------------------------------------ report for your men (2026-10-24)
+
+export interface Reported extends Submitted {
+  /** "PTE TAN", who it's for */
+  who: string;
+}
+
+/** A report sick or MA for one of his men: one PROXY row, checked by the core (reach, kind, no duplicate). */
+async function submitFor(personId: string, rec: OwnRecord): Promise<Reported> {
+  const member = await actionMember();
+  const p = await personWhere(personId);
+  if (!p) throw new UserError("He's left the roster.");
+  const res = await submit(await courier(), miniApp(member), [{ ...rec, personId, memberId: null, createdVia: "PROXY" }]);
+  if (!res.ok) throw new UserError(res.error);
+  const [record] = res.value.records;
+  return { recordId: record.id, delivery: res.value.delivery, subunitName: p.subunitName, approved: record.state === "APPROVED", who: `${p.rank} ${p.name}` };
+}
+
+const forInput = z.object({ personId: zId });
+
+/** Report sick for one of his men: saved approved if the reporter could approve it, else it waits for the man's PC or PS. */
+export async function reportSickFor(input: z.input<typeof sickInput> & z.input<typeof forInput>) {
+  requireFeature();
+  return run(async () => submitFor(forInput.parse(input).personId, sickFrom(input, undefined, true)));
+}
+
+/** An MA for one of his men: recorded, as the man's own. */
+export async function reportMaFor(input: z.input<typeof maInput> & z.input<typeof forInput>) {
+  requireFeature();
+  return run(async () => submitFor(forInput.parse(input).personId, maFrom(input, undefined, true)));
+}
+
 const proxyInput = eventInput.extend({ personIds: z.array(zId).min(1, "Pick at least one person.").max(PROXY_MAX, `At most ${PROXY_MAX} at a time.`) });
 
 /** A commander records one event for several men: one RECORDED row each, no clash step. */
@@ -133,6 +165,15 @@ export async function undoDecision(input: z.input<typeof idInput>) {
   return run(async () => {
     const member = await actionMember();
     return decided(await undo(await courier(), miniApp(member), idInput.parse(input).recordId));
+  });
+}
+
+/** The man says a report made for him isn't right. */
+export async function notRightRecord(input: z.input<typeof idInput>) {
+  requireFeature();
+  return run(async () => {
+    const member = await actionMember();
+    return decided(await notRight(await courier(), miniApp(member), idInput.parse(input).recordId));
   });
 }
 

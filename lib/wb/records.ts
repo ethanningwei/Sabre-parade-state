@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, getTableColumns, gt, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, inArray, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import { camp, duty, person, subunit } from "@/lib/db/schema";
@@ -7,7 +7,7 @@ import { clashLines } from "@/lib/wb/domain/clash";
 import { manAccess, recordAccess, type GrantRow, type Viewer } from "@/lib/wb/domain/access";
 import { outcomeOrder } from "@/lib/wb/domain/describe";
 import type { WbRole } from "@/lib/wb/domain/roles";
-import { DEAD_STATES, STANDING_STATES } from "@/lib/wb/domain/rules";
+import { DEAD_STATES, REPORTED_KINDS, STANDING_STATES, visitFamily, type WbRecordKind } from "@/lib/wb/domain/rules";
 import type { Range } from "@/lib/wb/domain/timeline";
 import { wbAssignment, wbGrant, wbMember, wbRecord } from "@/lib/wb/db/schema";
 
@@ -19,6 +19,9 @@ export type Db = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
 const decider = alias(wbMember, "decider");
 const deciderPerson = alias(person, "decider_person");
 const owner = alias(wbMember, "owner");
+// who made it: on a PROXY record, the commander who reported it for him
+const creator = alias(wbMember, "creator");
+const creatorPerson = alias(person, "creator_person");
 
 // The diagnosis and the photo's file_id are left out of every view: a view
 // reaches pages, cards and DMs. They're read only through lib/wb/medical.ts,
@@ -37,6 +40,11 @@ const viewColumns = {
   dRank: deciderPerson.rank,
   dName: deciderPerson.name,
   dTgName: decider.tgName,
+  cRank: creatorPerson.rank,
+  cName: creatorPerson.name,
+  cTgName: creator.tgName,
+  cTelegramId: creator.telegramUserId,
+  cRoles: sql<WbRole[]>`coalesce((select array_agg(distinct ${wbGrant.role}::text) from ${wbGrant} where ${wbGrant.memberId} = ${creator.id}), '{}')`,
   ownerId: owner.id,
   ownerTelegramId: owner.telegramUserId,
   ownerLeaveLeft: owner.leaveLeft,
@@ -61,6 +69,17 @@ export interface RecordView extends RecordRow {
   ownerLeaveLeft: number | null;
   /** the roles the trooper's account holds (any scope): a PS's or PC's request goes up a level */
   ownerRoles: WbRole[];
+  /** a PROXY record: "CPL TAN", who reported or added it for him */
+  reporterLabel: string | null;
+  /** his role, for "Reported by CPL TAN (GC)" */
+  reporterRole: string | null;
+  reporterTelegramId: number | null;
+}
+
+/** The role a reporter acted as, for a label: company command, then PC, then PS, else his other role (GC, or SC in ROT). */
+function reporterRoleOf(roles: readonly string[]): string | null {
+  const order = ["OC", "2IC", "CSM", "PC", "PS"];
+  return order.find((r) => roles.includes(r)) ?? roles.find((r) => r !== "ADMIN" && r !== "ASA") ?? null;
 }
 
 function views(tx: Db, where: SQL | undefined) {
@@ -73,6 +92,8 @@ function views(tx: Db, where: SQL | undefined) {
     .leftJoin(decider, eq(decider.id, wbRecord.decidedBy))
     .leftJoin(deciderPerson, eq(deciderPerson.id, decider.personId))
     .leftJoin(owner, and(eq(owner.personId, wbRecord.personId), eq(owner.active, true)))
+    .leftJoin(creator, and(eq(creator.id, wbRecord.createdBy), eq(wbRecord.createdVia, "PROXY")))
+    .leftJoin(creatorPerson, eq(creatorPerson.id, creator.personId))
     .where(where);
 }
 
@@ -91,6 +112,9 @@ const toView = (v: ViewRow): RecordView => ({
   ownerTelegramId: v.ownerTelegramId,
   ownerLeaveLeft: v.ownerLeaveLeft,
   ownerRoles: v.ownerRoles ?? [],
+  reporterLabel: v.cName ? `${v.cRank} ${v.cName}` : (v.cTgName ?? null),
+  reporterRole: v.cTgName ? reporterRoleOf(v.cRoles ?? []) : null,
+  reporterTelegramId: v.cTelegramId ?? null,
 });
 
 export async function recordView(id: string, tx: Db = db): Promise<RecordView | null> {
@@ -176,6 +200,42 @@ export async function clashFor(personId: string, range: Range, tx: Db = db): Pro
   return clashLines(range, records, duties, assignments);
 }
 
+/**
+ * A live visit of the same family (report sick, or an MA) already on one of
+ * his days: the second report of it is refused, pointing at the first
+ * (2026-10-24). Oldest first.
+ */
+export async function sameVisit(personId: string, kind: WbRecordKind, range: Range, tx: Db = db): Promise<RecordView | null> {
+  const [r] = await views(
+    tx,
+    and(
+      eq(wbRecord.personId, personId),
+      inArray(wbRecord.kind, [...visitFamily(kind)]),
+      notInArray(wbRecord.state, [...DEAD_STATES]),
+      lt(wbRecord.startAt, range.endAt ?? new Date(8.64e15)),
+      or(isNull(wbRecord.endAt), gt(wbRecord.endAt, range.startAt)),
+    ),
+  )
+    .orderBy(asc(wbRecord.createdAt))
+    .limit(1);
+  return r ? toView(r) : null;
+}
+
+/** Reports made for him that are still live and not over before `from`: his own sick and MA forms point at them. */
+export async function reportedFor(personId: string, from: Date): Promise<RecordView[]> {
+  const rows = await views(
+    db,
+    and(
+      eq(wbRecord.personId, personId),
+      eq(wbRecord.createdVia, "PROXY"),
+      inArray(wbRecord.kind, [...REPORTED_KINDS]),
+      notInArray(wbRecord.state, [...DEAD_STATES]),
+      gt(wbRecord.endAt, from),
+    ),
+  ).orderBy(asc(wbRecord.startAt));
+  return rows.map(toView);
+}
+
 /** The last MA, for "Same as last time?". */
 export async function lastMa(personId: string) {
   const [r] = await db
@@ -254,6 +314,16 @@ export async function personWhere(personId: string, tx: Db = db): Promise<Scoped
     .innerJoin(subunit, eq(subunit.id, camp.subunitId))
     .where(eq(person.id, personId));
   return p && p.active ? p : null;
+}
+
+/** The roles a roster person's account holds (any scope): who approves his requests depends on them. */
+export async function rolesOfPerson(personId: string, tx: Db = db): Promise<WbRole[]> {
+  const rows = await tx
+    .select({ role: wbGrant.role })
+    .from(wbGrant)
+    .innerJoin(wbMember, eq(wbMember.id, wbGrant.memberId))
+    .where(and(eq(wbMember.personId, personId), eq(wbMember.active, true)));
+  return [...new Set(rows.map((r) => r.role))];
 }
 
 /** "2SG TAN" for a member: their roster name, else their Telegram name. */

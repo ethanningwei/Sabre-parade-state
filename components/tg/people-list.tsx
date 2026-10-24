@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { fieldClass } from "./ui";
 import { tick } from "./webapp";
 
-// The roster in a commander's scope, searchable. Links to a person's history,
-// or (with `picked`) a multi-select for Add for several men.
+// The roster in a commander's scope, searchable. Links to a person's history
+// (or `hrefBase` + his id: the man picker of Report for your men), or (with
+// `picked`) a multi-select for Add for several men.
 
 export interface PersonItem {
   personId: string;
@@ -24,8 +25,10 @@ export function PeopleList({
   people,
   picked,
   onToggle,
+  hrefBase = "/tg/people/",
 }: {
   people: PersonItem[];
+  hrefBase?: string;
   picked?: Set<string>;
   onToggle?: (id: string) => void;
 }) {
@@ -58,7 +61,7 @@ export function PeopleList({
             );
             if (!picked || !onToggle) {
               return (
-                <Link key={p.personId} href={`/tg/people/${p.personId}`} className="flex min-h-13 items-center gap-3 px-4 py-2 transition-colors duration-150 active:bg-muted">
+                <Link key={p.personId} href={`${hrefBase}${p.personId}`} className="flex min-h-13 items-center gap-3 px-4 py-2 transition-colors duration-150 active:bg-muted">
                   {label}
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" aria-hidden />
                 </Link>

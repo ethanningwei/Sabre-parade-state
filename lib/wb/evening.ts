@@ -51,6 +51,8 @@ export interface RoundSummary {
   tomorrow: number;
   onens: number;
   chased: number;
+  /** reporters asked to get a man registered, so he can record an outcome (2026-10-24) */
+  nagged: number;
   digests: number;
   heartbeats: number;
   /** camps below minimum tomorrow (Phase 4) */
@@ -103,7 +105,7 @@ async function claim(date: string, force: boolean): Promise<boolean> {
 
 export async function eveningRound(courier: Courier, now: Date = new Date(), { force = false } = {}): Promise<RoundSummary> {
   const today = todaySgt(now);
-  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, rfExpired: 0, back: 0, projection: 0, claimsDecided: 0, claimsTold: 0, waiting: 0, ord: 0, ordTomorrow: 0, ordKept: 0 };
+  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, nagged: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, rfExpired: 0, back: 0, projection: 0, claimsDecided: 0, claimsTold: 0, waiting: 0, ord: 0, ordTomorrow: 0, ordKept: 0 };
   if (!(await claim(today, force))) return { ...summary, skipped: true };
 
   const todayStart = dayRange(today).startAt;
@@ -159,7 +161,8 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
     if (await courier.send({ telegramId: rows[0].ownerTelegramId }, noticeText(rows[0], { kind: "onens", rows }), kb)) summary.onens++;
   }
 
-  // ---------------------------------------------------------------- a report sick with no outcome after a day
+  // ---------------------------------------------------------------- a visit with no outcome after a day
+  // a report sick a day after its approval; an MA reported for him (2026-10-24) once its day is over
   const approvedSick = await findViews(
     and(
       inArray(wbRecord.kind, ["RSI", "RSO"]),
@@ -169,14 +172,30 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
       gt(wbRecord.decidedAt, new Date(now.getTime() - CHASE_GIVE_UP_MS)),
     )!,
   );
-  if (approvedSick.length) {
+  const reportedMa = await findViews(
+    and(
+      eq(wbRecord.kind, "MA"),
+      eq(wbRecord.state, "RECORDED"),
+      eq(wbRecord.createdVia, "PROXY"),
+      isNull(wbRecord.outcomeAt),
+      lte(wbRecord.endAt, now),
+      gt(wbRecord.endAt, new Date(now.getTime() - CHASE_GIVE_UP_MS)),
+    )!,
+  );
+  const visits = [...approvedSick, ...reportedMa];
+  if (visits.length) {
     const kids = await db
       .select({ parentId: wbRecord.parentId, state: wbRecord.state })
       .from(wbRecord)
-      .where(inArray(wbRecord.parentId, approvedSick.map((r) => r.id)));
+      .where(inArray(wbRecord.parentId, visits.map((r) => r.id)));
     const answered = new Set(kids.filter((k) => isLive(k.state)).map((k) => k.parentId));
-    for (const r of approvedSick.filter((x) => !answered.has(x.id))) {
-      if (await courier.send({ telegramId: r.ownerTelegramId }, noticeText(r, { kind: "chase" }), outcomeButton(r.id))) summary.chased++;
+    for (const r of visits.filter((x) => !answered.has(x.id))) {
+      if (r.ownerMemberId) {
+        if (await courier.send({ telegramId: r.ownerTelegramId }, noticeText(r, { kind: "chase" }), outcomeButton(r.id))) summary.chased++;
+      } else if (r.createdVia === "PROXY") {
+        // not on Sabre: the outcome waits for him, so whoever reported it is asked to get him registered
+        if (await courier.send({ telegramId: r.reporterTelegramId }, noticeText(r, { kind: "register" }))) summary.nagged++;
+      }
     }
   }
 

@@ -9,7 +9,7 @@ import { linkCommanderChat } from "@/lib/wb/admin";
 import type { GrantRow } from "@/lib/wb/auth";
 import { recordAccess } from "@/lib/wb/domain/access";
 import { actorOf } from "@/lib/wb/core";
-import { decide, sayWhy, undo } from "@/lib/wb/decide";
+import { decide, notRight, sayWhy, undo } from "@/lib/wb/decide";
 import { wbConversation, wbGrant, wbMember } from "@/lib/wb/db/schema";
 import { memberLabel, recordView } from "@/lib/wb/records";
 import { markOnens } from "@/lib/wb/outcome";
@@ -18,7 +18,7 @@ import { isWaiting, WAITING_REPLY } from "@/lib/wb/domain/roster-flow";
 import { closeRf } from "@/lib/wb/rf";
 import { BACK_CALLBACK } from "@/lib/wb/domain/projection-kinds";
 import { confirmBack } from "@/lib/wb/projection";
-import { CARD_CALLBACK, ONENS_CALLBACK } from "./cards";
+import { CARD_CALLBACK, NOT_RIGHT_CALLBACK, ONENS_CALLBACK } from "./cards";
 import { matchSubunit, QUICK_COMMANDS } from "./commands";
 import { miniAppLink, miniAppUrl } from "./links";
 import { courierOf, type Courier } from "./courier";
@@ -193,6 +193,21 @@ async function onOnens(ctx: Context) {
   }
 }
 
+/** "❌ Not right" on the DM telling a man someone reported for him: n:<recordId>. Drops the DM's buttons once done. */
+async function onNotRight(ctx: Context) {
+  const [, recordId] = ctx.match as RegExpMatchArray;
+  const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
+  if (!member) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
+  const res = await notRight(courierFor(ctx), acting(member), recordId);
+  if (!res.ok) return void (await ctx.answerCallbackQuery({ text: res.error, show_alert: true }));
+  await ctx.answerCallbackQuery({ text: "Taken off your records. Whoever reported it is told." });
+  try {
+    await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+  } catch (e) {
+    console.error("wb not-right edit:", e);
+  }
+}
+
 /** "❌ Close" on an RF card: f:<requestId>:x. Every copy is redrawn by closeRf. */
 async function onRfClose(ctx: Context) {
   const [, requestId] = ctx.match as RegExpMatchArray;
@@ -252,6 +267,7 @@ export function createBot(token: string, botInfo?: UserFromGetMe): Bot {
   safe.command(Object.keys(QUICK_COMMANDS), quick);
   safe.callbackQuery(CARD_CALLBACK, onCard);
   safe.callbackQuery(ONENS_CALLBACK, onOnens);
+  safe.callbackQuery(NOT_RIGHT_CALLBACK, onNotRight);
   safe.callbackQuery(RF_CALLBACK, onRfClose);
   safe.callbackQuery(BACK_CALLBACK, onBack);
   safe.on("message:text", onReply);

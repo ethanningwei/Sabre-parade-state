@@ -2,7 +2,7 @@ import { Ban, Check, Clock, CloudUpload, Undo2, X, type LucideIcon } from "lucid
 import Link from "next/link";
 import { KIND_LABEL, recordWhat, STATE_LABEL } from "@/lib/wb/domain/describe";
 import { approverOf } from "@/lib/wb/domain/access";
-import { approvedOnSave, costsLeave, isLive, NO_APPROVAL_NOTE, type WbRecordState } from "@/lib/wb/domain/rules";
+import { approvedOnSave, costsLeave, isLive, NOT_RIGHT_NOTE, REPORTED_KINDS, type WbRecordState } from "@/lib/wb/domain/rules";
 import { dayMonthYear, rangeLabel } from "@/lib/wb/domain/timeline";
 import type { RecordView } from "@/lib/wb/records";
 import { enter } from "./ui";
@@ -65,18 +65,27 @@ function details(r: RecordView): string {
   }
 }
 
+/** Who put it on his timeline, when it wasn't him: "Reported by CPL TAN (GC)" (2026-10-24), or "Added by" for an event. */
+export function addedBy(r: RecordView): string | null {
+  if (r.createdVia !== "PROXY") return null;
+  const who = r.reporterLabel ? `${r.reporterLabel}${r.reporterRole ? ` (${r.reporterRole})` : ""}` : "a commander";
+  return REPORTED_KINDS.includes(r.kind) ? `Reported by ${who}` : `Added by ${who}`;
+}
+
 function decision(r: RecordView): string | null {
   switch (r.state) {
     case "APPROVED":
-      return approvedOnSave(r) ? NO_APPROVAL_NOTE : `Approved by ${r.deciderLabel ?? "a commander"}`;
+      return approvedOnSave(r) ? r.decisionNote : `Approved by ${r.deciderLabel ?? "a commander"}`;
     case "REJECTED":
       return `Rejected by ${r.deciderLabel ?? "a commander"}${r.decisionNote ? `: “${r.decisionNote}”` : ""}`;
     case "CANCELLED":
       return r.decisionNote ?? "Voided";
     case "PENDING":
       return `Waiting for ${approverOf(r.ownerRoles) ?? "your PC or PS"}`;
+    case "WITHDRAWN":
+      return r.decisionNote === NOT_RIGHT_NOTE ? NOT_RIGHT_NOTE : null;
     default:
-      return r.createdVia === "PROXY" ? "Added by a commander" : null;
+      return null;
   }
 }
 
@@ -117,6 +126,7 @@ export function RecordSummary({
           <OnensOwed />
         </p>
       )}
+      {addedBy(r) && <p className="text-xs text-muted-foreground">{addedBy(r)}</p>}
       {decision(r) && <p className="text-xs text-muted-foreground">{decision(r)}</p>}
       {!!under?.length && (
         <ul className="mt-1.5 flex flex-col gap-1 border-l-2 border-primary/30 pl-3" aria-label="What the doctor gave">

@@ -1,7 +1,7 @@
 import { SearchX } from "lucide-react";
 import { Header } from "@/components/tg/form-bits";
 import { RecordActions } from "@/components/tg/record-actions";
-import { RecordSummary } from "@/components/tg/record-summary";
+import { addedBy, RecordSummary } from "@/components/tg/record-summary";
 import { ParadeStatusLine } from "@/components/tg/parade-status";
 import { EmptyState } from "@/components/tg/ui";
 import { VisitSection } from "@/components/tg/visit-section";
@@ -71,7 +71,7 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
         />
       )}
       <p className="px-1 text-xs text-muted-foreground">
-        {r.createdVia === "PROXY" ? "Added by a commander" : "Sent"} {when(r.createdAt)}
+        {addedBy(r) ?? "Sent"} {when(r.createdAt)}
         {r.decidedAt && ` · decided ${when(r.decidedAt)}`}
       </p>
     </div>
