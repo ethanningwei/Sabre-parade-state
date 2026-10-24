@@ -8,6 +8,8 @@ import { actionMember } from "@/lib/wb/auth";
 import { addPlatoon, addSection, assignPasted, placeCamp, placeMen, removePlatoon, removeSection, setCommander, unplaceMen } from "@/lib/wb/changeover";
 import { checkPaste, loadDraft, runsChangeover } from "@/lib/wb/changeover-data";
 import { miniApp, zId } from "@/lib/wb/input";
+import { switchBack, switchToRot } from "@/lib/wb/switch";
+import { courier } from "@/lib/wb/telegram/courier";
 
 // The changeover's draft in the Mini App (/tg/changeover). The rules are in
 // lib/wb/changeover.ts; each write checks COY HQ or admin and the phase again.
@@ -77,4 +79,16 @@ const pastedInput = z.array(z.object({ personId: zId, platoon: name, section: na
 export async function assignPastedAction(rows: z.input<typeof pastedInput>) {
   requireFeature();
   return run(async () => unwrap(await assignPasted(await acting(), pastedInput.parse(rows))));
+}
+
+/** Switch to ROT (mockup 7): one confirmation. */
+export async function switchToRotAction() {
+  requireFeature();
+  return run(async () => unwrap(await switchToRot(await courier(), await acting())));
+}
+
+/** Switch back to Vigilance, from the switch's log. */
+export async function switchBackAction() {
+  requireFeature();
+  return run(async () => unwrap(await switchBack(await courier(), await acting())));
 }

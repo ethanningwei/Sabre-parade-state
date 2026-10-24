@@ -82,6 +82,8 @@ export interface ChangeoverLog {
   /** v1 rows the switch created; Switch back deletes them */
   subunits: string[];
   camps: string[];
+  /** Vigilance platoons a drafted platoon of the same name took over, and where they stood before it re-sorted them */
+  reused?: { subunitId: string; sortOrder: number }[];
   /** Vigilance camps and platoons left out of the ROT parade state (kept as history) */
   hiddenCamps: string[];
   hiddenSubunits: string[];
@@ -102,6 +104,7 @@ export interface ChangeoverLog {
 export const emptyLog = (): ChangeoverLog => ({
   subunits: [],
   camps: [],
+  reused: [],
   hiddenCamps: [],
   hiddenSubunits: [],
   moves: [],

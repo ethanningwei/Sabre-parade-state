@@ -2,22 +2,24 @@
 // the changeover's draft (who may, platoons and sections, placing men, SCs,
 // PCs and PSes, the pasted list). Uses sabre_test; skipped if unreachable.
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadSnapshot } from "@/lib/data/snapshot";
 import { writeCoy } from "@/lib/data/write-coy";
 import { renderParadeState } from "@/lib/parade";
 import { db } from "@/lib/db";
-import { camp, coy, person } from "@/lib/db/schema";
-import { wbAudit, wbChangeover, wbDraftPlatoon, wbGrant, wbMember, wbPhase } from "@/lib/wb/db/schema";
+import { absence, auditLog, camp, coy, duty, person, subunit } from "@/lib/db/schema";
+import { wbAssignment, wbAudit, wbCard, wbChangeover, wbDraftPlatoon, wbGrant, wbMember, wbPhase, wbProjection, wbRecord, wbRfRequest } from "@/lib/wb/db/schema";
 import { emptyLog } from "@/lib/wb/domain/rot";
 import { phaseOf, phaseState } from "@/lib/wb/phase";
 import { paradeView } from "@/lib/wb/rot-parade";
 import { EXAMPLE_CAA, exampleSnapshot } from "../fixtures/example-snapshot";
+import { recordingCourier } from "./recording-courier";
 import { acting, member, ok } from "./writes";
 
 const { addPlatoon, addSection, assignPasted, placeCamp, placeMen, removeSection, setCommander, unplaceMen } = await import("@/lib/wb/changeover");
 const { checkPaste, checklist, loadDraft, preview } = await import("@/lib/wb/changeover-data");
+const { switchBack, switchToRot } = await import("@/lib/wb/switch");
 
 /** Active people of a camp, in roster order. */
 async function peopleOf(campName: string) {
@@ -38,9 +40,34 @@ async function cleanRot() {
   await db.delete(wbPhase);
   await db.delete(wbChangeover);
   await db.delete(wbDraftPlatoon);
+  await db.delete(wbCard);
+  await db.delete(wbProjection);
+  await db.delete(wbAssignment);
+  await db.delete(wbRfRequest);
+  await db.delete(wbRecord);
   await db.delete(wbAudit);
   await db.delete(wbGrant);
   await db.delete(wbMember);
+  // the switch's moves are v1 writes as the projector; people outlive each file, so would their v1 audit
+  await db.delete(auditLog).where(eq(auditLog.userId, "wb-projector"));
+}
+
+/** The fixture's coy exactly: a switch left half done must not leave its platoons and sections behind for the next file. */
+async function resetCoy() {
+  const fixture = exampleSnapshot();
+  const [c] = await db.select({ id: coy.id }).from(coy).where(eq(coy.key, "SABRE"));
+  if (c) {
+    const camps = fixture.subunits.flatMap((s) => s.camps.map((x) => x.name));
+    const extra = await db.select({ id: camp.id }).from(camp).where(and(eq(camp.coyId, c.id), notInArray(camp.name, camps)));
+    if (extra.length) {
+      await db.delete(duty).where(inArray(duty.campId, extra.map((x) => x.id)));
+      await db.delete(person).where(inArray(person.campId, extra.map((x) => x.id)));
+      await db.delete(camp).where(inArray(camp.id, extra.map((x) => x.id)));
+    }
+    await db.delete(subunit).where(and(eq(subunit.coyId, c.id), notInArray(subunit.name, fixture.subunits.map((s) => s.name))));
+  }
+  await writeCoy(db, { ...fixture, telegram: { chatId: null, threadId: null } });
+  return (await db.select({ id: coy.id }).from(coy).where(eq(coy.key, "SABRE")))[0].id;
 }
 
 beforeAll(async () => {
@@ -53,11 +80,12 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!reachable) return;
   await cleanRot();
-  await writeCoy(db, { ...exampleSnapshot(), telegram: { chatId: null, threadId: null } });
-  coyId = (await db.select({ id: coy.id }).from(coy).where(eq(coy.key, "SABRE")))[0].id;
+  coyId = await resetCoy();
 });
 afterAll(async () => {
-  if (reachable) await cleanRot();
+  if (!reachable) return;
+  await cleanRot();
+  await resetCoy();
 });
 
 describe("the phase (DB)", () => {
@@ -208,5 +236,115 @@ describe("the changeover draft (DB)", () => {
       ["PLATOON 2", [[slr[3].id]]],
     ]);
     expect(refused(await assignPasted(as, [{ personId: slr[4].id, platoon: "PLATOON 1", section: "SECTION 1", sc: false }]))).toMatch(/SVC/);
+  });
+});
+
+describe("Switch to ROT and Switch back (DB)", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  it("switches: sections are v1 camps, SVC troopers off, GC and platoon PC/PS grants replaced; Switch back puts the Vigilance parade state back byte for byte", async () => {
+    if (!reachable) return;
+    vi.stubEnv("FEATURE_WHEREABOUTS", "1");
+    const now = new Date();
+    const hq = await peopleOf("COY HQ");
+    const slr = await peopleOf("SLR");
+    const subOf = async (name: string) => (await db.select({ id: subunit.id }).from(subunit).where(eq(subunit.name, name)))[0].id;
+    // SLR's last two are SVC troopers; one has an account, a PS grant (of all things), an MC and a pending request
+    const [svc1, svc2] = slr.slice(-2);
+    await db.update(person).set({ role: "SVC" }).where(inArray(person.id, [svc1.id, svc2.id]));
+    await db.update(person).set({ role: "GUARD COMM" }).where(eq(person.id, slr[0].id));
+    await member(1, hq[0].id, [{ role: "ASA" }]);
+    const gc = await member(2, slr[0].id, [{ role: "GC", campId: await campIdOf("SLR") }]);
+    const ps6 = await member(3, hq[1].id, [{ role: "PS", subunitId: await subOf("PLATOON 6") }]);
+    const svcMember = await member(4, svc1.id, [{ role: "PS", subunitId: await subOf("PLATOON 7") }]);
+    await member(5, hq[2].id, [{ role: "OC" }]);
+    const [mc] = await db.insert(absence).values({ personId: svc1.id, type: "MC", startDate: "2026-10-20", endDate: "2099-01-01" }).returning();
+    const [pending] = await db
+      .insert(wbRecord)
+      .values({ personId: svc1.id, kind: "AL", startAt: new Date(now.getTime() + 72 * HOUR), endAt: new Date(now.getTime() + 96 * HOUR), absent: true, state: "PENDING", createdVia: "SELF", leaveDays: 1 })
+      .returning();
+    // a combat trooper on an Extra at BDK, in Sabre and in v1
+    const [asg] = await db.insert(wbAssignment).values({ personId: slr[1].id, type: "EXTRA", campId: await campIdOf("BDK"), startAt: new Date(now.getTime() - HOUR), endAt: new Date(now.getTime() + 48 * HOUR), state: "ACTIVE" }).returning();
+    const [v1Duty] = await db.insert(duty).values({ coyId, type: "EXTRA", rank: slr[1].rank, name: slr[1].name, personId: slr[1].id, campId: await campIdOf("BDK"), startDate: "2026-10-20", endDate: "2099-01-01", sortOrder: 0 }).returning();
+
+    const [coyRow] = await db.select().from(coy).where(eq(coy.id, coyId));
+    const vigilance = renderParadeState(await loadSnapshot(coyRow), EXAMPLE_CAA);
+    const grantsBefore = (await db.select({ memberId: wbGrant.memberId, role: wbGrant.role, subunitId: wbGrant.subunitId, campId: wbGrant.campId }).from(wbGrant)).map((g) => JSON.stringify(g)).sort();
+
+    // the draft: one ROT platoon per Vigilance platoon, one section per camp; SLR's GC its SC; a PC and a PS for PLATOON 1
+    const as = await acting(1);
+    const snapshot = await loadSnapshot(coyRow);
+    let n = 0;
+    for (const sub of snapshot.subunits.filter((x) => !x.isHq)) {
+      // the second takes over Vigilance's PLATOON 6 by name
+      const pl = ok(await addPlatoon(as, ++n === 2 ? "PLATOON 6" : `PLATOON ${n}`));
+      for (const c of sub.camps) {
+        const sec = ok(await addSection(as, pl.id, `SECTION ${c.name}`));
+        ok(await placeCamp(as, c.id, sec.id));
+        if (c.name === "SLR") ok(await setCommander(as, { role: "SC", scopeId: sec.id, personId: slr[0].id }));
+      }
+      if (n === 1) {
+        ok(await setCommander(as, { role: "PC", scopeId: pl.id, personId: hq[3].id }));
+        ok(await setCommander(as, { role: "PS", scopeId: pl.id, personId: hq[1].id }));
+      }
+    }
+    expect(checklist(await loadDraft()).ready).toBe(true);
+
+    // someone outside COY HQ can't switch
+    expect(refused(await switchToRot(recordingCourier(), await acting(2), now))).toMatch(/Only COY HQ and admins/);
+
+    const courier = recordingCourier();
+    const res = ok(await switchToRot(courier, as, now));
+    // ended: the Extra in Sabre, and every open v1 duty (the fixture's and ours)
+    const v1Duties = (await db.select({ id: duty.id }).from(duty).where(eq(duty.coyId, coyId))).length;
+    expect(res).toMatchObject({ platoons: 4, removed: 2, kept: [], grantsRemoved: 3, grantsAdded: 2, ended: 1 + v1Duties });
+    expect(res.unregistered).toEqual([`${hq[3].rank} ${hq[3].name} (PC)`]);
+    expect(await phaseOf(coyId)).toBe("ROT");
+
+    // where the men are, and what v1's parade state prints
+    const [slrMan] = await db.select({ camp: camp.name, role: person.role }).from(person).innerJoin(camp, eq(camp.id, person.campId)).where(eq(person.id, slr[0].id));
+    expect(slrMan).toEqual({ camp: "PLATOON 6 SECTION SLR", role: "SC" });
+    const rot = await paradeView(coyId, await loadSnapshot(coyRow));
+    expect(rot.phase).toBe("ROT");
+    const text = rot.render(EXAMPLE_CAA);
+    // the draft's order, the reused PLATOON 6 included
+    expect(text.split("\n").filter((l) => /^PLATOON \d: /.test(l)).map((l) => l.split(":")[0])).toEqual(["PLATOON 1", "PLATOON 6", "PLATOON 3", "PLATOON 4"]);
+    expect(text).toContain("PLATOON 6\n• Total strength: ");
+    expect(text).toContain("\nSECTION SLR\n• Total Strength: ");
+    expect(text).not.toMatch(/Off Shift: (?!00)|PLATOON 5|Serving|\nSLR\n/);
+    expect(text).not.toContain(svc1.name);
+
+    // SVC troopers off, as ORD: account off, grants gone, request withdrawn, MC closed
+    expect((await db.select({ active: person.active }).from(person).where(eq(person.id, svc1.id)))[0].active).toBe(false);
+    expect((await db.select({ active: wbMember.active }).from(wbMember).where(eq(wbMember.id, svcMember.id)))[0].active).toBe(false);
+    expect((await db.select({ state: wbRecord.state }).from(wbRecord).where(eq(wbRecord.id, pending.id)))[0].state).toBe("WITHDRAWN");
+    expect(courier.sent).toContainEqual({ redraw: { record: pending.id } });
+    // grants: the GC and the Vigilance platoons' PSes gone; SLR's SC and PLATOON 1's PS given (its PC has no account)
+    const grants = await db.select({ memberId: wbGrant.memberId, role: wbGrant.role, campId: wbGrant.campId, subunitId: wbGrant.subunitId }).from(wbGrant);
+    expect(grants.some((g) => g.role === "GC")).toBe(false);
+    expect(grants.find((g) => g.memberId === gc.id)?.role).toBe("SC");
+    expect(grants.find((g) => g.memberId === ps6.id)).toMatchObject({ role: "PS", subunitId: await subOf("PLATOON 1") });
+    // the Extra ended
+    expect((await db.select({ state: wbAssignment.state }).from(wbAssignment).where(eq(wbAssignment.id, asg.id)))[0].state).toBe("CANCELLED");
+    expect((await db.select({ closedAt: duty.closedAt }).from(duty).where(eq(duty.id, v1Duty.id)))[0].closedAt).not.toBeNull();
+    // the draft can't change now
+    expect(refused(await addPlatoon(as, "PLATOON 9"))).toMatch(/in ROT already/);
+
+    // Switch back
+    const back = ok(await switchBack(recordingCourier(), as, new Date(now.getTime() + HOUR)));
+    expect(back).toMatchObject({ moved: res.moved, restored: 2, notes: [] });
+    expect(await phaseOf(coyId)).toBe("VIGILANCE");
+    expect(renderParadeState(await loadSnapshot(coyRow), EXAMPLE_CAA)).toBe(vigilance);
+    const grantsAfter = (await db.select({ memberId: wbGrant.memberId, role: wbGrant.role, subunitId: wbGrant.subunitId, campId: wbGrant.campId }).from(wbGrant)).map((g) => JSON.stringify(g)).sort();
+    expect(grantsAfter).toEqual(grantsBefore);
+    expect((await db.select({ state: wbRecord.state }).from(wbRecord).where(eq(wbRecord.id, pending.id)))[0].state).toBe("PENDING");
+    expect((await db.select({ active: wbMember.active }).from(wbMember).where(eq(wbMember.id, svcMember.id)))[0].active).toBe(true);
+    expect((await db.select({ closedAt: absence.closedAt }).from(absence).where(eq(absence.id, mc.id)))[0].closedAt).toBeNull();
+    expect((await db.select({ state: wbAssignment.state }).from(wbAssignment).where(eq(wbAssignment.id, asg.id)))[0].state).toBe("ACTIVE");
+    expect(await db.select().from(subunit).where(eq(subunit.name, "PLATOON 1"))).toEqual([]);
+    // the draft is still there, for another go
+    expect((await loadDraft()).platoons).toHaveLength(4);
+    expect(refused(await switchBack(recordingCourier(), as))).toMatch(/isn't in ROT/);
+    vi.unstubAllEnvs();
   });
 });

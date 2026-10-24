@@ -1,9 +1,11 @@
 import { ArrowLeftRight, FileText, UserMinus } from "lucide-react";
 import { CheckRow } from "@/components/tg/changeover/check-row";
+import { SwitchBackPanel, SwitchPanel } from "@/components/tg/changeover/switch-panel";
 import { Header } from "@/components/tg/form-bits";
 import { Tile } from "@/components/tg/tile";
 import { Group } from "@/components/tg/ui";
-import { checklist, loadDraft } from "@/lib/wb/changeover-data";
+import { checklist, loadDraft, switchPreview } from "@/lib/wb/changeover-data";
+import { dayMonth, todaySgt } from "@/lib/wb/domain/timeline";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireChangeoverPage } from "@/lib/wb/changeover-page";
 
@@ -14,9 +16,29 @@ export default async function ChangeoverPage() {
   await requireFeaturePage();
   await requireChangeoverPage();
   const d = await loadDraft();
-  const c = checklist(d);
-  const linked = d.platoons.filter((p) => p.chatTitle).length;
   const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+  if (d.phase.phase === "ROT") {
+    const log = d.phase.changeover?.log;
+    const linked = d.platoons.filter((p) => p.chatTitle).length;
+    return (
+      <div className="flex flex-col gap-6">
+        <Header title="Changeover" hint={`In ROT since ${d.phase.changeover ? dayMonth(todaySgt(d.phase.changeover.switchedAt)) : "the switch"}.`} />
+        <Group title="The switch" rows>
+          <CheckRow state="done" title="Platoons & sections" hint={`${plural(d.platoons.length, "platoon")} · ${plural(d.platoons.reduce((n, p) => n + p.sections.length, 0), "section")}`} />
+          <CheckRow state="done" title="Men in sections" hint={`${plural(log?.moves.length ?? 0, "man", "men")} moved · ${plural(log?.removed.length ?? 0, "SVC trooper")} off the roster`} />
+          {!!log?.unregistered.length && <CheckRow state="todo" title="No role yet" hint={`${log.unregistered.join(", ")}: no Sabre account at the switch. Give them their role in Admin › Grants once they register.`} />}
+          <CheckRow state={linked === d.platoons.length ? "done" : "todo"} title="Commanders' chats" hint={`${linked} of ${plural(d.platoons.length, "platoon")} linked · /here in each new platoon's chat`} />
+        </Group>
+        <section className="flex flex-col gap-2">
+          <SwitchBackPanel />
+          <p className="text-center text-xs text-muted-foreground">Meant for the same day, if something is wrong.</p>
+        </section>
+      </div>
+    );
+  }
+  const c = checklist(d);
+  const preview = await switchPreview(d);
+  const linked = d.platoons.filter((p) => p.chatTitle).length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -60,17 +82,12 @@ export default async function ChangeoverPage() {
       <Group title="Before you switch" rows>
         <Tile href="/tg/changeover/preview" icon={<FileText />} title="Preview the ROT parade state" hint="As it would print right now, from the draft" />
         <Tile href="/tg/changeover/paste" icon={<ArrowLeftRight />} title="Paste the Telegram list" hint="Headers like PLATOON 1 and Section 2 say where everyone goes" />
-        <div className="flex min-h-14 items-center gap-3 px-4 py-2.5">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive [&_svg]:size-[18px]" aria-hidden>
-            <UserMinus />
-          </span>
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="font-medium">SVC troopers leaving</span>
-            <span className="text-xs leading-snug text-muted-foreground">
-              {c.svc ? `${plural(c.svc, "SVC trooper")} still on the roster. The switch takes them off, as ORD does.` : "None left on the roster"}
-            </span>
-          </span>
-        </div>
+        <Tile
+          href="/tg/changeover/svc"
+          icon={<UserMinus />}
+          title="SVC troopers leaving"
+          hint={c.svc ? `${plural(c.svc, "SVC trooper")} still on the roster. The switch takes them off, as ORD does.` : "None left on the roster"}
+        />
       </Group>
 
       <section className="flex flex-col gap-2">
@@ -81,10 +98,8 @@ export default async function ChangeoverPage() {
             ))}
           </ul>
         )}
-        <button type="button" disabled className="h-12 w-full rounded-xl bg-muted text-base font-medium text-muted-foreground">
-          Switch to ROT
-        </button>
-        <p className="text-center text-xs text-muted-foreground">{c.ready ? "Ready." : "Unlocks when every man has a section."}</p>
+        <SwitchPanel ready={c.ready} preview={preview} />
+        <p className="text-center text-xs text-muted-foreground">{c.ready ? "Ready when you are." : "Unlocks when every man has a section."}</p>
       </section>
     </div>
   );

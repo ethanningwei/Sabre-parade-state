@@ -1,12 +1,12 @@
 import "server-only";
-import { and, asc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { getCoy, loadSnapshot, type CoyRow } from "@/lib/data/snapshot";
 import { db } from "@/lib/db";
-import { camp, person, subunit } from "@/lib/db/schema";
+import { camp, duty, person, subunit } from "@/lib/db/schema";
 import { validate, type CoySnapshot, type Issue } from "@/lib/parade";
 import { currentCaa } from "@/lib/parade/time";
 import { renderRotParadeState } from "@/lib/parade/render-rot";
-import { wbCommanderChat, wbDraftGrant, wbDraftPlacement, wbDraftPlatoon, wbDraftSection, wbGrant, wbMember } from "@/lib/wb/db/schema";
+import { wbAssignment, wbCommanderChat, wbDraftGrant, wbDraftPlacement, wbDraftPlatoon, wbDraftSection, wbGrant, wbMember } from "@/lib/wb/db/schema";
 import { screens, type GrantRow } from "@/lib/wb/domain/access";
 import { roleOf } from "@/lib/wb/domain/roles";
 import { matchPasted, parsePastedList, type PoolPerson } from "@/lib/wb/domain/paste";
@@ -200,6 +200,12 @@ export function checklist(d: Draft): Checklist {
   const emptySections = d.platoons.flatMap((p) => p.sections.filter((s) => !s.men.length).map((s) => `${p.name} ${s.name}`));
   if (emptySections.length) blockers.push(`Nobody in ${emptySections.join(", ")}: place men or delete it.`);
   if (placed < toPlace.length) blockers.push(`${toPlace.length - placed} men still need a section.`);
+  // v1 allows one of a name per camp
+  for (const p of d.platoons)
+    for (const s of p.sections) {
+      const twice = [...new Set(s.men.map((m) => m.name.trim()).filter((n, i, all) => all.indexOf(n) !== i))];
+      if (twice.length) blockers.push(`Two men called ${twice.join(", ")} in ${p.name} ${s.name}: put one in another section, or tell them apart on Roster.`);
+    }
   return {
     platoons: d.platoons.length,
     sections: sections.length,
@@ -227,11 +233,6 @@ export function preview(d: Draft, now: Date = new Date()): Preview {
   return { text: renderRotParadeState(snapshot, caa), unplaced: unplaced - d.men.filter((m) => m.svc).length, issues: validate(snapshot, caa) };
 }
 
-/** Who holds a grant of these roles now, for the Switch sheet ("Replace 12 GC roles"). */
-export async function grantCount(roles: ("GC" | "PC" | "PS")[]): Promise<number> {
-  const rows = await db.select({ id: wbGrant.id }).from(wbGrant).where(inArray(wbGrant.role, roles));
-  return rows.length;
-}
 
 // ------------------------------------------------------------------ the pasted list
 
@@ -300,3 +301,37 @@ export function checkPaste(d: Draft, text: string): PasteCheck {
   return out;
 }
 
+
+// ------------------------------------------------------------------ the Switch sheet
+
+export interface SwitchPreview {
+  men: number;
+  camps: number;
+  extras: number;
+  svc: number;
+  /** GC grants, and the Vigilance platoons' PC/PS grants */
+  grantsOut: number;
+  /** drafted SC/PC/PS with an account */
+  grantsIn: number;
+}
+
+/** What Switch to ROT would do, in counts, for its confirmation sheet (mockup 7). */
+export async function switchPreview(d: Draft, now: Date = new Date()): Promise<SwitchPreview> {
+  const platoonIds = d.snapshot.subunits.filter((s) => !s.isHq).map((s) => s.id);
+  const campIds = d.snapshot.subunits.filter((s) => !s.isHq).flatMap((s) => s.camps.map((c) => c.id));
+  const n = sql<number>`count(*)::int`;
+  const [[assignments], [duties], [grants]] = await Promise.all([
+    campIds.length ? db.select({ n }).from(wbAssignment).where(and(eq(wbAssignment.state, "ACTIVE"), gt(wbAssignment.endAt, now), inArray(wbAssignment.campId, campIds))) : [{ n: 0 }],
+    db.select({ n }).from(duty).where(and(eq(duty.coyId, d.coy.id), isNull(duty.closedAt))),
+    db.select({ n }).from(wbGrant).where(or(eq(wbGrant.role, "GC"), and(inArray(wbGrant.role, ["PC", "PS"]), inArray(wbGrant.subunitId, platoonIds)))),
+  ]);
+  const commanders = d.platoons.flatMap((p) => [...(p.pc ? [p.pc] : []), ...p.ps, ...p.sections.flatMap((s) => (s.sc ? [s.sc] : []))]);
+  return {
+    men: d.men.filter((m) => !m.svc && m.sectionId).length,
+    camps: campIds.length,
+    extras: assignments.n + duties.n,
+    svc: d.men.filter((m) => m.svc).length,
+    grantsOut: grants.n,
+    grantsIn: commanders.filter((c) => c.registered).length,
+  };
+}
