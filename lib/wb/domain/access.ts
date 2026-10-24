@@ -1,6 +1,6 @@
 import { isOver, type RfRequestView } from "./rf";
 import type { WbRole } from "./roles";
-import { nextState, outcomeParentRefusal, undoRefusal, type Decided, type VisitRow, type WbRecordKind } from "./rules";
+import { nextState, notRightRefusal, outcomeParentRefusal, undoRefusal, type Decided, type VisitRow, type WbRecordKind } from "./rules";
 
 // Who may: every role list and scope rule over grants, in one place. Pure, so
 // the Mini App's pages, the bot and the write cores all ask the same thing.
@@ -201,6 +201,17 @@ export function decideRefusalText(viewer: { personId: string | null }, r: Reques
   return `Only ${r.subunitName}'s PC or PS can decide this.`;
 }
 
+/**
+ * Report for your men (2026-10-24): report sick or an MA for a man in reach
+ * (the same reach as Add for several men, so an SC inherits a GC's), never
+ * for yourself. `approvesOnSave`: the reporter could approve it himself, so a
+ * report sick is saved approved; a GC's waits for the man's PC or PS.
+ */
+export function reportAccess(viewer: { personId: string | null; grants: readonly GrantRow[] }, man: Request): { reports: boolean; approvesOnSave: boolean } {
+  const reports = viewer.personId !== man.personId && manAccess(viewer, man).proxies;
+  return { reports, approvesOnSave: reports && approves(viewer, man) };
+}
+
 // ------------------------------------------------------------------ a record
 
 export interface Viewer {
@@ -220,6 +231,8 @@ export interface RecordAccess {
   sayWhy: boolean;
   void: boolean;
   withdraw: boolean;
+  /** the man himself, on a report someone made for him (2026-10-24) */
+  notRight: boolean;
   /** who only: whether this MC is owed is the page's */
   markOnens: boolean;
   /**
@@ -234,21 +247,30 @@ export interface RecordAccess {
  * What this member may do with this record. `hasOutcome`: he's recorded what
  * the doctor gave on this visit, so its approval can only be voided now.
  */
-export function recordAccess(viewer: Viewer, r: Request & Decided & { hasOutcome?: boolean }, now: Date = new Date()): RecordAccess {
+export function recordAccess(
+  viewer: Viewer,
+  r: Request & Decided & { hasOutcome?: boolean; kind?: WbRecordKind; createdVia?: string; createdBy?: string | null },
+  now: Date = new Date(),
+): RecordAccess {
   const owner = !!viewer.personId && viewer.personId === r.personId;
+  // a report made for him: "Not right" instead of Withdraw, so the reporter hears
+  const reported = r.createdVia === "PROXY";
+  // whoever reported it for him may look at it (a GC doesn't command there), never its medical side
+  const reporter = reported && !!r.createdBy && r.createdBy === viewer.id;
   const commands = commandsAt(viewer.grants, r);
   const approver = approves(viewer, r);
   return {
     commands,
     approves: approver,
-    view: owner || commands,
+    view: owner || commands || reporter,
     decide: r.state === "PENDING" && approver,
     // undo also needs the decider to still command there (2026-10-12)
     undo: commands && !r.hasOutcome && undoRefusal(r, viewer.id, "", now) === null,
     // one reason, never overwritten (2026-10-12; the user, 2026-10-21)
     sayWhy: r.state === "REJECTED" && r.decidedBy === viewer.id && !r.decisionNote,
     void: commands && nextState(r.state, "void") !== null,
-    withdraw: owner && nextState(r.state, "withdraw") !== null,
+    withdraw: owner && !reported && nextState(r.state, "withdraw") !== null,
+    notRight: !!r.kind && reported && notRightRefusal({ kind: r.kind, state: r.state, createdVia: "PROXY", personId: r.personId }, viewer.personId) === null,
     markOnens: owner || commands,
     seeMedical: owner || commands,
   };

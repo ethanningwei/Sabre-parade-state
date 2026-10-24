@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { Refusal, type Delivery } from "@/lib/wb/core";
 import { wbMember, wbRecord, type WbRecordKind } from "@/lib/wb/db/schema";
-import { decideRefusalText, manAccess, needsNoApproval, recordAccess } from "@/lib/wb/domain/access";
+import { decideRefusalText, manAccess, needsNoApproval, recordAccess, reportAccess } from "@/lib/wb/domain/access";
 import { STATE_LABEL } from "@/lib/wb/domain/describe";
 import {
   initialState,
@@ -12,11 +12,16 @@ import {
   needsApproval,
   nextState,
   NO_APPROVAL_NOTE,
+  NOT_RIGHT_NOTE,
+  notRightRefusal,
+  proxyRefusal,
+  REPORTED_KINDS,
+  reportedApprovedNote,
   undoRefusal,
   type RecordAction,
 } from "@/lib/wb/domain/rules";
-import { memberLabel, personWhere, recordView, recordViews, type Db, type RecordView } from "@/lib/wb/records";
-import { noticeText, outcomeButton } from "@/lib/wb/telegram/cards";
+import { memberLabel, personWhere, recordView, recordViews, rolesOfPerson, sameVisit, type Db, type RecordView } from "@/lib/wb/records";
+import { noticeText, outcomeButton, reportedButtons } from "@/lib/wb/telegram/cards";
 import type { Courier } from "@/lib/wb/telegram/courier";
 import { write, type Acting, type Outcome } from "@/lib/wb/write";
 
@@ -70,9 +75,16 @@ export interface NewRecord {
 /**
  * Save new records (PENDING for leave and off, RECORDED otherwise), then put
  * the card in front of the commanders. A trooper's own entry gets a card even
- * when it needs no approval, so his PC knows about the MA; a commander's proxy
- * entries are DMed to each man instead. OC, 2IC and CSM need no approval:
- * their own requests are saved approved, and leave is spent there and then.
+ * when it needs no approval, so his PC knows about the MA. OC, 2IC and CSM
+ * need no approval: their own requests are saved approved, and leave is spent
+ * there and then.
+ *
+ * A commander's proxy entries (createdVia PROXY): events from Add for several
+ * men are DMed to each man, with no card. A report sick or an MA reported for
+ * one of his men (2026-10-24) gets its card, marked "Reported by", and the
+ * man a DM he can answer "Not right"; a report sick is saved approved when
+ * the reporter could approve it himself, else it waits like the man's own.
+ * Leave and off are never for someone else.
  */
 export async function submit(courier: Courier, by: Acting, recs: NewRecord[]): Promise<Outcome<{ records: RecordView[]; delivery: Delivery | null }>> {
   const { actor } = by;
@@ -80,27 +92,45 @@ export async function submit(courier: Courier, by: Acting, recs: NewRecord[]): P
   return write(courier, by, {
     parade: true,
     async change({ tx, audit }) {
-      for (const r of recs) {
+      /** the reports a reporter may approve himself, by index */
+      const selfApproved = new Set<number>();
+      for (const [i, r] of recs.entries()) {
         if (r.createdVia === "SELF") {
           if (r.personId !== actor.personId) throw new Refusal("That isn't yours.");
+          const dup = REPORTED_KINDS.includes(r.kind) ? await sameVisit(r.personId, r.kind, r, tx) : null;
+          // reported for him already: open that one (to add the outcome) rather than make a second
+          if (dup?.createdVia === "PROXY") throw new Refusal(`${dup.reporterLabel ?? "Your commander"} already reported this. Open it from My records.`);
           continue;
         }
+        const refusal = proxyRefusal(r.kind);
+        if (refusal) throw new Refusal(refusal);
         const p = await personWhere(r.personId, tx);
         if (!p) throw new Refusal("Someone on that list has left the roster.");
-        if (!manAccess(actor, p).proxies) throw new Refusal(`${p.rank} ${p.name} isn't in your scope.`);
+        if (!REPORTED_KINDS.includes(r.kind)) {
+          if (!manAccess(actor, p).proxies) throw new Refusal(`${p.rank} ${p.name} isn't in your scope.`);
+          continue;
+        }
+        const ownerRoles = await rolesOfPerson(r.personId, tx);
+        const can = reportAccess(actor, { ...p, ownerRoles });
+        if (!can.reports) throw new Refusal(r.personId === actor.personId ? "Report it as your own." : `${p.rank} ${p.name} isn't in your scope.`);
+        const dup = await sameVisit(r.personId, r.kind, r, tx);
+        if (dup) throw new Refusal(`${dup.createdVia === "PROXY" ? (dup.reporterLabel ?? "Someone") : `${p.rank} ${p.name}`} already reported this.`);
+        if (needsApproval(r.kind) && can.approvesOnSave) selfApproved.add(i);
       }
-      const values = recs.map((r) => {
+      const reporter = selfApproved.size ? await memberLabel(actor.id, tx) : "";
+      const values = recs.map((r, i) => {
         const onSave = r.createdVia === "SELF" && needsApproval(r.kind) && needsNoApproval(actor);
-        return onSave
-          ? {
-              ...r,
-              state: "APPROVED" as const,
-              decidedBy: actor.id,
-              decidedAt: now,
-              decisionNote: NO_APPROVAL_NOTE,
-              createdBy: actor.id,
-            }
-          : { ...r, state: initialState(r.kind), createdBy: actor.id };
+        if (onSave || selfApproved.has(i)) {
+          return {
+            ...r,
+            state: "APPROVED" as const,
+            decidedBy: actor.id,
+            decidedAt: now,
+            decisionNote: onSave ? NO_APPROVAL_NOTE : reportedApprovedNote(reporter),
+            createdBy: actor.id,
+          };
+        }
+        return { ...r, state: initialState(r.kind), createdBy: actor.id };
       });
       const rows = await tx.insert(wbRecord).values(values).returning({
         id: wbRecord.id,
@@ -108,6 +138,7 @@ export async function submit(courier: Courier, by: Acting, recs: NewRecord[]): P
         state: wbRecord.state,
         personId: wbRecord.personId,
         leaveDays: wbRecord.leaveDays,
+        createdVia: wbRecord.createdVia,
       });
       for (const row of rows) {
         const onSave = row.state === "APPROVED";
@@ -123,6 +154,7 @@ export async function submit(courier: Courier, by: Acting, recs: NewRecord[]): P
             personId: row.personId,
             noApproval: onSave || undefined,
             leave: delta || undefined,
+            via: row.createdVia === "PROXY" ? "PROXY" : undefined,
           },
         });
       }
@@ -130,16 +162,20 @@ export async function submit(courier: Courier, by: Acting, recs: NewRecord[]): P
     },
     async tell(ids, c) {
       const records = (await Promise.all(ids.map((id) => recordView(id)))).filter((r): r is RecordView => !!r);
-      if (recs.every((r) => r.createdVia === "PROXY")) {
-        const by = await memberLabel(actor.id);
-        for (const r of records) await c.send({ telegramId: r.ownerTelegramId }, noticeText(r, { kind: "added", by }));
-        return { records, delivery: null };
-      }
       let delivery: Delivery | null = null;
+      let added: string | null = null;
       for (const r of records) {
+        if (r.createdVia === "PROXY" && !REPORTED_KINDS.includes(r.kind)) {
+          // Add for several men: each man hears, the commanders already know
+          added ??= await memberLabel(actor.id);
+          await c.send({ telegramId: r.ownerTelegramId }, noticeText(r, { kind: "added", by: added }));
+          continue;
+        }
         delivery = (await c.postCard({ record: r })).delivery;
-        // a report sick approved on save: straight to "Go now" with the outcome button
-        if ((r.kind === "RSI" || r.kind === "RSO") && r.state === "APPROVED") {
+        if (r.createdVia === "PROXY") {
+          await c.send({ telegramId: r.ownerTelegramId }, noticeText(r, { kind: "reported", by: r.reporterLabel ?? "Your commander" }), reportedButtons(r));
+        } else if ((r.kind === "RSI" || r.kind === "RSO") && r.state === "APPROVED") {
+          // a report sick approved on save: straight to "Go now" with the outcome button
           await c.send({ telegramId: r.ownerTelegramId }, noticeText(r, { kind: "decided" }), outcomeButton(r.id));
         }
       }
@@ -275,6 +311,54 @@ export async function withdraw(courier: Courier, by: Acting, recordId: string): 
     async tell(_, c) {
       const after = (await recordView(recordId))!;
       await c.redraw({ record: after });
+      return after;
+    },
+  });
+}
+
+/**
+ * "Not right": the man says a report someone made for him (2026-10-24) is
+ * wrong. Only he may, and only on a PROXY report sick or MA. Still pending, it
+ * is withdrawn; once it stood (an approved report sick, a recorded MA) it is
+ * cancelled with whatever it produced, as a void. The card is redrawn, and the
+ * reporter and the platoon's commanders chat are told.
+ */
+export async function notRight(courier: Courier, by: Acting, recordId: string): Promise<Result> {
+  return write(courier, by, {
+    parade: true,
+    async change({ tx, audit }) {
+      const [row] = await tx.select().from(wbRecord).where(eq(wbRecord.id, recordId)).for("update");
+      if (!row) throw new Refusal("That record has gone.");
+      const refusal = notRightRefusal(row, by.actor.personId);
+      if (refusal) throw new Refusal(refusal);
+      const to = row.state === "PENDING" ? "WITHDRAWN" : "CANCELLED";
+      const children = to === "CANCELLED" ? await tx.select({ id: wbRecord.id, parentId: wbRecord.parentId, state: wbRecord.state }).from(wbRecord).where(eq(wbRecord.parentId, recordId)) : [];
+      const kin = kinOf({ id: row.id, parentId: row.parentId, state: row.state }, children);
+      await tx
+        .update(wbRecord)
+        .set({ state: to, decisionNote: NOT_RIGHT_NOTE, updatedAt: new Date() })
+        .where(
+          inArray(
+            wbRecord.id,
+            kin.map((k) => k.id),
+          ),
+        );
+      await audit({
+        action: "not-right",
+        entity: "wb_record",
+        entityId: row.id,
+        before: { state: row.state },
+        after: { state: to, alsoVoided: kin.length > 1 ? kin.slice(1).map((k) => k.id) : undefined },
+      });
+      return kin.slice(1).map((k) => k.id);
+    },
+    async tell(also, c) {
+      const after = (await recordView(recordId))!;
+      await c.redraw({ record: after });
+      for (const k of await recordViews(also)) await c.redraw({ record: k });
+      const text = noticeText(after, { kind: "notRight" });
+      await c.send({ telegramId: after.reporterTelegramId }, text);
+      await c.send({ platoon: after.subunitId }, text);
       return after;
     },
   });

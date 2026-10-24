@@ -5,7 +5,7 @@ import type { NewRecord } from "@/lib/wb/decide";
 import { eventDetail, leaveDetail, overseasWhere, reasonText } from "@/lib/wb/domain/describe";
 import { AL_PLACES, LEAVE_REASONS } from "@/lib/wb/domain/roles";
 import { isAbsentKind, leaveRefusal } from "@/lib/wb/domain/rules";
-import { checkRange, dayCount, dayRange, daysTouched, MAX_DAYS, todaySgt, type Range } from "@/lib/wb/domain/timeline";
+import { addDays, checkRange, dayCount, dayRange, daysTouched, MAX_DAYS, todaySgt, type Range } from "@/lib/wb/domain/timeline";
 import type { Acting } from "@/lib/wb/write";
 
 // What the Mini App's forms send, checked and turned into what a Write takes.
@@ -92,10 +92,18 @@ export function offFrom(raw: z.input<typeof rangeInput>, today = todaySgt()): Ow
 
 export const maInput = z.object({ date: zDate, time: zTime, place: zText("where", 100) });
 
-/** An MA: the day, the time, the place. Recorded, no approval; absent for the day. */
-export function maFrom(raw: z.input<typeof maInput>, today = todaySgt()): OwnRecord {
+/**
+ * How far back a report may go: today for his own, yesterday when a commander
+ * reports it for him ("he forgot today", not rewriting last week; 2026-10-24).
+ */
+export const earliestReport = (forMan: boolean, today = todaySgt()) => (forMan ? addDays(today, -1) : today);
+
+const tooEarly = (forMan: boolean, own: string) => new Refusal(forMan ? "Report it no earlier than yesterday." : own);
+
+/** An MA: the day, the time, the place. Recorded, no approval; absent for the day. `forMan`: reported for him. */
+export function maFrom(raw: z.input<typeof maInput>, today = todaySgt(), forMan = false): OwnRecord {
   const a = maInput.parse(raw);
-  if (a.date < today) throw new Refusal("The appointment is in the past. Tell your PS instead.");
+  if (a.date < earliestReport(forMan, today)) throw tooEarly(forMan, "The appointment is in the past. Tell your PS instead.");
   const r = dayRange(a.date);
   return { kind: "MA", ...r, endAt: r.endAt!, absent: true, detail: "MA", maTiming: a.time, location: a.place.toUpperCase() };
 }
@@ -112,9 +120,9 @@ export const sickInput = z.object({
  * day, the clinic for an RSO, and his symptoms for his commander. Neither is
  * an absence: only an MC or HL is.
  */
-export function sickFrom(raw: z.input<typeof sickInput>, today = todaySgt()): OwnRecord {
+export function sickFrom(raw: z.input<typeof sickInput>, today = todaySgt(), forMan = false): OwnRecord {
   const a = sickInput.parse(raw);
-  if (a.date < today) throw new Refusal("That day is over. Tell your PS instead.");
+  if (a.date < earliestReport(forMan, today)) throw tooEarly(forMan, "That day is over. Tell your PS instead.");
   if (a.where === "RSO" && !a.clinic) throw new Refusal("Say which clinic or hospital.");
   const r = dayRange(a.date);
   return {

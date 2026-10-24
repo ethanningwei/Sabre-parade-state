@@ -11,11 +11,11 @@ import { writeCoy } from "@/lib/data/write-coy";
 import { db } from "@/lib/db";
 import { camp, duty, person, subunit } from "@/lib/db/schema";
 import { wbAudit, wbCard, wbCommanderChat, wbGrant, wbMember, wbRecord } from "@/lib/wb/db/schema";
-import { decide, sayWhy, submit, undo, voidRecord, withdraw, type NewRecord } from "@/lib/wb/decide";
+import { decide, notRight, sayWhy, submit, undo, voidRecord, withdraw, type NewRecord } from "@/lib/wb/decide";
 import { outcomeOrder } from "@/lib/wb/domain/describe";
 import { eventFrom, leaveFrom, maFrom, offFrom, sickFrom, type OwnRecord } from "@/lib/wb/input";
 import { markOnens, saveOutcome, type McInput, type OutcomeInput, type StatusInput } from "@/lib/wb/outcome";
-import { clashFor, pendingFor, recordView, recordViews } from "@/lib/wb/records";
+import { clashFor, pendingFor, recordView, recordViews, reportedFor } from "@/lib/wb/records";
 import { cardKeyboard, cardText, outcomeCardText } from "@/lib/wb/telegram/cards";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
 import { recordingCourier } from "./recording-courier";
@@ -524,5 +524,162 @@ describe("medical (DB)", () => {
     expect(await markOnens(c, await acting(TROOPER, "BOT"), mcRow.id)).toMatchObject({ ok: true, value: { onens: "DONE" } });
     expect(c.sent).toEqual([{ redraw: { record: mcRow.id } }]);
     expect(await markOnens(c, await acting(TROOPER), mcRow.id)).toEqual({ ok: false, error: "Nothing is owed on ONENS for that." });
+  });
+});
+
+// ------------------------------------------------------------------ report for your men (2026-10-24)
+
+describe("report for your men (DB)", () => {
+  const GC = 3101; // PTE JOSHUA LAU, GC of SLR
+  const ASA = 3102;
+  const PC = 3103;
+  let slr: string;
+
+  async function withGc() {
+    await setup();
+    [{ id: slr }] = await db.select({ id: camp.id }).from(camp).where(eq(camp.name, "SLR"));
+    await member(GC, pl6People[1], [{ role: "GC", campId: slr }]);
+  }
+  /** A report for a man, as the Mini App's reportSickFor / reportMaFor submit it. */
+  async function report(c: ReturnType<typeof recordingCourier>, tgId: number, personId: string, rec: OwnRecord) {
+    return submit(c, await acting(tgId), [{ ...rec, personId, memberId: null, createdVia: "PROXY" }]);
+  }
+  const sickFor = (over: Record<string, unknown> = {}) => sickFrom({ where: "RSO", date: day(0), clinic: "raffles medical", symptoms: "Fever", ...over }, undefined, true);
+  const maFor = (over: Record<string, unknown> = {}) => maFrom({ date: day(0), time: "0930", place: "NSC", ...over }, undefined, true);
+  const on = (n: number) => `${day(n).slice(8, 10)}/${day(n).slice(5, 7)}`;
+
+  it("a GC's report sick: pending for the PC/PS, a card that says who reported it, and the man's DM word for word", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await withGc();
+    const c = recordingCourier();
+    const r = ok(await report(c, GC, irfan, sickFor())).records[0];
+    expect(r).toMatchObject({ kind: "RSO", state: "PENDING", createdVia: "PROXY", memberId: null, reporterLabel: "PTE JOSHUA LAU", reporterRole: "GC", reporterTelegramId: GC });
+    expect(cardText(r)).toContain("Symptoms: Fever\nReported by PTE JOSHUA LAU (GC)");
+    expect(cardText(r)).toMatch(/^⏳ Approval needed/);
+    expect(c.sent).toEqual([
+      { postCard: { record: r.id } },
+      { send: { telegramId: TROOPER }, text: `PTE JOSHUA LAU reported you sick (RSO) on ${on(0)}. Not right?`, buttons: [[{ text: "❌ Not right", data: `n:${r.id}` }]] },
+    ]);
+    // with the PS, as the man's own
+    expect((await pendingFor((await acting(PS)).actor)).map((x) => x.id)).toEqual([r.id]);
+    expect((await pendingFor((await acting(GC)).actor)).map((x) => x.id)).toEqual([]);
+    expect(await decide(c, await acting(GC), r.id, "approve")).toMatchObject({ ok: false });
+    expect(await decide(c, await acting(PS), r.id, "approve")).toMatchObject({ ok: true, value: { state: "APPROVED" } });
+  });
+
+  it("a PS's or PC's report sick is saved approved, with no Undo; the man is told to go and record the outcome", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await withGc();
+    const c = recordingCourier();
+    const r = ok(await report(c, PS, irfan, sickFor({ where: "RSI", clinic: "" }))).records[0];
+    expect(r).toMatchObject({ state: "APPROVED", decisionNote: "Reported and approved by LCP CHUN HEI", reporterRole: "PS" });
+    expect(cardText(r)).toMatch(/Reported by LCP CHUN HEI \(PS\)\n\n✅ Reported and approved by LCP CHUN HEI$/);
+    expect(JSON.stringify(cardKeyboard(r, "sabrecoybot"))).not.toContain("Undo");
+    expect(c.sent[1]).toEqual({
+      send: { telegramId: TROOPER },
+      text: `LCP CHUN HEI reported you sick (RSI) on ${on(0)}. Not right?\n\nGo now. After you've seen the doctor, tap Update outcome and record what he gave you, even if it was nothing.`,
+      buttons: [[{ text: "💊 Update outcome", route: `records/${r.id}/outcome` }], [{ text: "❌ Not right", data: `n:${r.id}` }]],
+    });
+    expect(await undo(c, await acting(PS), r.id)).toMatchObject({ ok: false, error: expect.stringMatching(/approved as it was reported.*Void it instead/) });
+
+    // the PC too, for another man
+    await member(PC, null, [{ role: "PC", subunitId: pl6 }]);
+    expect(ok(await report(c, PC, pl6People[2], sickFor())).records[0].state).toBe("APPROVED");
+  });
+
+  it("an MA for him: recorded, with its card and his DM", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await withGc();
+    const c = recordingCourier();
+    const r = ok(await report(c, GC, irfan, maFor({ date: day(1) }))).records[0];
+    expect(r).toMatchObject({ kind: "MA", state: "RECORDED", absent: true });
+    expect(cardText(r)).toContain("Reported by PTE JOSHUA LAU (GC)");
+    expect(c.sent[1]).toMatchObject({ send: { telegramId: TROOPER }, text: `PTE JOSHUA LAU reported your MA on ${on(1)}. Not right?\n\nIf the doctor gives you an MC or status, tap Update outcome.` });
+  });
+
+  it("scope: a GC his camp only, a PS his platoon; an ASA, a trooper or himself can't; leave and off never", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await withGc();
+    await member(ASA, null, [{ role: "ASA" }]);
+    const [srf] = await db.select({ id: person.id }).from(person).innerJoin(camp, eq(camp.id, person.campId)).where(and(eq(camp.name, "SRF A"), eq(person.active, true))).limit(1);
+    const c = recordingCourier();
+    expect(await report(c, GC, srf.id, sickFor())).toMatchObject({ ok: false, error: expect.stringMatching(/isn't in your scope/) });
+    expect(await report(c, PS, pl5Person, sickFor())).toEqual({ ok: false, error: "LCP PARTHIV isn't in your scope." });
+    expect(await report(c, ASA, irfan, sickFor())).toMatchObject({ ok: false, error: expect.stringMatching(/isn't in your scope/) });
+    expect(await report(c, TROOPER, pl6People[0], sickFor())).toMatchObject({ ok: false, error: expect.stringMatching(/isn't in your scope/) });
+    expect(await report(c, PS, chunHei, sickFor())).toEqual({ ok: false, error: "Report it as your own." });
+    for (const rec of [leaveFrom(al(), 14), offFrom({ startDate: day(3), startTime: "0800", endDate: day(3), endTime: "2359" })]) {
+      expect(await report(c, PS, irfan, rec)).toEqual({ ok: false, error: "Leave and off are his own to apply for." });
+    }
+    expect(c.sent).toEqual([]);
+    expect(await db.select().from(wbRecord)).toEqual([]);
+  });
+
+  it("backdating: yesterday at most for a report, today for his own", () => {
+    expect(sickFor({ date: day(-1) }).startAt).toEqual(new Date(`${day(-1)}T00:00:00+08:00`));
+    expect(() => sickFor({ date: day(-2) })).toThrow("Report it no earlier than yesterday.");
+    expect(() => maFor({ date: day(-2) })).toThrow("Report it no earlier than yesterday.");
+    expect(() => sickFrom(sick({ date: day(-1) }))).toThrow("That day is over. Tell your PS instead.");
+  });
+
+  it("Not right on a pending report: withdrawn, only by him; the reporter and the platoon are told", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await withGc();
+    const r = ok(await report(recordingCourier(), GC, irfan, sickFor())).records[0];
+    const c = recordingCourier();
+    for (const who of [GC, PS]) expect(await notRight(c, await acting(who), r.id)).toEqual({ ok: false, error: "Only the man it's about can say it's not right." });
+    expect(ok(await notRight(c, await acting(TROOPER), r.id))).toMatchObject({ state: "WITHDRAWN", decisionNote: "Not right, says the man" });
+    expect(cardText(await view(r.id))).toMatch(/↩️ Withdrawn: not right, says the man$/);
+    const told = `↩️ PTE IRFAN says this isn't right\n\nRSO ${on(0)} @ RAFFLES MEDICAL\nReported by PTE JOSHUA LAU (GC)\n\nIt's off his records now.`;
+    expect(c.sent).toEqual([{ redraw: { record: r.id } }, { send: { telegramId: GC }, text: told }, { send: { platoon: pl6 }, text: told }]);
+    expect(await notRight(c, await acting(TROOPER), r.id)).toEqual({ ok: false, error: "It's already off your records." });
+    const [a] = await db.select().from(wbAudit).where(eq(wbAudit.action, "not-right"));
+    expect(a).toMatchObject({ via: "MINIAPP", before: { state: "PENDING" }, after: { state: "WITHDRAWN" } });
+  });
+
+  it("Not right on an approved report sick cancels it with its outcome; on a recorded MA too; never on his own", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await withGc();
+    const rso = ok(await report(recordingCourier(), PS, irfan, sickFor())).records[0];
+    ok(await saveOutcome(recordingCourier(), await acting(TROOPER), outcome({ anchorId: rso.id, mc: mc() })));
+    const c = recordingCourier();
+    expect(ok(await notRight(c, await acting(TROOPER), rso.id))).toMatchObject({ state: "CANCELLED", decisionNote: "Not right, says the man" });
+    expect((await db.select().from(wbRecord).where(eq(wbRecord.parentId, rso.id))).map((x) => x.state)).toEqual(["CANCELLED"]);
+    expect(c.sent.filter((s) => "redraw" in s)).toHaveLength(2);
+    expect(cardText(await view(rso.id))).toMatch(/🚫 Not right, says the man$/);
+
+    const ma = ok(await report(recordingCourier(), GC, irfan, maFor({ date: day(2) }))).records[0];
+    expect(ok(await notRight(recordingCourier(), await acting(TROOPER), ma.id)).state).toBe("CANCELLED");
+
+    const mine = await own(recordingCourier(), TROOPER, sickFrom(sick({ date: day(3) })));
+    expect(await notRight(recordingCourier(), await acting(TROOPER), mine.id)).toEqual({ ok: false, error: "Only a report someone made for you can be marked Not right." });
+  });
+
+  it("no duplicates: his own report of a reported day points at it; a second reporter is refused", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await withGc();
+    const r = ok(await report(recordingCourier(), GC, irfan, sickFor())).records[0];
+    expect(await submit(recordingCourier(), await acting(TROOPER), [{ ...sickFrom(sick({ where: "RSI", clinic: "" })), personId: irfan, memberId: (await acting(TROOPER)).actor.id, createdVia: "SELF" }])).toEqual({
+      ok: false,
+      error: "PTE JOSHUA LAU already reported this. Open it from My records.",
+    });
+    expect(await report(recordingCourier(), PS, irfan, sickFor({ where: "RSI", clinic: "" }))).toEqual({ ok: false, error: "PTE JOSHUA LAU already reported this." });
+    expect((await reportedFor(irfan, new Date(`${day(0)}T00:00:00+08:00`))).map((x) => x.id)).toEqual([r.id]);
+    // his own report first: a commander's report of the same day is refused
+    const ma = await own(recordingCourier(), TROOPER, maFrom({ date: day(4), time: "0900", place: "NSC" }));
+    expect(await report(recordingCourier(), GC, irfan, maFor({ date: day(4) }))).toEqual({ ok: false, error: "PTE IRFAN already reported this." });
+    // once it's not right, it can be reported again
+    await notRight(recordingCourier(), await acting(TROOPER), r.id);
+    expect(ok(await report(recordingCourier(), PS, irfan, sickFor())).records).toHaveLength(1);
+    expect(ma.state).toBe("RECORDED");
+  });
+
+  it("an unregistered man: saved all the same, with nobody to DM", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await withGc();
+    const c = recordingCourier();
+    const r = ok(await report(c, GC, pl6People[2], sickFor())).records[0];
+    expect(r.ownerMemberId).toBeNull();
+    expect(c.sent[1]).toMatchObject({ send: { telegramId: null } });
   });
 });

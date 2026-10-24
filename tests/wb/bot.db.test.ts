@@ -502,3 +502,78 @@ describe("evening round (fake Telegram)", () => {
     expect(c[0].payload.text).toBe("Which leave?");
   });
 });
+
+// ------------------------------------------------------------------ report for your men (2026-10-24)
+
+describe("bot: report for your men (fake Telegram)", () => {
+  const TROOPER = 101;
+  const GC = 102;
+  let irfan: string;
+  let gc: { id: string };
+  let slr: string;
+
+  async function people(registered = true) {
+    [{ id: irfan }] = await db.select({ id: person.id }).from(person).where(eq(person.name, "IRFAN"));
+    const [joshua] = await db.select({ id: person.id }).from(person).where(eq(person.name, "JOSHUA LAU"));
+    [{ id: slr }] = await db.select({ id: camp.id }).from(camp).where(eq(camp.name, "SLR"));
+    if (registered) await member(TROOPER, [], irfan);
+    gc = await member(GC, [], joshua.id);
+    await db.insert(wbGrant).values({ memberId: gc.id, role: "GC", campId: slr });
+    await db.insert(wbCommanderChat).values({ subunitId: pl6, chatId: GROUP.id, threadId: 7, chatTitle: GROUP.title });
+  }
+  const out = () => courierOf({ api: bot.api, botUsername: "sabrecoybot" });
+  const gcActing = () => ({ actor: { id: gc.id, personId: null, grants: [{ role: "GC" as const, subunitId: null, campId: slr }], registered: true }, via: "MINIAPP" as const });
+  async function reportFor(kind: "RSO" | "MA", date = todaySgt()) {
+    calls = [];
+    const res = await submit(out(), gcActing(), [
+      { personId: irfan, memberId: null, kind, ...dateRange(date, date), endAt: dateRange(date, date).endAt!, absent: kind === "MA", detail: kind, location: "CLINIC", reason: kind === "RSO" ? "Fever" : "", maTiming: kind === "MA" ? "0930" : null, createdVia: "PROXY" },
+    ]);
+    if (!res.ok) throw new Error(res.error);
+    return res.value.records[0].id;
+  }
+
+  it("the card goes to the platoon's topic with Reported by; Not right from his DM withdraws it and tells the GC and the chat", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await people();
+    const id = await reportFor("RSO");
+    const card = calls.find((x) => x.payload.chat_id === GROUP.id)!;
+    expect(String(card.payload.text)).toMatch(/Reported by PTE JOSHUA LAU \(GC\)/);
+    const dm = calls.find((x) => x.payload.chat_id === TROOPER)!;
+    expect(dm.payload.reply_markup).toEqual({ inline_keyboard: [[{ text: "❌ Not right", callback_data: `n:${id}` }]] });
+
+    // someone else replaying the button
+    expect(answerOf(await send(tap(`n:${id}`, { from: GC, messageId: 9, chat: { id: GC, type: "private" } as never })))).toMatchObject({
+      text: "Only the man it's about can say it's not right.",
+      show_alert: true,
+    });
+    const c = await send(tap(`n:${id}`, { from: TROOPER, messageId: 9, chat: { id: TROOPER, type: "private" } as never }));
+    expect(answerOf(c)).toMatchObject({ text: "Taken off your records. Whoever reported it is told." });
+    expect((await db.select().from(wbRecord))[0]).toMatchObject({ state: "WITHDRAWN", decisionNote: "Not right, says the man" });
+    expect(String(c.find((x) => x.method === "editMessageText")!.payload.text)).toMatch(/↩️ Withdrawn: not right, says the man$/);
+    expect(c.find((x) => x.method === "sendMessage" && x.payload.chat_id === GC)!.payload.text).toMatch(/^↩️ PTE IRFAN says this isn't right/);
+    expect(c.find((x) => x.method === "sendMessage" && x.payload.chat_id === GROUP.id)!.payload).toMatchObject({ message_thread_id: 7 });
+    expect(c.find((x) => x.method === "editMessageReplyMarkup")!.payload).toMatchObject({ reply_markup: { inline_keyboard: [] } });
+  });
+
+  it("evening: a reported MA is chased with the man; an unregistered man's approved report sick nags the reporter, with no button", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await people();
+    const ma = await reportFor("MA", addDays(todaySgt(), -1));
+    const { eveningRound } = await import("@/lib/wb/evening");
+    calls = [];
+    expect(await eveningRound(out(), new Date(), { force: true })).toMatchObject({ chased: 1, nagged: 0 });
+    const chase = calls.find((x) => x.payload.chat_id === TROOPER && String(x.payload.text).startsWith("💊 What did the doctor give you?"))!;
+    expect(chase.payload.reply_markup).toEqual({ inline_keyboard: [[{ text: "💊 Update outcome", url: `https://t.me/sabrecoybot/app?startapp=records__${ma}__outcome` }]] });
+
+    // he isn't on Sabre: a report sick his PS approved a day ago
+    await db.delete(wbRecord);
+    await db.delete(wbMember).where(eq(wbMember.telegramUserId, TROOPER));
+    const rso = await reportFor("RSO");
+    await db.update(wbRecord).set({ state: "APPROVED", decidedAt: new Date(Date.now() - 25 * 3600 * 1000) }).where(eq(wbRecord.id, rso));
+    calls = [];
+    expect(await eveningRound(out(), new Date(), { force: true })).toMatchObject({ chased: 0, nagged: 1 });
+    const nag = calls.find((x) => x.payload.chat_id === GC)!;
+    expect(String(nag.payload.text)).toMatch(/^👤 PTE IRFAN isn't on Sabre yet\n\n[^]*\n\nYou reported this for him\. Get him to register in Sabre, so he can record what the doctor gave him\.$/);
+    expect(nag.payload.reply_markup).toBeUndefined();
+  });
+});

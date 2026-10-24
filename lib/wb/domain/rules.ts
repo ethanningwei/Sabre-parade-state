@@ -102,6 +102,40 @@ export const MAX_STATUSES = 4;
 /** Marks a record approved at submission because its owner needs no approval (domain/access.ts needsNoApproval). */
 export const NO_APPROVAL_NOTE = "No approval needed";
 
+// ------------------------------------------------------------------ report for your men (2026-10-24)
+
+/**
+ * What a commander may put on a man's timeline for him (createdVia PROXY):
+ * report sick, an MA, and an event. Never leave or off: those are his own
+ * requests, and leave spends his balance.
+ */
+export const PROXY_KINDS: readonly WbRecordKind[] = ["RSI", "RSO", "MA", "EVENT"];
+/** The reported kinds: a visit the man is told about and can say "Not right" to. */
+export const REPORTED_KINDS: readonly WbRecordKind[] = VISIT_KINDS;
+
+export function proxyRefusal(kind: WbRecordKind): string | null {
+  if (PROXY_KINDS.includes(kind)) return null;
+  return costsLeave(kind) || kind === "OFF" ? "Leave and off are his own to apply for." : "That's his to record.";
+}
+
+/** A reported report sick, saved approved because the reporter could approve it himself. */
+export const reportedApprovedNote = (reporter: string) => `Reported and approved by ${reporter}`;
+const REPORTED_APPROVED = /^Reported and approved by /;
+
+/** The man said a report made for him isn't right: withdrawn while pending, cancelled once it stood. */
+export const NOT_RIGHT_NOTE = "Not right, says the man";
+
+/** Report sick (RSI or RSO) is one visit whichever way he went; an MA is another. Duplicates are checked within a family. */
+export const visitFamily = (kind: WbRecordKind): readonly WbRecordKind[] => (kind === "MA" ? ["MA"] : kind === "RSI" || kind === "RSO" ? ["RSI", "RSO"] : [kind]);
+
+/** Why the man can't say "Not right" to this record, or null if he can. */
+export function notRightRefusal(r: { kind: WbRecordKind; state: WbRecordState; createdVia: string; personId: string }, personId: string | null): string | null {
+  if (!personId || r.personId !== personId) return "Only the man it's about can say it's not right.";
+  if (r.createdVia !== "PROXY" || !REPORTED_KINDS.includes(r.kind)) return "Only a report someone made for you can be marked Not right.";
+  if (r.state === "PENDING" || STANDING_STATES.includes(r.state)) return null;
+  return "It's already off your records.";
+}
+
 // ------------------------------------------------------------------ what
 
 export type RecordAction = "approve" | "reject" | "withdraw" | "void" | "undo";
@@ -130,13 +164,21 @@ export interface Decided {
   decisionNote?: string | null;
 }
 
-/** Saved approved because its owner needs no approval (OC/2IC/CSM). */
-export const approvedOnSave = (r: { state: WbRecordState; decisionNote?: string | null }) => r.state === "APPROVED" && r.decisionNote === NO_APPROVAL_NOTE;
+/**
+ * Saved approved: its owner needs no approval (OC/2IC/CSM), or whoever
+ * reported it for him could approve it himself (2026-10-24). Its note is the
+ * card's decision line, and there's no Undo, only Void.
+ */
+export const approvedOnSave = (r: { state: WbRecordState; decisionNote?: string | null }) =>
+  r.state === "APPROVED" && (r.decisionNote === NO_APPROVAL_NOTE || REPORTED_APPROVED.test(r.decisionNote ?? ""));
 
 /** Why this member can't undo this decision now, or null if they can. Checked lazily on tap: no cron. */
 export function undoRefusal(r: Decided, memberId: string, deciderLabel: string, now: Date = new Date()): string | null {
   if (r.state === "PENDING") return "That's already waiting on a decision.";
-  if (approvedOnSave(r)) return "It never needed approval, so there's nothing to take back. Void it instead.";
+  if (approvedOnSave(r))
+    return r.decisionNote === NO_APPROVAL_NOTE
+      ? "It never needed approval, so there's nothing to take back. Void it instead."
+      : "It was approved as it was reported, so there's nothing to take back. Void it instead.";
   if (!nextState(r.state, "undo")) return "That can't be taken back.";
   if (r.decidedBy !== memberId) return `Only ${deciderLabel} can take that back.`;
   if (!r.decidedAt || now.getTime() - r.decidedAt.getTime() > UNDO_WINDOW_MS) return "Too late to undo. Tell them yourself instead.";
