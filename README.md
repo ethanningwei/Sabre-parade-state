@@ -63,6 +63,13 @@ The import updates people **in place**: each Sheet row is matched to the person 
    - It makes the roster match the Sheet. Anyone added in the app (Sabre's Roster, or Admin › People) who isn't in the Sheet goes inactive, and renames or moves made in the app are undone. While you still import, put roster changes in the Sheet too, and check the dry run for them.
 6. Parallel run only: `npm run import -- --with-absences --yes` also replaces every absence, duty, on-shift and the Telegram chat with the Sheet's, then renders the parade state from the database at the bot's CAA and compares it with the bot's output. `✅ PARITY` means the app prints exactly what the bot printed. It overwrites what GCs typed in the app.
 
+**Which database:** the import writes to `DATABASE_URL` from `.env.local`, which is your **local** database (its first line names the host). The whereabouts preview and production are separate databases.
+
+**Into the whereabouts preview:** `.env.local` holds its unpooled URL as `WB_PREVIEW_DATABASE_URL`:
+```bash
+DATABASE_URL="$(grep '^WB_PREVIEW_DATABASE_URL=' .env.local | cut -d= -f2- | tr -d '"')" npm run import -- --dry-run
+```
+
 **Into production:** `.env.production.local` (gitignored) holds the production `DATABASE_URL_UNPOOLED`.
 ```bash
 DATABASE_URL="$(grep '^DATABASE_URL_UNPOOLED=' .env.production.local | cut -d= -f2- | tr -d '"')" npm run import -- --dry-run
