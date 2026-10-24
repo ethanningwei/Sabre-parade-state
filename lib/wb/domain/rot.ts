@@ -7,6 +7,7 @@
 // are unique in a coy; everything that prints it shows "SECTION 1".
 
 import type { CoySnapshot, SnapshotCamp, SnapshotPerson } from "@/lib/parade/types";
+import { roleOf } from "./roles";
 
 /** A company's phase (wb_phase). No row = Vigilance. */
 export const PHASES = ["VIGILANCE", "ROT"] as const;
@@ -22,6 +23,12 @@ export function sectionLabel(campName: string, subunitName: string): string {
   const prefix = `${subunitName} `;
   return campName.startsWith(prefix) && campName.length > prefix.length ? campName.slice(prefix.length) : campName;
 }
+
+/** Service troopers leave at the changeover (phases-plan §1): ROT is combat troopers only. */
+export const isSvc = (role: string) => roleOf(role) === "ST SVC";
+
+/** A section's roles on the roster in ROT (mockup 10): its SC and its combat troopers. */
+export const ROLES_SECTION = ["SC", "CBT"] as const;
 
 /** A name for a platoon or section as typed: trimmed, single-spaced, upper case. */
 export function cleanName(raw: string): string {
