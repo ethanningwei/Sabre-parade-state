@@ -18,6 +18,7 @@ const selectClass = inputClass;
 /** The scope a role usually takes, picked first so the common case is one tap. */
 const DEFAULT_SCOPE: Record<WbRole, "company" | "subunit" | "camp"> = {
   GC: "camp",
+  SC: "camp",
   PS: "subunit",
   PC: "subunit",
   "2IC": "company",
@@ -93,7 +94,7 @@ export function GrantsEditor({
           <Label>Where</Label>
           <select className={selectClass} value={scope} onChange={(e) => setScope(e.target.value)}>
             <option value="">Pick a scope</option>
-            {/* a GC's grant is for his camp only (domain/access.ts) */}
+            {/* a GC's or SC's grant is for his camp only (domain/access.ts) */}
             {!(role && onlyCampScope(role)) && (
               <>
                 <option value="company">Whole company</option>

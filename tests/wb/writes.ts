@@ -9,7 +9,7 @@ import type { Acting } from "@/lib/wb/write";
 // Acting a Write takes for one of them. A Write is called directly with the
 // recording Courier (recording-courier.ts): no session cookie, no Telegram.
 
-export type Role = "PS" | "PC" | "GC" | "OC" | "2IC" | "CSM" | "ASA" | "ADMIN";
+export type Role = "PS" | "PC" | "GC" | "SC" | "OC" | "2IC" | "CSM" | "ASA" | "ADMIN";
 export type GrantSpec = { role: Role; subunitId?: string; campId?: string };
 
 /** A registered member, on the roster as `personId` (or not), with these grants. */

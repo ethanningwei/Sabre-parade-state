@@ -56,8 +56,9 @@ const W = {
 type Who = keyof typeof W;
 
 describe("a GC's grant counts only with a camp (the user, 2026-10-21)", () => {
-  it("only GC is camp-only", () => {
+  it("only GC and SC are camp-only", () => {
     expect(onlyCampScope("GC")).toBe(true);
+    expect(onlyCampScope("SC")).toBe(true);
     expect(["PS", "PC", "OC", "2IC", "CSM", "ASA", "ADMIN"].some((r) => onlyCampScope(r as GrantRow["role"]))).toBe(false);
   });
 
@@ -426,5 +427,38 @@ describe("rfAccess and assignmentAccess", () => {
     expect(assignmentAccess(as(W["PS · PLATOON 5"]), { man: BDK, request: null }).standDown).toBe(true);
     // the raiser, whatever he holds now
     expect(assignmentAccess(as([], null, "m-raiser"), { man: BDK, request: request() }).standDown).toBe(true);
+  });
+});
+
+// ROT (phases-plan §2): an SC mirrors a GC, at section level. PLATOON 1's
+// SECTION 1 and 2 are camps; the SC holds SECTION 1.
+describe("an SC mirrors a GC (ROT)", () => {
+  const PL1 = "pl1";
+  const S1 = { subunitId: PL1, campId: "s1" };
+  const S2 = { subunitId: PL1, campId: "s2" };
+  const sc = as([g("SC", { campId: "s1" })]);
+
+  it("sees Manpower, Add for several men, Roster and Parade state; not Inbox, HOTO, RF or Shifts", () => {
+    const s = screens(sc);
+    expect(Object.keys(s).filter((k) => s[k as Screen]).sort()).toEqual(["add", "manpower", "parade", "roster"]);
+  });
+
+  it("reaches his own section only", () => {
+    expect(reach(sc, "roster")).toEqual({ subunitIds: [], campIds: ["s1"] });
+    expect(reach(sc, "parade")).toEqual({ subunitIds: [], campIds: ["s1"] });
+    expect(manAccess(sc, S1)).toMatchObject({ commands: false, sends: false, proxies: true, removes: false, history: false, confirmsBack: true });
+    expect(manAccess(sc, S2)).toMatchObject({ proxies: false, confirmsBack: false });
+    expect(campAccess(sc, S1)).toEqual({ asks: false, forecast: true });
+    expect(campAccess(sc, S2).forecast).toBe(false);
+  });
+
+  it("approves nothing and never sees a man's records", () => {
+    const r = { personId: "t", ownerRoles: [], ...S1, state: "PENDING" as const, decidedBy: null, decidedAt: null, decisionNote: null };
+    expect(recordAccess(sc, r)).toMatchObject({ view: false, decide: false, void: false, seeMedical: false });
+  });
+
+  it("without a section it counts for nothing", () => {
+    expect(Object.values(screens(as([g("SC")]))).some(Boolean)).toBe(false);
+    expect(Object.values(screens(as([g("SC", { subunitId: PL1 })]))).some(Boolean)).toBe(false);
   });
 });

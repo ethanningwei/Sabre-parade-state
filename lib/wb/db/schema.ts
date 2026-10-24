@@ -15,10 +15,11 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { absence, camp, duty, person, subunit } from "../../db/schema";
+import { absence, camp, coy, duty, person, subunit } from "../../db/schema";
 import { WB_ROLES, type WbRole } from "../domain/roles";
 import { RF_ROLES, WB_ASSIGNMENT_STATES, WB_ASSIGNMENT_TYPES, WB_RF_STATES } from "../domain/rf";
 import { VEHICLE_TYPES, WB_CLAIM_STATES } from "../domain/claims";
+import { PHASES, type ChangeoverLog } from "../domain/rot";
 import { WB_PROJECTION_CLOSES, WB_PROJECTION_KINDS } from "../domain/projection-kinds";
 import { WB_SHIFT_KINDS, type WbShiftKind } from "../domain/shifts";
 import { WB_ONENS, WB_RECORD_KINDS, WB_RECORD_STATES, WB_SEEN_BY, type WbRecordKind, type WbRecordState } from "../domain/rules";
@@ -532,4 +533,122 @@ export const wbClaim = pgTable(
     index("wb_claim_state_idx").on(t.state, t.tripDate),
     index("wb_claim_batch_idx").on(t.batchId),
   ],
+);
+
+// ---------------------------------------------------------------- ROT (0012)
+
+export const wbPhaseKind = pgEnum("wb_phase_kind", PHASES);
+
+/**
+ * Every Switch to ROT, and its Switch back (`undone_at`). `log` is what the
+ * switch did, so Switch back can restore it: the v1 rows it created (deleted
+ * again), the camps it hid, each man's camp and role before, the grants it
+ * replaced, the Extra/RF/SOL it ended, and the SVC troopers it removed.
+ */
+export const wbChangeover = pgTable(
+  "wb_changeover",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    coyId: uuid("coy_id")
+      .notNull()
+      .references(() => coy.id, { onDelete: "cascade" }),
+    to: wbPhaseKind("to").notNull(),
+    switchedAt: tstz("switched_at").defaultNow().notNull(),
+    switchedBy: uuid("switched_by").references(() => wbMember.id, { onDelete: "set null" }),
+    undoneAt: tstz("undone_at"),
+    undoneBy: uuid("undone_by").references(() => wbMember.id, { onDelete: "set null" }),
+    log: jsonb("log").$type<ChangeoverLog>().notNull(),
+  },
+  (t) => [index("wb_changeover_coy_idx").on(t.coyId, t.switchedAt)],
+);
+
+/** A company's phase. No row = Ops Vigilance. `changeover_id`: the switch that put it there. */
+export const wbPhase = pgTable("wb_phase", {
+  coyId: uuid("coy_id")
+    .primaryKey()
+    .references(() => coy.id, { onDelete: "cascade" }),
+  phase: wbPhaseKind("phase").default("VIGILANCE").notNull(),
+  changeoverId: uuid("changeover_id").references(() => wbChangeover.id, { onDelete: "set null" }),
+  updatedAt: tstz("updated_at").defaultNow().notNull(),
+  updatedBy: uuid("updated_by").references(() => wbMember.id, { onDelete: "set null" }),
+});
+
+/**
+ * The ROT structure, drafted before the switch: platoons in parade-state
+ * order. `subunit_id` is the v1 platoon the switch made it (null in a draft).
+ * A commanders chat linked to it is kept here across a Switch back, so the
+ * next switch links it again.
+ */
+export const wbDraftPlatoon = pgTable(
+  "wb_draft_platoon",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    coyId: uuid("coy_id")
+      .notNull()
+      .references(() => coy.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+    subunitId: uuid("subunit_id").references(() => subunit.id, { onDelete: "set null" }),
+    chatId: tgId("chat_id"),
+    threadId: tgId("thread_id"),
+    chatTitle: text("chat_title"),
+    createdAt: tstz("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("wb_draft_platoon_name_uq").on(t.coyId, t.name)],
+);
+
+/** A section of a drafted platoon. `camp_id` is the v1 camp the switch made it. */
+export const wbDraftSection = pgTable(
+  "wb_draft_section",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    platoonId: uuid("platoon_id")
+      .notNull()
+      .references(() => wbDraftPlatoon.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+    campId: uuid("camp_id").references(() => camp.id, { onDelete: "set null" }),
+    createdAt: tstz("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("wb_draft_section_name_uq").on(t.platoonId, t.name)],
+);
+
+/** A drafted grant: a section's SC, or a platoon's PC or PS. The switch gives it to his account. */
+export const wbDraftGrant = pgTable(
+  "wb_draft_grant",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    role: wbRole("role").notNull(),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => person.id, { onDelete: "cascade" }),
+    platoonId: uuid("platoon_id").references(() => wbDraftPlatoon.id, { onDelete: "cascade" }),
+    sectionId: uuid("section_id").references(() => wbDraftSection.id, { onDelete: "cascade" }),
+    createdAt: tstz("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    check("wb_draft_grant_one_scope", sql`(${t.platoonId} is null) <> (${t.sectionId} is null)`),
+    uniqueIndex("wb_draft_grant_uq").on(
+      t.role,
+      t.personId,
+      sql`coalesce(${t.platoonId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+      sql`coalesce(${t.sectionId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+    ),
+  ],
+);
+
+/** Which drafted section a man goes to. One each. */
+export const wbDraftPlacement = pgTable(
+  "wb_draft_placement",
+  {
+    personId: uuid("person_id")
+      .primaryKey()
+      .references(() => person.id, { onDelete: "cascade" }),
+    sectionId: uuid("section_id")
+      .notNull()
+      .references(() => wbDraftSection.id, { onDelete: "cascade" }),
+    placedBy: uuid("placed_by").references(() => wbMember.id, { onDelete: "set null" }),
+    placedAt: tstz("placed_at").defaultNow().notNull(),
+  },
+  (t) => [index("wb_draft_placement_section_idx").on(t.sectionId)],
 );

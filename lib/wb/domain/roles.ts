@@ -1,12 +1,13 @@
 // Vocabularies ported from Sabre Bot's config.py. Pure: no I/O.
 
 /** Whereabouts grant roles (wb_grant.role). Kept here so client code needn't import the schema. */
-export const WB_ROLES = ["GC", "PS", "PC", "2IC", "OC", "CSM", "ASA", "ADMIN"] as const;
+export const WB_ROLES = ["GC", "SC", "PS", "PC", "2IC", "OC", "CSM", "ASA", "ADMIN"] as const;
 export type WbRole = (typeof WB_ROLES)[number];
 
 /** Grants an admin can hand out, and the scope each one usually takes. */
 export const ROLE_LABELS: Record<WbRole, string> = {
   GC: "Guard comm (a camp)",
+  SC: "Section commander (a section, ROT)",
   PS: "Platoon sergeant",
   PC: "Platoon commander",
   "2IC": "2IC (company)",

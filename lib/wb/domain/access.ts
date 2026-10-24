@@ -31,8 +31,15 @@ const ADMIN: readonly WbRole[] = ["ADMIN"];
 const PLATOON_DECIDERS: readonly WbRole[] = ["PC", "PS"];
 /** Decide anyone's: company HQ. */
 const COMPANY_DECIDERS: readonly WbRole[] = ["OC", "2IC", "CSM"];
-/** Add an event for several men: commanders, plus a camp's own GC. */
-const PROXIES: readonly WbRole[] = ["PC", "PS", "GC"];
+/**
+ * A camp's own commander: its GC in Vigilance, a section's SC in ROT. An SC
+ * mirrors a GC (phases-plan §2): his own section's records, Manpower and the
+ * Roster, Add for several men; he approves nothing. Not RF or HOTO: ROT has
+ * neither.
+ */
+const CAMP_COMMANDERS: readonly WbRole[] = ["GC", "SC"];
+/** Add an event for several men: commanders, plus a camp's own GC or SC. */
+const PROXIES: readonly WbRole[] = ["PC", "PS", ...CAMP_COMMANDERS];
 /**
  * Raise, deploy and assign: Sabre Bot's GC and every HQ role, each within
  * their grant (decided 2026-10-13); ADMIN alone can't. Asking for manpower and
@@ -40,18 +47,18 @@ const PROXIES: readonly WbRole[] = ["PC", "PS", "GC"];
  */
 const RF_ROLES: readonly WbRole[] = ["GC", "PC", "PS", "OC", "2IC", "CSM", "ASA"];
 /** Roster: adding, editing and moving men, and the accounts waiting to be added. */
-const ROSTER_ROLES: readonly WbRole[] = ["GC", "PS", "PC", "OC", "2IC", "CSM", "ASA", "ADMIN"];
+const ROSTER_ROLES: readonly WbRole[] = [...CAMP_COMMANDERS, "PS", "PC", "OC", "2IC", "CSM", "ASA", "ADMIN"];
 const PLATOON_REMOVERS: readonly WbRole[] = ["PC", "PS"];
 const COMPANY_REMOVERS: readonly WbRole[] = ["OC", "2IC", "CSM", "ADMIN"];
 /** "Back?" on a projected absence or duty (2026-10-14). */
-const BACK_ROLES: readonly WbRole[] = ["GC", "PC", "PS", "OC", "2IC", "CSM"];
+const BACK_ROLES: readonly WbRole[] = [...CAMP_COMMANDERS, "PC", "PS", "OC", "2IC", "CSM"];
 /** "Parade state": signs them in to the v1 web app by name. Troopers and ASAs don't get it. */
-const PARADE_ROLES: readonly WbRole[] = ["GC", "PS", "PC", "OC", "2IC", "CSM", "ADMIN"];
+const PARADE_ROLES: readonly WbRole[] = [...CAMP_COMMANDERS, "PS", "PC", "OC", "2IC", "CSM", "ADMIN"];
 
 // ------------------------------------------------------------------ reach
 
-/** A GC's grant only ever reaches his camp: given without one, it counts for nothing (the user, 2026-10-21). */
-export const onlyCampScope = (role: WbRole) => role === "GC";
+/** A GC's (or SC's) grant only ever reaches his camp: given without one, it counts for nothing (the user, 2026-10-21). */
+export const onlyCampScope = (role: WbRole) => CAMP_COMMANDERS.includes(role);
 
 /**
  * How far some grants carry: the whole company, or the platoons and camps
@@ -132,8 +139,8 @@ export function screens(viewer: { grants: readonly GrantRow[] }): Screens {
   return {
     inbox: decides,
     people: decides,
-    // a GC sees Manpower for his own camp (2026-10-16)
-    manpower: decides || holds(g, ["GC"]),
+    // a GC (an SC in ROT) sees Manpower for his own camp (2026-10-16)
+    manpower: decides || holds(g, CAMP_COMMANDERS),
     hoto: holds(g, ["GC", ...PLATOON_DECIDERS]) || companyWide(g, COMPANY_DECIDERS),
     rf: holds(g, RF_ROLES),
     add: holds(g, PROXIES) || companyWide(g, COMPANY_DECIDERS),
@@ -307,14 +314,14 @@ export function manAccess(viewer: { personId?: string | null; grants: readonly G
 
 /**
  * A camp (one team). `asks`: raise or close an RF request for it. `forecast`:
- * Manpower for it, for whoever commands there or that very camp's GC (the
- * user, 2026-10-16).
+ * Manpower for it, for whoever commands there or that very camp's GC or SC
+ * (the user, 2026-10-16).
  */
 export function campAccess(viewer: { grants: readonly GrantRow[] }, camp: Where): { asks: boolean; forecast: boolean } {
   const g = viewer.grants;
   return {
     asks: at(g, RF_ROLES, camp),
-    forecast: commandsAt(g, camp) || at(g, ["GC"], camp),
+    forecast: commandsAt(g, camp) || at(g, CAMP_COMMANDERS, camp),
   };
 }
 
