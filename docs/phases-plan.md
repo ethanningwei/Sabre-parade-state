@@ -1,6 +1,6 @@
 # After Ops Vigilance: ROT and Ops Bacinet
 
-Planning only: nothing here is built yet. These notes come from the user's brainstorming between 2026-10-21 and 2026-10-24, with the decisions they've made so far. Read [whereabouts-status.md](whereabouts-status.md) first: everything here builds on whereabouts and its rules. Those rules are feature flags, additive-only tables, parity on the Vigilance parade state, and v1 edits only with approval.
+Planning notes. **ROT (§2–§5) is built on branch `rot-changeover`** (2026-10-24, not merged or pushed; see [whereabouts-status.md](whereabouts-status.md) §3d); Bacinet isn't. These notes come from the user's brainstorming between 2026-10-21 and 2026-10-24, with the decisions they've made so far. Read [whereabouts-status.md](whereabouts-status.md) first: everything here builds on whereabouts and its rules. Those rules are feature flags, additive-only tables, parity on the Vigilance parade state, and v1 edits only with approval.
 
 **Mockups:** [ROT & Bacinet screens](https://claude.ai/artifact/7jUYBZNf4Z744Abvf4SrRK) has 15 phone screens: the changeover, ROT and Bacinet. It's a private canvas (ask the user if you can't open it). Names on it are placeholders, and anything in [brackets] is unknown.
 
