@@ -60,6 +60,7 @@
 | — | The hop between v1 and the Mini App (not a phase), the user's go-ahead of 2026-10-17 | 🧪 Built 2026-10-17, not pushed. Step 1 of three agreed with the user (the flow review of 2026-10-17: step 2 is one owner per fact, decided with projection going on; step 3, after Phase 8, the parade state inside the Mini App). **Inside Telegram, v1 takes Telegram's colours** and the **"Back to Sabre" strip is gone**: Telegram's Back leaves for the Mini App from a v1 tab screen and goes back one screen from anything deeper (so Manpower → a camp → Back is Manpower again); the strip stays only without Telegram's launch data. **Links both ways:** Needs you's "Parade state blocked · n issues to fix" (v1's issues in your scope) → v1's Parade; today's camp cards on Manpower → **Open on the parade state** (v1's camp screen); v1's camp screen → **Manpower in Sabre**; v1's person sheet → **Records in Sabre** (Person history). No migration. Phone check in §3a |
 | — | Roster in the Mini App (not a phase), the user's request of 2026-10-19 | 🧪 Built 2026-10-19, not pushed. **Gaps became Roster** (Home tile, `/tg/roster`; `/tg/gaps` redirects): waiting accounts (Add / Link) on top, then **+ Add person** (a man who hasn't registered), a search, a "Not registered" filter and every man by camp; tap one to **edit** rank, name, role or **move** him (History and Remove from roster link to Person history). **GCs edit their own camp**; PS/PC their platoon; OC/2IC/CSM/ASA/ADMIN the company. v1's Admin › People unchanged, through the same `savePersonCore`. No migration, no v1 edit. Phone check in §3a |
 | — | Refactor (not a phase): **the Write**, one module for every whereabouts write (architecture review candidate 01, agreed with the user 2026-10-21) | 🧪 Built 2026-10-21 on `claude/wb-write-module-792106`, not pushed. `lib/wb/write.ts` replaces `inTx`. Behaviour changes, all agreed: `submit`, ORD, `confirmBack`, the admin writes and v1's Remove now go through it, so a submit (RECORDED MA/EVENT, OC/2IC/CSM's leave saved approved) and v1's Remove reach the parade state at once; a refused write tells nobody (`deploy`/`closeRf` no longer redraw on refusal); every write refuses an unregistered member (the Mini App's decide, undo, withdraw, void, Say why, shifts and ONENS didn't); writes that never touch the parade state (claims, ONENS, Say why, withdraw, RF raise/close, roster add/link, admin, register) no longer sync |
+| — | Report for your men (not a phase), the user's go-ahead of 2026-10-24 | 📋 Planned. Spec in §3c. A GC (an SC in ROT) or PS/PC can **report sick (RSI/RSO) or an MA for one of their men** who forgot or can't; never leave or off. The record says who reported it, the man is told and can say "Not right" |
 | 8 | GC Camp check | ⏳ Next. Spec in §3b |
 
 **Prerequisites from the user** (tick off as they arrive):
@@ -407,6 +408,33 @@
 
 **To settle when building:** the table (`wb_camp_check` + differences), where the note goes (the platoon's commanders chat, or the PS's DM), whether "expected" uses `snapshotFor` at the CAA instant (likely: it's the forecast's own snapshot), and how a GC picks the CAA (default: the current hour, like v1).
 
+### 3c. Planned: Report for your men (the user, 2026-10-24)
+**Why:** a man who goes to the MO or an MA often doesn't report it himself (phone handed in, forgot, or not registered yet), so the parade state counts him present. Today only the man can report sick or an MA (`reportSick`/`reportMa` go through `submitOwn` in `lib/wb/actions/records.ts`). A GC can only add courses and similar for several men (`addEventFor`). The GC sees it happen and already types it into v1 by hand. This puts it in the man's records instead, with the same approval.
+
+**Decided with the user:**
+
+| Record | GC / SC / PS / PC for his men? |
+|---|---|
+| Report sick (RSI/RSO) | **Yes.** Waits for his PC/PS like the man's own; never auto-approved |
+| MA | **Yes.** Recorded, as now |
+| Course / detail / IPPT | Already allowed (Add for several men) |
+| AL / OL / OFF | **No.** The man's own request, and it spends his leave balance |
+
+**How it works:**
+- **Where:** the man's Person history, and a "For one of my men" choice on Apply or report › Report sick / MA. The form is the same as his own, with a man picker first; the picker is `peopleInScope(grants, "proxy")`, so a GC sees his camp (his section in ROT).
+- **Who:** `access.ts` `proxies` (PC, PS, GC, plus OC/2IC/CSM company-wide), the same reach as Add for several men. An ASA or admin alone can't. **SC gets GC's rights in ROT.**
+- **Writes:** `submit` with `createdVia: "PROXY"`, `createdBy` = the reporter, `memberId: null` (as `addEventFor` already does). No migration: `PROXY` and `created_by` exist.
+- **Backdating:** the start can be no earlier than **yesterday**, so this is for "he forgot today", not for rewriting last week.
+- **Shown:** the card and the record say **"Reported by CPL X (GC)"**.
+- **The man is told:** a DM through the Courier: "CPL X reported you sick (RSO) on 03/11. Not right? [Not right]". Unregistered men get nothing (no account).
+- **"Not right":** a new decide step, allowed only for the man himself and only on a `PROXY` record. A PENDING one goes to WITHDRAWN; a RECORDED MA is voided with "Not right, says the man". The card is redrawn, and the reporter and his PC/PS get a note.
+- **No duplicates:** when the man reports the same kind for an overlapping day, the form says "CPL X already reported this" and opens that record (to add the outcome or MC) instead of making a second one. The clash check (`clashFor`) already finds it.
+- **Outcome chase:** an RSI/RSO or MA reported for him is chased for the outcome like his own. The DM goes to the man; if he isn't registered, to the reporter.
+
+**Ties in with Phase 8 (Camp check):** a "missing" man can offer **Report sick / MA for him** next to today's flag-only option.
+
+**Tests:** scope (GC his camp only, a sibling camp refused, a PS his platoon, an ASA refused); leave/off/AL refused for anyone but the man; the backdating limit; PENDING to the right PC/PS; "Reported by" on the card text; the DM word for word; "Not right" on PENDING and on RECORDED, only by the man and only on PROXY; the duplicate path when the man reports later; an unregistered man (no DM, outcome chase goes to the reporter).
+
 ## 4. Telegram layout (decided 2026-10-12)
 | Where | Who | What the bot does there |
 |---|---|---|
@@ -520,6 +548,7 @@
 | 2026-10-19 | Roster details (Claude): an edit sends back v1's own rank and role untouched unless changed, so free-text roles from the old roster ("GUARD COMM") aren't rewritten by a rename and the next Sheet import doesn't flag them; a GC grant counts only with a camp; Remove from roster stays on Person history (its counted sheet), linked from the edit sheet; the Sheet import is unchanged and documented as a caveat (the user still re-imports until rollout) |
 | 2026-10-21 | **Who may, in one module** (the user, architecture review candidate 02): `lib/wb/domain/access.ts` answers "may this member do X to this record / RF request / post / man" and "does he see screen Y" with one access object per target, which pages, the bot and the cores all ask. **Say why is one reason, never overwritten** (core and bot refuse "You've already said why."). **A GC grant without a camp counts for nothing**, everywhere (before: Roster and Manpower ignored it, but RF, Add for several men, HOTO, Back? and Parade state read it as company- or platoon-wide); Admin › Grants offers only camp scope for GC. Otherwise no behaviour change |
 | 2026-10-21 | **The Write** (architecture review, the user's answers): one runner, `write(courier, by, { parade, change, tell })`, under every whereabouts write, with the named writes (`decide`, `deploy`, …) on top; `By` is a member acting through BOT/MINIAPP or the system (SYSTEM, or WEB with the v1 name) and fills every audit row; `parade` is required on each write; `tell` (the Courier) runs only after a commit, so a refusal tells nobody, and `decide`'s lost race is a commit that changed nothing (its card is still redrawn); one result shape `{ ok, value } \| { ok, error }`; `Refusal` extends v1's `UserError` and the runner maps both; who-may is checked inside the transaction; the runner refuses an unregistered member (registration excepted); after the commit, the sync, then the Courier; v1's Remove joins v1's transaction (`joinWrite`) rather than handing the removal over (that's candidate 03, left). No seam for the sync: tests switch projection on and look at v1 |
+| 2026-10-24 | **Report for your men** (the user, after pros and cons): a GC (SC in ROT), PC or PS may report sick (RSI/RSO) or an MA for a man in his reach; never AL/OL/OFF. It's marked as reported by him, the man is DMed and can say "Not right", and it can be backdated by one day at most. Spec in §3c |
 | 2026-10-15 | The Sheets client is plain `fetch` with a service-account JWT (no `googleapis` dependency), reusing Sabre Bot's service account, already an editor on the OC's sheet |
 
 ---
