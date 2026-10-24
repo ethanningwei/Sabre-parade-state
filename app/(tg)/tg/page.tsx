@@ -20,12 +20,15 @@ import { place } from "@/lib/wb/format";
 import { rosterSelf } from "@/lib/wb/me";
 import { profileOf } from "@/lib/wb/members";
 import { paradeIssueCount } from "@/lib/wb/parade-link";
+import { currentPhase } from "@/lib/wb/phase";
 import { nowAndNext, onensOwedFor, pendingFor, type RecordView } from "@/lib/wb/records";
 import { assignmentsOf, openRequests } from "@/lib/wb/rf-data";
 
 // Home: who you are, what needs you (only what you should act on soon, v1's
 // blocking parade-state issues included; see lib/wb/domain/needs-you.ts),
 // where you are now and what's next, and the screens you can reach. Settings (Shifts, Admin, My details) sit behind the gear.
+// In ROT (mockup 9) there are no shifts, minimums, HOTO or RF: those tiles and
+// Needs you's "short" line are hidden.
 export default async function TgHome() {
   await requireFeaturePage();
   const member = await getMember();
@@ -33,7 +36,10 @@ export default async function TgHome() {
   if (!member.registeredAt) redirect("/tg/register");
   if (isWaiting(member)) redirect("/tg/waiting");
   const sees = screens(member);
-  const { inbox: decides, hoto, manpower, rf, roster, parade } = sees;
+  const rot = (await currentPhase()).phase === "ROT";
+  const { inbox: decides, manpower, roster, parade } = sees;
+  const hoto = sees.hoto && !rot;
+  const rf = sees.rf && !rot;
   const now = new Date();
   const today = todaySgt(now);
   const [[me, self], pending, owed, openRf, short, waiting, paradeIssues] = await Promise.all([
@@ -41,7 +47,7 @@ export default async function TgHome() {
     decides ? pendingFor(member) : Promise.resolve([] as RecordView[]),
     decides ? onensOwedFor(member.grants) : Promise.resolve([] as RecordView[]),
     rf ? openRequests(now) : Promise.resolve([]),
-    manpower ? shortSoon(member.grants, today, now) : Promise.resolve([] as GridRow[]),
+    manpower && !rot ? shortSoon(member.grants, today, now) : Promise.resolve([] as GridRow[]),
     roster ? waitingCount(member.grants) : Promise.resolve(0),
     // never breaks Home: no line rather than an error
     parade ? paradeIssueCount(member.grants).catch(() => 0) : Promise.resolve(0),
@@ -113,7 +119,14 @@ export default async function TgHome() {
         {commands && (
           <Group title="Commander" rows>
             {parade && <ParadeStateTile />}
-            {manpower && <Tile href="/tg/manpower" icon={<CalendarRange />} title="Manpower" hint="Who's on shift and who's away, today and the next 14 days" />}
+            {manpower && (
+              <Tile
+                href="/tg/manpower"
+                icon={<CalendarRange />}
+                title="Manpower"
+                hint={rot ? "Who's in and who's away by section, the next 14 days" : "Who's on shift and who's away, today and the next 14 days"}
+              />
+            )}
             {decides && <Tile href="/tg/inbox" icon={<Inbox />} title="Inbox" badge={pending.length + owed.length} hint={inboxHint(pending, owed.length, now)} />}
             {hoto && <Tile href="/tg/hoto" icon={<ArrowLeftRight />} title="HOTO" hint="Log a handover" />}
             {rf && <Tile href="/tg/rf" icon={<Bus />} title="RF and duties" badge={openRf.length} hint={rfHint(openRf.map((r) => r.campName))} />}
@@ -125,11 +138,12 @@ export default async function TgHome() {
                 icon={<Contact />}
                 title="Roster"
                 badge={waiting}
-                hint={waiting ? `${waiting} waiting to be added to the roster` : "Add, edit or move men on the parade state"}
+                hint={waiting ? `${waiting} waiting to be added to the roster` : rot ? "Add, edit or move men between sections" : "Add, edit or move men on the parade state"}
               />
             )}
           </Group>
         )}
+        {commands && rot && (sees.hoto || sees.rf) && <p className="-mt-3 px-1 text-xs text-muted-foreground">Shifts, HOTO, RF and duties are hidden in ROT.</p>}
       </nav>
     </div>
   );

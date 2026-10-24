@@ -3,6 +3,7 @@ import { isEnabled } from "@/lib/flags";
 import { renderParadeState, type CoySnapshot, type SgtParts } from "@/lib/parade";
 import { renderRotParadeState } from "@/lib/parade/render-rot";
 import { rotSnapshot, type Phase } from "@/lib/wb/domain/rot";
+import { sectionCommanders } from "@/lib/wb/admin-data";
 import { phaseState } from "@/lib/wb/phase";
 
 // v1's parade state by phase (the approved v1 edit, 2026-10-24): in ROT the
@@ -14,6 +15,8 @@ export interface ParadeView {
   phase: Phase;
   snapshot: CoySnapshot;
   render(caa: SgtParts): string;
+  /** ROT: each section's SC by camp id (empty in Vigilance) */
+  scOf: ReadonlyMap<string, string>;
 }
 
 export async function paradeView(coyId: string, snapshot: CoySnapshot): Promise<ParadeView> {
@@ -21,9 +24,9 @@ export async function paradeView(coyId: string, snapshot: CoySnapshot): Promise<
   const s = await phaseState(coyId);
   if (s.phase !== "ROT") return vigilance(snapshot);
   const rot = rotSnapshot(snapshot, s.changeover?.log.hiddenCamps ?? []);
-  return { phase: "ROT", snapshot: rot, render: (caa) => renderRotParadeState(rot, caa) };
+  return { phase: "ROT", snapshot: rot, render: (caa) => renderRotParadeState(rot, caa), scOf: await sectionCommanders() };
 }
 
 function vigilance(snapshot: CoySnapshot): ParadeView {
-  return { phase: "VIGILANCE", snapshot, render: (caa) => renderParadeState(snapshot, caa) };
+  return { phase: "VIGILANCE", snapshot, render: (caa) => renderParadeState(snapshot, caa), scOf: new Map() };
 }

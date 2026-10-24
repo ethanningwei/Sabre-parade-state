@@ -2,6 +2,7 @@
 
 import { Input } from "@/components/ui/input";
 import { RANKS, rolesFor } from "@/lib/wb/domain/roles";
+import { place } from "@/lib/wb/format";
 import { fieldClass, inputClass } from "../ui";
 import { Choice, Field } from "../form-bits";
 
@@ -10,7 +11,12 @@ export interface CampOption {
   name: string;
   subunitName: string;
   isHq: boolean;
+  /** the roles a man can hold there, when not rolesFor(isHq): a section's SC/CBT in ROT */
+  roles?: readonly string[];
 }
+
+/** The roles a man can hold in this camp. */
+export const rolesOf = (c: CampOption) => c.roles ?? rolesFor(c.isHq);
 
 export interface PersonValues {
   rank: string;
@@ -30,7 +36,7 @@ export const filledIn = (v: PersonValues, keepRole?: string) => !!v.rank && v.na
  */
 export function PersonFields({ value, onChange, camps, keepRole }: { value: PersonValues; onChange: (v: PersonValues) => void; camps: CampOption[]; keepRole?: string }) {
   const camp = camps.find((c) => c.id === value.campId);
-  const roles = camp ? rolesFor(camp.isHq) : [];
+  const roles = camp ? rolesOf(camp) : [];
   const set = (patch: Partial<PersonValues>) => onChange({ ...value, ...patch });
   const legacy = keepRole && !roles.includes(keepRole) ? keepRole : null;
   return (
@@ -56,12 +62,12 @@ export function PersonFields({ value, onChange, camps, keepRole }: { value: Pers
           value={value.campId}
           onChange={(e) => {
             const next = camps.find((c) => c.id === e.target.value);
-            set({ campId: e.target.value, ...(next && value.role !== legacy && !rolesFor(next.isHq).includes(value.role) ? { role: "" } : {}) });
+            set({ campId: e.target.value, ...(next && value.role !== legacy && !rolesOf(next).includes(value.role) ? { role: "" } : {}) });
           }}
         >
           {camps.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name} · {c.subunitName}
+              {place(c.name, c.subunitName)}
             </option>
           ))}
         </select>

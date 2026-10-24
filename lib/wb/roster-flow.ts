@@ -8,11 +8,12 @@ import { absence, camp, duty, person, subunit } from "@/lib/db/schema";
 import { UserError } from "@/lib/errors";
 import { Refusal } from "@/lib/wb/core";
 import { wbAssignment, wbGrant, wbMember, wbProjection, wbRecord } from "@/lib/wb/db/schema";
-import { RANKS, rolesFor } from "@/lib/wb/domain/roles";
+import { RANKS } from "@/lib/wb/domain/roles";
 import { inReach, manAccess, reach } from "@/lib/wb/domain/access";
 import { addedText, removalRefusal, type RemovalCounts } from "@/lib/wb/domain/roster-flow";
 import { STANDING_STATES } from "@/lib/wb/domain/rules";
 import { place } from "@/lib/wb/format";
+import { rolesForCamp } from "@/lib/wb/phase";
 import { ensureProjectorUser, PROJECTOR_USER } from "@/lib/wb/projection";
 import { memberLabel, personWhere, type Db } from "@/lib/wb/records";
 import { recountRequest } from "@/lib/wb/rf";
@@ -295,7 +296,10 @@ async function checkPerson(tx: Db, actor: Acting["actor"], input: PersonInput, k
   if (!(RANKS as readonly string[]).includes(rank) && rank !== keep?.rank) throw new Refusal("Pick his rank.");
   if (name.length < 2) throw new Refusal("Type his name as it should be on the parade state.");
   const kept = !!keep && input.role === keep.role;
-  if (!kept && !rolesFor(target.isHq).includes(input.role)) throw new Refusal("Pick a role that fits that camp.");
+  // in ROT: a section's SC or CBT, and nobody into a Vigilance camp the switch hid
+  const roles = await rolesForCamp(target.id, target.isHq, tx);
+  if (!roles.length) throw new Refusal(`${target.name} is switched off in ROT. Pick his section.`);
+  if (!kept && !roles.includes(input.role)) throw new Refusal("Pick a role that fits that camp.");
   return { target: target as Target, values: { campId: target.id, rank, name, role: input.role } };
 }
 

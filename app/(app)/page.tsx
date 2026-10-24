@@ -4,16 +4,25 @@ import Link from "next/link";
 import { StrengthBar } from "@/components/strength-bar";
 import { Card } from "@/components/ui/card";
 import { requireViewer } from "@/lib/authz";
-import { currentSnapshot } from "@/lib/data/current";
+import { currentParade } from "@/lib/data/current";
 import { db } from "@/lib/db";
 import { paradeState, user } from "@/lib/db/schema";
-import { computeCoy, currentCaa, ddmmyy, validate } from "@/lib/parade";
+import { ABSENCE_TYPES, computeCoy, currentCaa, ddmmyy, validate, type CampState } from "@/lib/parade";
 import { formatSgt } from "@/lib/format";
 
+/** "1 OL · 1 MC", or "All in": ROT's line per section (mockup 11). */
+function absenceSummary(camps: CampState[]): string {
+  const people = camps.flatMap((c) => c.absentees);
+  const parts = ABSENCE_TYPES.map((t) => [t, people.filter((p) => p.absence!.type === t).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([t, n]) => `${n} ${t === "OTHERS" ? "other" : t}`);
+  return parts.length ? parts.join(" · ") : "All in";
+}
+
 export default async function OverviewPage() {
-  const [viewer, snapshot, [lastSent]] = await Promise.all([
+  const [viewer, { snapshot, phase, scOf }, [lastSent]] = await Promise.all([
     requireViewer(),
-    currentSnapshot(),
+    currentParade(),
     db
       .select({ sentAt: paradeState.sentAt, caaDate: paradeState.caaDate, caaTime: paradeState.caaTime, by: user.name })
       .from(paradeState)
@@ -32,7 +41,9 @@ export default async function OverviewPage() {
   return (
     <div className="flex flex-col gap-5">
       <section className="rounded-2xl bg-primary p-5 text-primary-foreground shadow-sm">
-        <p className="text-sm/none opacity-80">Present strength · CAA {ddmmyy(caa.date)} {caa.time}H</p>
+        <p className="text-sm/none opacity-80">
+          Present strength · CAA {ddmmyy(caa.date)} {caa.time}H{phase === "ROT" ? " · ROT" : ""}
+        </p>
         <p className="mt-3 font-mono text-5xl font-semibold tracking-tight tabular-nums">
           {state.present}
           <span className="text-2xl opacity-60"> / {state.total}</span>
@@ -75,8 +86,56 @@ export default async function OverviewPage() {
       </Link>
 
       <section className="flex flex-col gap-3">
-        <h2 className="px-1 text-sm font-medium text-muted-foreground">Subunits</h2>
+        <h2 className="px-1 text-sm font-medium text-muted-foreground">{phase === "ROT" ? "Platoons and sections" : "Subunits"}</h2>
         {state.subunits.map((s) => {
+          // ROT (mockup 11): each platoon lists its sections, with their SC and who's away
+          if (phase === "ROT") {
+            const subIssues = issuesBySubunit.get(s.subunit.name) ?? 0;
+            return (
+              <Card key={s.subunit.id} className="gap-3 px-4">
+                <Link href={`/s/${s.subunit.id}`} className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex flex-col">
+                      <span className="font-medium">{s.subunit.name}</span>
+                      {s.subunit.isHq && <span className="text-xs text-muted-foreground">{absenceSummary(s.camps)}</span>}
+                    </span>
+                    <span className="font-mono text-lg font-semibold tabular-nums">
+                      {s.present}
+                      <span className="text-sm text-muted-foreground">/{s.total}</span>
+                    </span>
+                  </div>
+                  <StrengthBar present={s.present} total={s.total} />
+                </Link>
+                {subIssues > 0 && (
+                  <p className="text-xs font-medium text-issue">
+                    {subIssues} issue{subIssues > 1 ? "s" : ""}
+                  </p>
+                )}
+                {!s.subunit.isHq && (
+                  <ul className="-mx-4 divide-y border-t">
+                    {s.camps.map((c) => (
+                      <li key={c.camp.id}>
+                        <Link href={`/c/${c.camp.id}`} className="flex min-h-14 items-center gap-3 px-4 py-2 transition-colors hover:bg-muted/50">
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="text-sm font-medium">
+                              {c.camp.name}
+                              {scOf.get(c.camp.id) && <span className="font-normal text-muted-foreground"> · SC {scOf.get(c.camp.id)}</span>}
+                            </span>
+                            <span className={`text-xs ${c.absentees.length ? "text-absent" : "text-muted-foreground"}`}>{absenceSummary([c])}</span>
+                          </span>
+                          <span className="font-mono text-sm font-semibold tabular-nums">
+                            {c.present}
+                            <span className="text-muted-foreground">/{c.total}</span>
+                          </span>
+                          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Card>
+            );
+          }
           const absent = s.camps.reduce((n, c) => n + c.absentees.length, 0);
           const offCamps = s.camps.filter((c) => !c.onShift).length;
           const dutyCount = s.subunit.isHq

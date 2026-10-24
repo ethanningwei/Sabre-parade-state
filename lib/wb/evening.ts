@@ -17,6 +17,7 @@ import { shortTomorrow } from "@/lib/wb/forecast-data";
 import { rangeLabel } from "@/lib/wb/domain/timeline";
 import { shortBy } from "@/lib/wb/domain/rf";
 import { expireRfRequests } from "@/lib/wb/rf";
+import { currentPhase } from "@/lib/wb/phase";
 import { openRequests } from "@/lib/wb/rf-data";
 import { findViews } from "@/lib/wb/records";
 import { claimSheet, claimSheetUrl } from "@/lib/wb/sheets";
@@ -193,8 +194,10 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
   }
 
   // ---------------------------------------------------------------- camps below minimum tomorrow (Phase 4)
+  // ROT has no shifts or minimums, and no RF requests: neither line goes out (phases-plan §3.4)
+  const rot = (await currentPhase().catch(() => null))?.phase === "ROT";
   try {
-    for (const [subunitId, d] of await shortTomorrow(now)) {
+    for (const [subunitId, d] of rot ? [] : await shortTomorrow(now)) {
       addPart({ subunitId, subunitName: d.name }, [`⚠️ Below minimum tomorrow`, ...d.lines].join("\n"));
       summary.short += d.lines.length;
     }
@@ -207,7 +210,7 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
   // each platoon hears about its own camps' requests; COY HQ about all of them
   try {
     summary.rfExpired = await expireRfRequests(courier, now);
-    const open = await openRequests(now);
+    const open = rot ? [] : await openRequests(now);
     summary.rf = open.length;
     const line = (r: (typeof open)[number]) => `• ${r.campName} ${rangeLabel(r)}: short ${shortBy(r)} of ${r.need}`;
     const [hq] = open.length ? await db.select({ id: subunit.id, name: subunit.name }).from(subunit).where(eq(subunit.isHq, true)) : [];

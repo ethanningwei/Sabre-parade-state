@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ParadeStateLink } from "@/components/tg/parade-state-tile";
 import { ParadeStatusLine } from "@/components/tg/parade-status";
 import { enter } from "@/components/tg/ui";
+import { sectionLabel } from "@/lib/wb/domain/rot";
 import { minimumLabel } from "@/lib/wb/domain/shifts";
 import type { DayCamp } from "@/lib/wb/forecast-data";
 import type { ParadeStatus } from "@/lib/wb/projection";
@@ -14,6 +15,7 @@ import type { ParadeStatus } from "@/lib/wb/projection";
 /**
  * One camp on one day. `canOpen`: the viewer may open its records (a GC may not).
  * `onParadeState`: today, for a "Parade state" holder, the camp's v1 screen.
+ * `rot`: a section in ROT: no shift, no minimum, just who's in.
  */
 export function CampCard({
   d,
@@ -21,7 +23,9 @@ export function CampCard({
   parade,
   canOpen,
   onParadeState,
+  rot = false,
 }: {
+  rot?: boolean;
   d: DayCamp;
   i: number;
   parade: ReadonlyMap<string, ParadeStatus>;
@@ -33,14 +37,23 @@ export function CampCard({
     <article className="tg-enter flex flex-col gap-3 rounded-2xl bg-card p-4" style={enter(i)}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col">
-          <h3 className="font-semibold">{d.info.name}</h3>
-          <p className="text-xs text-muted-foreground">{d.shiftNote}</p>
+          <h3 className="font-semibold">{rot ? sectionLabel(d.info.name, d.info.subunitName) : d.info.name}</h3>
+          {!rot && <p className="text-xs text-muted-foreground">{d.shiftNote}</p>}
         </div>
-        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${on ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>
-          {on ? "On shift" : "Off shift"}
-        </span>
+        {rot ? (
+          !d.info.isHq && (
+            <span className="shrink-0 text-sm font-semibold tabular-nums">
+              {d.manning.total - d.manning.away.length}
+              <span className="font-normal text-muted-foreground">/{d.manning.total} in</span>
+            </span>
+          )
+        ) : (
+          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${on ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>
+            {on ? "On shift" : "Off shift"}
+          </span>
+        )}
       </div>
-      {on && !d.info.isHq && (
+      {on && !d.info.isHq && !rot && (
         <p className={`text-sm tabular-nums ${d.short ? "font-semibold text-destructive" : ""}`}>
           {d.label}
           {d.minimum ? ` / min ${minimumLabel(d.minimum)}` : " · no minimum set"}

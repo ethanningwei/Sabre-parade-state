@@ -166,8 +166,8 @@ export interface Roster {
   left: MemberRow[];
 }
 
-/** The Roster screen for someone with these grants: the same scope as the waiting accounts. */
-export async function rosterFor(grants: readonly GrantRow[]): Promise<Roster> {
+/** The Roster screen for someone with these grants: the same scope as the waiting accounts. `hidden`: the camps a switch to ROT left out. */
+export async function rosterFor(grants: readonly GrantRow[], hidden: ReadonlySet<string> = new Set()): Promise<Roster> {
   const [people, members, allCamps] = await Promise.all([
     db
       .select({ personId: person.id, rank: person.rank, name: person.name, role: person.role, campId: person.campId, memberId: wbMember.id })
@@ -186,7 +186,7 @@ export async function rosterFor(grants: readonly GrantRow[]): Promise<Roster> {
   ]);
   const roster = reach({ grants }, "roster");
   const camps = new Map<string, RosterCamp>();
-  for (const c of allCamps) if (inReach(roster, { subunitId: c.subunitId, campId: c.id })) camps.set(c.id, { ...c, people: [] });
+  for (const c of allCamps) if (!hidden.has(c.id) && inReach(roster, { subunitId: c.subunitId, campId: c.id })) camps.set(c.id, { ...c, people: [] });
   for (const p of people) camps.get(p.campId)?.people.push({ personId: p.personId, rank: p.rank, name: p.name, role: p.role, registered: !!p.memberId });
   const live = members.filter((m) => m.active && m.registered && inReach(roster, m));
   return {
@@ -195,6 +195,20 @@ export async function rosterFor(grants: readonly GrantRow[]): Promise<Roster> {
     waiting: live.filter((m) => !m.personId),
     left: live.filter((m) => m.personId && m.personActive === false),
   };
+}
+
+/** Each section's SC (ROT): an SC grant on that camp, by his roster name. */
+export async function sectionCommanders(): Promise<Map<string, string>> {
+  const rows = await db
+    .select({ campId: wbGrant.campId, rank: person.rank, name: person.name, tgName: wbMember.tgName })
+    .from(wbGrant)
+    .innerJoin(wbMember, eq(wbMember.id, wbGrant.memberId))
+    .leftJoin(person, eq(person.id, wbMember.personId))
+    .where(and(eq(wbGrant.role, "SC"), isNotNull(wbGrant.campId), eq(wbMember.active, true)))
+    .orderBy(asc(wbGrant.grantedAt));
+  const out = new Map<string, string>();
+  for (const r of rows) if (r.campId && !out.has(r.campId)) out.set(r.campId, r.name ? `${r.rank} ${r.name}` : r.tgName);
+  return out;
 }
 
 /** How many are waiting to be added to the roster in this viewer's Roster scope (the Home badge): one count, not rosterFor(). */

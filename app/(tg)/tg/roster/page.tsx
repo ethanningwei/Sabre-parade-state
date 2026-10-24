@@ -4,7 +4,9 @@ import { RosterList, type ListCamp } from "@/components/tg/roster/roster-list";
 import { WaitingRow } from "@/components/tg/roster/waiting-row";
 import { Group } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
-import { rosterFor } from "@/lib/wb/admin-data";
+import { rosterFor, sectionCommanders } from "@/lib/wb/admin-data";
+import { ROLES_SECTION } from "@/lib/wb/domain/rot";
+import { currentPhase } from "@/lib/wb/phase";
 import { requireScreenPage } from "@/lib/wb/auth";
 import { manAccess } from "@/lib/wb/domain/access";
 import { similarName } from "@/lib/wb/domain/roster-flow";
@@ -16,12 +18,15 @@ import { similarName } from "@/lib/wb/domain/roster-flow";
 export default async function RosterPage() {
   await requireFeaturePage();
   const member = await requireScreenPage("roster");
-  const r = await rosterFor(member.grants);
-  const options: CampOption[] = r.camps.map((c) => ({ id: c.id, name: c.name, subunitName: c.subunitName, isHq: c.isHq }));
+  // in ROT: by section, with its SC; the Vigilance camps the switch hid are left out (mockup 10)
+  const phase = await currentPhase();
+  const rot = phase.phase === "ROT";
+  const [r, scs] = await Promise.all([rosterFor(member.grants, phase.hidden), rot ? sectionCommanders() : new Map<string, string>()]);
+  const options: CampOption[] = r.camps.map((c) => ({ id: c.id, name: c.name, subunitName: c.subunitName, isHq: c.isHq, roles: rot && !c.isHq ? ROLES_SECTION : undefined }));
   const camps: ListCamp[] = r.camps.map((c) => {
     // by camp: the man's own sheet refuses yourself (removalRefusal)
     const can = manAccess({ grants: member.grants }, { subunitId: c.subunitId, campId: c.id });
-    return { id: c.id, name: c.name, subunitName: c.subunitName, history: can.history, remove: can.removes, people: c.people };
+    return { id: c.id, name: c.name, subunitName: c.subunitName, sc: scs.get(c.id), history: can.history, remove: can.removes, people: c.people };
   });
   const unregistered = r.camps.flatMap((c) => c.people.filter((p) => !p.registered).map((p) => ({ ...p, campId: c.id, campName: c.name })));
 

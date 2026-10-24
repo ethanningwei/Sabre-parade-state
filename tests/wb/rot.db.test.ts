@@ -20,6 +20,10 @@ import { acting, member, ok } from "./writes";
 const { addPlatoon, addSection, assignPasted, placeCamp, placeMen, removeSection, setCommander, unplaceMen } = await import("@/lib/wb/changeover");
 const { checkPaste, checklist, loadDraft, preview } = await import("@/lib/wb/changeover-data");
 const { switchBack, switchToRot } = await import("@/lib/wb/switch");
+const { addPersonToRoster } = await import("@/lib/wb/roster-flow");
+const { rosterFor } = await import("@/lib/wb/admin-data");
+const { eveningRound } = await import("@/lib/wb/evening");
+const { currentPhase } = await import("@/lib/wb/phase");
 
 /** Active people of a camp, in roster order. */
 async function peopleOf(campName: string) {
@@ -345,6 +349,46 @@ describe("Switch to ROT and Switch back (DB)", () => {
     // the draft is still there, for another go
     expect((await loadDraft()).platoons).toHaveLength(4);
     expect(refused(await switchBack(recordingCourier(), as))).toMatch(/isn't in ROT/);
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("the Mini App in ROT (DB)", () => {
+  it("Roster by section with SC/CBT, nobody into a hidden camp; the evening round sends no below-minimum or RF lines", async () => {
+    if (!reachable) return;
+    vi.stubEnv("FEATURE_WHEREABOUTS", "1");
+    const hq = await peopleOf("COY HQ");
+    await member(1, hq[0].id, [{ role: "ASA" }]);
+    await member(9, null, [{ role: "OC" }]);
+    const as = await acting(1);
+    const [coyRow] = await db.select().from(coy).where(eq(coy.id, coyId));
+    let n = 0;
+    for (const sub of (await loadSnapshot(coyRow)).subunits.filter((x) => !x.isHq)) {
+      const pl = ok(await addPlatoon(as, `PLATOON ${++n}`));
+      for (const c of sub.camps) ok(await placeCamp(as, c.id, ok(await addSection(as, pl.id, c.name)).id));
+    }
+    const slrCamp = await campIdOf("SLR");
+    // an RF request open at a guardroom, and the evening round's "RF still open" line before the switch
+    await db.insert(wbRfRequest).values({ campId: slrCamp, role: "ANY", need: 1, startAt: new Date(Date.now() + 3600e3), endAt: new Date(Date.now() + 48 * 3600e3), state: "OPEN" });
+    ok(await switchToRot(recordingCourier(), as));
+
+    const phase = await currentPhase();
+    expect(phase.phase).toBe("ROT");
+    expect(phase.hidden.has(slrCamp)).toBe(true);
+    const roster = await rosterFor([{ role: "OC", subunitId: null, campId: null }], phase.hidden);
+    expect(roster.camps.some((c) => c.id === slrCamp)).toBe(false);
+    const section = await campIdOf("PLATOON 2 SLR");
+    expect(roster.camps.find((c) => c.id === section)?.people.length).toBeGreaterThan(0);
+
+    const add = { rank: "PTE", name: "NEW ROT MAN" };
+    expect(refused(await addPersonToRoster(as, { ...add, campId: slrCamp, role: "ST CBT" }))).toMatch(/switched off in ROT/);
+    expect(refused(await addPersonToRoster(as, { ...add, campId: section, role: "ST CBT" }))).toMatch(/Pick a role/);
+    ok(await addPersonToRoster(as, { ...add, campId: section, role: "CBT" }));
+
+    const s = await eveningRound(recordingCourier(), new Date(), { force: true });
+    expect(s).toMatchObject({ short: 0, rf: 0 });
+    // a man added to a section during ROT keeps Switch back from deleting it
+    expect(refused(await switchBack(recordingCourier(), as))).toMatch(/NEW ROT MAN joined a section during ROT/);
     vi.unstubAllEnvs();
   });
 });

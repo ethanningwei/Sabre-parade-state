@@ -3,6 +3,7 @@
 import { ChevronRight, Search, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
+import { place } from "@/lib/wb/format";
 import { BigButton } from "../form-bits";
 import { fieldClass } from "../ui";
 import type { CampOption } from "./person-fields";
@@ -12,6 +13,8 @@ export interface ListCamp {
   id: string;
   name: string;
   subunitName: string;
+  /** ROT: the section's SC, for its heading */
+  sc?: string;
   /** Person history / Remove from roster, for this viewer, for the men of this camp */
   history: boolean;
   remove: boolean;
@@ -102,7 +105,7 @@ export function RosterList({ camps, options, selfId }: { camps: ListCamp[]; opti
               )}
             </div>
           );
-          const title = c.name === c.subunitName ? c.name : `${c.name} · ${c.subunitName}`;
+          const title = [place(c.name, c.subunitName), c.sc && `SC ${c.sc}`].filter(Boolean).join(" · ");
           return folded ? (
             <details key={c.id} className="group overflow-hidden rounded-2xl bg-card">
               <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-4 text-sm font-medium transition-colors duration-150 active:bg-muted [&::-webkit-details-marker]:hidden">

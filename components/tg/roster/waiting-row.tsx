@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { addToRosterAction, linkToRosterAction } from "@/lib/wb/actions/roster";
-import { rolesFor } from "@/lib/wb/domain/roles";
 import { BigButton, ErrorBox, useAction } from "../form-bits";
-import { filledIn, PersonFields, type CampOption, type PersonValues } from "./person-fields";
+import { filledIn, PersonFields, rolesOf, type CampOption, type PersonValues } from "./person-fields";
 import { TgSheet } from "./tg-sheet";
 
 export type { CampOption } from "./person-fields";
@@ -86,7 +85,7 @@ function AddSheet({
     rank: self.rank ?? "",
     name: (self.name ?? "").toUpperCase(),
     campId: startCamp?.id ?? "",
-    role: self.role && startCamp && rolesFor(startCamp.isHq).includes(self.role) ? self.role : "",
+    role: self.role && startCamp && rolesOf(startCamp).includes(self.role) ? self.role : "",
   });
   const { pending, error, call } = useAction();
 

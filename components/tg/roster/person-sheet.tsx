@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { addPersonAction, editPersonAction } from "@/lib/wb/actions/roster";
-import { roleOf, rolesFor } from "@/lib/wb/domain/roles";
+import { roleOf } from "@/lib/wb/domain/roles";
 import { BigButton, ErrorBox, useAction } from "../form-bits";
-import { filledIn, PersonFields, type CampOption, type PersonValues } from "./person-fields";
+import { filledIn, PersonFields, rolesOf, type CampOption, type PersonValues } from "./person-fields";
 import { TgSheet } from "./tg-sheet";
 
 export interface EditablePerson {
@@ -32,7 +32,7 @@ export function PersonSheet({ open, onOpenChange, camps, person }: { open: boole
   const router = useRouter();
   const camp = camps.find((c) => c.id === person?.campId) ?? camps[0];
   // "GUARD COMM" is shown as GC when it maps to a choice; anything else is kept as v1 has it
-  const mapped = person && camp && rolesFor(camp.isHq).includes(roleOf(person.role)) ? roleOf(person.role) : null;
+  const mapped = person && camp && rolesOf(camp).includes(roleOf(person.role)) ? roleOf(person.role) : null;
   const keepRole = person && !mapped ? person.role : undefined;
   const [value, setValue] = useState<PersonValues>(() => ({
     rank: person?.rank ?? "",
