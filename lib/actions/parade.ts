@@ -6,9 +6,10 @@ import { actionAdmin, actionViewer } from "@/lib/authz";
 import { getCoy, loadSnapshot } from "@/lib/data/snapshot";
 import { db } from "@/lib/db";
 import { coy, paradeState } from "@/lib/db/schema";
-import { renderParadeState, validate, type Issue } from "@/lib/parade";
+import { validate, type Issue } from "@/lib/parade";
 import { sendToTelegram, TelegramError } from "@/lib/telegram";
 import { syncQuietly } from "@/lib/wb/projection";
+import { paradeView } from "@/lib/wb/rot-parade";
 import { audit, run, UserError } from "./shared";
 
 const caaInput = z.object({
@@ -25,10 +26,11 @@ export async function generateParadeState(caa: { date: string; time: string }) {
     const parsed = caaInput.parse(caa);
     const coyRow = await getCoy();
     await syncQuietly(); // FEATURE_PROJECTION: the timeline first; a no-op when off
-    const snapshot = await loadSnapshot(coyRow);
-    const issues = validate(snapshot, parsed);
+    // the renderer by phase: ROT's in ROT, Vigilance's otherwise (always with FEATURE_WHEREABOUTS off)
+    const parade = await paradeView(coyRow.id, await loadSnapshot(coyRow));
+    const issues = validate(parade.snapshot, parsed);
     if (issues.length) return { issues };
-    const text = renderParadeState(snapshot, parsed);
+    const text = parade.render(parsed);
     const [row] = await db
       .insert(paradeState)
       .values({ coyId: coyRow.id, caaDate: parsed.date, caaTime: parsed.time, text, generatedBy: viewer.id })

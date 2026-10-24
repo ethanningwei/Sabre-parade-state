@@ -1,0 +1,61 @@
+Sabre Parade State
+
+CAA: 031126 0800H
+
+Total Strength: 11/17
+COY HQ: 03/05
+PLATOON 1: 04/07
+PLATOON 2: 04/05
+——————————————— 
+
+COY HQ
+• Total Strength: 05
+• Present Strength: 03
+
+• Absentees (MC, AL, etc): 02
+
+1. CPL BRAVO LIM (MC 021126 - 041126)
+
+2. 3SG ALPHA TAN (OL 011126 - 081126)
+——————————————— 
+
+PLATOON 1
+• Total strength: 7
+• Present strength: 4
+
+SECTION 1
+• Total Strength: 04
+• Present Strength: 03
+
+• Absentees (MC, AL, etc): 01
+
+1. PTE CHARLIE ONG (MC 021126 - 031126)
+
+SECTION 2
+• Total Strength: 03
+• Present Strength: 01
+
+• Absentees (MC, AL, etc): 02
+
+1. PTE DELTA NG (AL 011126 - 051126)
+
+2. PTE ECHO PEH (0900H MA @ CMPB)
+——————————————— 
+
+PLATOON 2
+• Total strength: 5
+• Present strength: 4
+
+SECTION 1
+• Total Strength: 03
+• Present Strength: 03
+
+• Absentees (MC, AL, etc): 00
+
+SECTION 2
+• Total Strength: 02
+• Present Strength: 01
+
+• Absentees (MC, AL, etc): 01
+
+1. LCP FOXTROT LEE (CBT COURSE 141026 - 061126)

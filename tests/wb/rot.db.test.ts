@@ -1,14 +1,17 @@
 // ROT through the database: the phase read. Uses sabre_test; skipped if unreachable.
 
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadSnapshot } from "@/lib/data/snapshot";
 import { writeCoy } from "@/lib/data/write-coy";
+import { renderParadeState } from "@/lib/parade";
 import { db } from "@/lib/db";
 import { coy } from "@/lib/db/schema";
 import { wbChangeover, wbPhase } from "@/lib/wb/db/schema";
 import { emptyLog } from "@/lib/wb/domain/rot";
 import { phaseOf, phaseState } from "@/lib/wb/phase";
-import { exampleSnapshot } from "../fixtures/example-snapshot";
+import { paradeView } from "@/lib/wb/rot-parade";
+import { EXAMPLE_CAA, exampleSnapshot } from "../fixtures/example-snapshot";
 
 let reachable = true;
 let coyId = "";
@@ -47,5 +50,30 @@ describe("the phase (DB)", () => {
     expect(s.changeover?.log.hiddenCamps).toEqual([]);
     await db.update(wbPhase).set({ phase: "VIGILANCE", changeoverId: null });
     expect(await phaseState(coyId)).toEqual({ phase: "VIGILANCE", changeover: null });
+  });
+});
+
+describe("the parade state by phase (DB)", () => {
+  it("is Vigilance's with FEATURE_WHEREABOUTS off, whatever wb_phase says; ROT's with it on", async () => {
+    if (!reachable) return;
+    const [coyRow] = await db.select().from(coy).where(eq(coy.id, coyId));
+    const snapshot = await loadSnapshot(coyRow);
+    const vigilance = renderParadeState(snapshot, EXAMPLE_CAA);
+    const slr = snapshot.subunits.flatMap((s) => s.camps).find((c) => c.name === "SLR")!;
+    const [c] = await db.insert(wbChangeover).values({ coyId, to: "ROT", log: { ...emptyLog(), hiddenCamps: [slr.id] } }).returning();
+    await db.insert(wbPhase).values({ coyId, phase: "ROT", changeoverId: c.id });
+
+    vi.stubEnv("FEATURE_WHEREABOUTS", "");
+    const off = await paradeView(coyId, snapshot);
+    expect(off.phase).toBe("VIGILANCE");
+    expect(off.snapshot).toBe(snapshot);
+    expect(off.render(EXAMPLE_CAA)).toBe(vigilance);
+
+    vi.stubEnv("FEATURE_WHEREABOUTS", "1");
+    const on = await paradeView(coyId, snapshot);
+    expect(on.phase).toBe("ROT");
+    expect(on.snapshot.subunits.flatMap((s) => s.camps).some((c) => c.id === slr.id)).toBe(false);
+    expect(on.render(EXAMPLE_CAA)).not.toContain("Off Shift");
+    vi.unstubAllEnvs();
   });
 });
