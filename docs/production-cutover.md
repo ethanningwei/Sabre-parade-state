@@ -1,6 +1,12 @@
 # Production cutover: whereabouts replaces v1
 
-The plan for making the `whereabouts` branch the production app at **sabre-ir.vercel.app**, with Telegram as the only way in and the old bot and Sheets retired. Written 2026-10-25. Tick the boxes as you go.
+The plan for making the `whereabouts` branch the production app at **sabreapp.vercel.app**, with Telegram as the only way in and the old bot and Sheets retired. Written 2026-10-25. Tick the boxes as you go.
+
+**Status (2026-10-25, evening):** B1–B5 done.
+- Production is **sabreapp.vercel.app**. `sabre-ir.vercel.app` is a different Vercel project: it was set by mistake, then fixed and redeployed.
+- B3 gave `✅ PARITY` at CAA 251026 2000H.
+- In B6 the webhook, commands and claims are done, but @BotFather's Menu Button and Mini App URL are still to change.
+- B7 onward are still to do.
 
 **What we found (2026-10-25):**
 - **Production's database** (Neon `ep-green-base`) is v1's: migrations 0000–0002, 209 people, nothing written since 2026-10-03.
@@ -13,7 +19,7 @@ The plan for making the `whereabouts` branch the production app at **sabre-ir.ve
 ## A. In the days before (nobody notices)
 
 - [x] **A1. Password sign-in off** (done 2026-10-25). With `APP_PASSWORD` unset, `/login` shows "Open @sabreopsbot" instead of the form, and the sign-in action refuses. `WB_BOT_USERNAME` changes the bot it names; the default is `sabreopsbot`.
-- [ ] **A2. Tests:** `npm test`, `npm run typecheck` and `npm run lint` green on `whereabouts`.
+- [x] **A2. Tests:** `npm test`, `npm run typecheck` and `npm run lint` green on `whereabouts`.
 - [ ] **A3. Commit or discard** the uncommitted change in `scripts/import-sabre.ts` before using the import.
 - [ ] **A4. Rotate the leaked Neon password.** `neondb_owner` is shared by both branches and was pasted into a chat on 2026-10-12.
   - Reset it in Neon › Roles.
@@ -30,15 +36,15 @@ Run the database commands with production's unpooled URL from `.env.production.l
 export PROD_URL="$(grep '^DATABASE_URL_UNPOOLED=' .env.production.local | cut -d= -f2- | tr -d '"')"
 ```
 
-- [ ] **B1. Migrate production** (0003–0012; additive, so live v1 keeps working):
+- [x] **B1. Migrate production** (0003–0012; additive, so live v1 keeps working):
   ```bash
   DATABASE_URL="$PROD_URL" npx drizzle-kit migrate
   ```
-- [ ] **B2. Shift patterns and minimums:**
+- [x] **B2. Shift patterns and minimums:**
   ```bash
   DATABASE_URL="$PROD_URL" npx tsx scripts/wb-seed-shifts.ts --production
   ```
-- [ ] **B3. Last import from the Sheets**, with absences, because production's are from September:
+- [x] **B3. Last import from the Sheets**, with absences, because production's are from September:
   ```bash
   ./.venv/bin/python scripts/export_from_sheets.py "PL5-8 COY"
   DATABASE_URL="$PROD_URL" npm run import -- --dry-run
@@ -46,28 +52,28 @@ export PROD_URL="$(grep '^DATABASE_URL_UNPOOLED=' .env.production.local | cut -d
   rm sabre-export.json
   ```
   Expect `✅ PARITY`. This is the **last ever** `--with-absences`: from here on the app is the source of truth.
-- [ ] **B4. Vercel › Settings › Environment Variables, Production.**
+- [x] **B4. Vercel › Settings › Environment Variables, Production.**
   - **Copy from Preview (`whereabouts`):** `FEATURE_WHEREABOUTS=1`, `FEATURE_CLAIMS=1`, `WB_BOT_TOKEN`, `WB_WEBHOOK_SECRET`, `WB_ADMIN_TELEGRAM_IDS`, `WB_GOOGLE_SERVICE_ACCOUNT`, `WB_CLAIMS_SHEET_ID`, `WB_CLAIMS_SHEET_URL`.
-  - **`WB_APP_URL`:** `https://sabre-ir.vercel.app`.
+  - **`WB_APP_URL`:** `https://sabreapp.vercel.app`.
   - **`CRON_SECRET`:** new, `openssl rand -hex 32`. Vercel sends it to the evening-round cron.
   - **`TELEGRAM_BOT_TOKEN`:** set it to **@sabreopsbot's token**, the same value as `WB_BOT_TOKEN`, so the parade state is sent by @sabreopsbot. Sending needs no webhook, so this is safe.
   - **`FEATURE_PROJECTION=1`:** a decision. With it on, approved Mini App records go into the parade state; with it off, GCs type them again.
   - **Remove `APP_PASSWORD`**, once A1 is deployed.
   - **Keep `AUTH_SECRET` and the Neon variables as they are.**
-- [ ] **B5. Deploy:**
+- [x] **B5. Deploy:**
   ```bash
   git checkout main && git merge --ff-only whereabouts && git push origin main
   ```
   Wait for the production deployment to go green on Vercel.
 - [ ] **B6. Point @sabreopsbot at production.** This is the moment the preview stops getting Telegram updates.
   ```bash
-  WB_APP_URL=https://sabre-ir.vercel.app npm run wb:setup -- webhook
-  WB_APP_URL=https://sabre-ir.vercel.app npm run wb:setup -- menu
-  WB_APP_URL=https://sabre-ir.vercel.app npm run wb:setup -- commands
-  WB_APP_URL=https://sabre-ir.vercel.app npm run wb:setup -- claims
-  WB_APP_URL=https://sabre-ir.vercel.app npm run wb:setup -- status
+  WB_APP_URL=https://sabreapp.vercel.app npm run wb:setup -- webhook
+  WB_APP_URL=https://sabreapp.vercel.app npm run wb:setup -- menu
+  WB_APP_URL=https://sabreapp.vercel.app npm run wb:setup -- commands
+  WB_APP_URL=https://sabreapp.vercel.app npm run wb:setup -- claims
+  WB_APP_URL=https://sabreapp.vercel.app npm run wb:setup -- status
   ```
-  Then in @BotFather › /myapps › Sabre › Edit Web App URL: `https://sabre-ir.vercel.app/tg`. Change `WB_APP_URL` in `.env.local` too.
+  Then in @BotFather › /myapps › Sabre › Edit Web App URL: `https://sabreapp.vercel.app/tg`. Change `WB_APP_URL` in `.env.local` too.
 - [ ] **B7. Chats.**
   - Add @sabreopsbot to the coy parade-state group, allowed to post in its topic.
   - Check Admin › Coy settings (the import set the chat and topic from the config sheet) and press **Send test message**.
