@@ -5,6 +5,7 @@
 - **Branch:** `whereabouts`. Never commit whereabouts work to `main` directly. `main` is the live parade-state app.
 - **Tag:** `v1.0` (6486fb2) is the parade-state app before any whereabouts work.
 - **After Ops Vigilance (ROT, then Ops Bacinet):** the plan, the decisions so far and the open questions are in [phases-plan.md](phases-plan.md). Read it before anything that touches camps, shifts, roles or the parade-state format.
+- **Going to production:** the cutover checklist is [production-cutover.md](production-cutover.md).
 - **One phase per session.** At the end of each session, update §2 (progress), §5 (decisions) and §6 (open questions), and write a **handover note** for the next phase in §3.
 
 ---
