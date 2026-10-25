@@ -2,7 +2,15 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { endSession, passwordMatches, recordFailure, startSession, tooManyFailures } from "@/lib/session";
+import {
+  endSession,
+  passwordMatches,
+  passwordSignInEnabled,
+  recordFailure,
+  signInBot,
+  startSession,
+  tooManyFailures,
+} from "@/lib/session";
 
 export type LoginState = { error: string | null; name: string };
 
@@ -18,6 +26,9 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
     .toUpperCase();
   const password = String(formData.get("password") ?? "");
 
+  if (!passwordSignInEnabled()) {
+    return { error: `Sign in from Telegram: open @${signInBot()} and tap Parade state.`, name };
+  }
   if (name.length < 2 || name.length > 60) return { error: "Enter your rank and name, e.g. 3SG TAN.", name };
 
   const ip = await clientIp();

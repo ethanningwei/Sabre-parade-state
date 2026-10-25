@@ -24,6 +24,16 @@ function passwordTag(): string {
   return createHmac("sha256", secret()).update(process.env.APP_PASSWORD ?? "").digest("hex");
 }
 
+/** With APP_PASSWORD unset, the shared-password sign-in is off: Telegram is the only way in. */
+export function passwordSignInEnabled(): boolean {
+  return Boolean(process.env.APP_PASSWORD);
+}
+
+/** The bot whose Mini App signs people in when the password sign-in is off. */
+export function signInBot(): string {
+  return (process.env.WB_BOT_USERNAME || "sabreopsbot").replace(/^@/, "");
+}
+
 export function passwordMatches(attempt: string): boolean {
   const expected = process.env.APP_PASSWORD;
   if (!expected) throw new Error("APP_PASSWORD is not set");

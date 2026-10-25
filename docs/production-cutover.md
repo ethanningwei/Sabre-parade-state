@@ -12,7 +12,7 @@ The plan for making the `whereabouts` branch the production app at **sabre-ir.ve
 
 ## A. In the days before (nobody notices)
 
-- [ ] **A1. Password sign-in off.** This is a code change, agreed separately. With `APP_PASSWORD` unset, `/login` says "Open Sabre from @sabreopsbot" instead of throwing. Today `passwordMatches` throws when it's unset.
+- [x] **A1. Password sign-in off** (done 2026-10-25). With `APP_PASSWORD` unset, `/login` shows "Open @sabreopsbot" instead of the form, and the sign-in action refuses. `WB_BOT_USERNAME` changes the bot it names; the default is `sabreopsbot`.
 - [ ] **A2. Tests:** `npm test`, `npm run typecheck` and `npm run lint` green on `whereabouts`.
 - [ ] **A3. Commit or discard** the uncommitted change in `scripts/import-sabre.ts` before using the import.
 - [ ] **A4. Rotate the leaked Neon password.** `neondb_owner` is shared by both branches and was pasted into a chat on 2026-10-12.
