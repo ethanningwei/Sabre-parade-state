@@ -98,6 +98,27 @@ DATABASE_URL="$(grep '^DATABASE_URL_UNPOOLED=' .env.production.local | cut -d= -
 
 **Telegram:** the chat ID and topic ID are set in **Admin › Coy settings**, with a **Send test message** button. The bot must be a member of the group.
 
+## Backups
+`.github/workflows/backup.yml` runs every night at 0300 SGT (and on demand from the Actions tab). It runs `scripts/backup.sh`, which:
+- dumps the database;
+- restores the dump into a throwaway Postgres 18 and checks every table's row count matches (the **restore drill**);
+- encrypts the dump with [age](https://age-encryption.org) for each ASA's key.
+
+The file is kept as a workflow artifact for 30 days and, if the backup bot is set up, sent to its Telegram chat. The dump holds medical data, so it is never stored unencrypted. A failed run emails the repo owner. Neon's own restore window (6 hours on the free plan) covers mistakes from the last few hours.
+
+**Setup** (once, in GitHub › Settings › Secrets and variables › Actions):
+1. Each ASA runs `age-keygen -o ~/sabre-backup-key.txt` (`brew install age`) and keeps that file safe, e.g. in a password manager. It prints a public key, `age1…`.
+2. Variable `BACKUP_AGE_RECIPIENTS`: the public keys, one per line.
+3. Secret `BACKUP_DATABASE_URL`: production's **unpooled** Neon URL.
+4. Optional off-site copy: make a separate bot with @BotFather used only for backups (never @sabreopsbot: its token can sign anyone in to the Mini App), press Start in its DM, then set secret `BACKUP_TELEGRAM_BOT_TOKEN` and variable `BACKUP_TELEGRAM_CHAT_ID` (your Telegram id).
+5. Actions › Nightly backup › **Run workflow** once and check it's green. Scheduled runs only happen from `main`.
+
+**Restoring** (into an **empty** database: a new Neon project or branch, or a local scratch one). Needs `pg_restore` 18 (`brew install libpq`):
+```bash
+PATH="/opt/homebrew/opt/libpq/bin:$PATH" scripts/restore-backup.sh sabre-2026-10-25-0300.dump.age ~/sabre-backup-key.txt "<empty database URL>"
+```
+It refuses a database that already has tables, and prints every table's row count at the end. Then point `DATABASE_URL` at it. **Monthly drill:** restore the latest file into a scratch Neon branch and check the counts look right.
+
 ## Cutover from the bot
 1. On the morning of cutover, export and import (see above) and confirm `✅ PARITY`.
 2. In Admin › Coy settings, check the chat ID and thread ID, then press **Send test message**.

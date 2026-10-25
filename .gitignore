@@ -44,6 +44,8 @@ next-env.d.ts
 credentials.json
 *.export.json
 sabre-export.json
+*.dump
+*.dump.age
 /data/private/
 __pycache__/
 

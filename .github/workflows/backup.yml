@@ -1,0 +1,86 @@
+# Nightly encrypted backup of the production database (see README › Backups).
+# Dumps, restores the dump into a throwaway Postgres to prove it works, encrypts
+# it with the ASAs' age keys, keeps it as an artifact for 30 days and, if the
+# backup bot is set up, sends a copy to its Telegram chat.
+#
+# Repository settings (Settings › Secrets and variables › Actions):
+#   secret   BACKUP_DATABASE_URL           production's unpooled Neon URL
+#   variable BACKUP_AGE_RECIPIENTS         the ASAs' age public keys, one per line
+#   secret   BACKUP_TELEGRAM_BOT_TOKEN     optional: a bot used only for backups
+#   variable BACKUP_TELEGRAM_CHAT_ID       optional: where it sends them
+#
+# Scheduled workflows run from the default branch (main) only.
+name: Nightly backup
+
+on:
+  schedule:
+    - cron: "0 19 * * *" # 0300 SGT
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      drill:
+        image: postgres:18 # match Neon's major version
+        env:
+          POSTGRES_PASSWORD: drill
+          POSTGRES_DB: drill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d drill"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Postgres 18 client and age
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq postgresql-common age
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -yq postgresql-client-18
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+
+      - name: Dump, drill and encrypt
+        id: backup
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          DRILL_URL: postgres://postgres:drill@localhost:5432/drill
+          AGE_RECIPIENTS: ${{ vars.BACKUP_AGE_RECIPIENTS }}
+          OUT_DIR: out
+        run: |
+          file=$(bash scripts/backup.sh | tail -n 1)
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$file")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.backup.outputs.name }}
+          path: ${{ steps.backup.outputs.file }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Send a copy to Telegram
+        env:
+          TOKEN: ${{ secrets.BACKUP_TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ vars.BACKUP_TELEGRAM_CHAT_ID }}
+          FILE: ${{ steps.backup.outputs.file }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "No backup bot set up; skipping."
+            exit 0
+          fi
+          curl --silent --show-error --fail-with-body -o /dev/null \
+            -F chat_id="$CHAT_ID" \
+            -F document=@"$FILE" \
+            -F caption="Sabre backup $(basename "$FILE") (encrypted; restore with scripts/restore-backup.sh)" \
+            "https://api.telegram.org/bot$TOKEN/sendDocument"
