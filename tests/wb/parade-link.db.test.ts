@@ -148,6 +148,24 @@ describe("open the parade state (DB)", () => {
     expect(jar.has(FROM_TG_COOKIE)).toBe(false);
   });
 
+  it("a dead password sign-in's cookie sent beside the Mini App's doesn't sign them out", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await memberWith(1, [{ role: "GC", campId: gcPerson.campId }], { personId: gcPerson.id });
+    // signed in with the shared password, which has since been removed
+    vi.stubEnv("APP_PASSWORD", "an-old-password");
+    const { startSession } = await import("@/lib/session");
+    await startSession(v1Name);
+    const stale = jar.get(SESSION_COOKIE)!;
+    vi.stubEnv("APP_PASSWORD", "");
+    expect(await sessionUser()).toBeNull();
+
+    await openParadeState();
+    // the browser sends both; cookies().get can hand back the dead one
+    extraSent.push(`${SESSION_COOKIE}=${jar.get(SESSION_COOKIE)}`);
+    jar.set(SESSION_COOKIE, stale);
+    expect((await sessionUser())?.name).toBe(v1Name);
+  });
+
   it("lands on the v1 screen asked for, and only on a v1 screen", async (ctx) => {
     if (!reachable) ctx.skip();
     await memberWith(1, [{ role: "GC", campId: gcPerson.campId }], { personId: gcPerson.id });

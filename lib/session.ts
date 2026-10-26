@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { and, count, eq, gt, lt, sql } from "drizzle-orm";
-import { cookies } from "next/headers";
+import { and, count, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { cookies, headers } from "next/headers";
 import { db } from "@/lib/db";
 import { appSession, loginFailure, user } from "@/lib/db/schema";
 import { forgetFromTelegram } from "@/lib/wb/from-telegram";
@@ -88,19 +88,37 @@ export async function startSession(name: string, { embedded = false } = {}) {
 }
 
 /**
+ * Every session token the browser sent. There can be two: a password sign-in's
+ * (SameSite=Lax) and the Mini App's partitioned one sit side by side under the
+ * same name, and cookies().get returns only one of them.
+ */
+export async function sentSessionTokens(): Promise<string[]> {
+  const sent = ((await headers()).get("cookie") ?? "")
+    .split(";")
+    .map((c) => c.trim().split("="))
+    .filter(([k, v]) => k === SESSION_COOKIE && !!v)
+    .map(([, v]) => decodeURIComponent(v));
+  // one set earlier in this request is in the jar, not yet in the Cookie header
+  const set = (await cookies()).get(SESSION_COOKIE)?.value;
+  return [...new Set(set ? [set, ...sent] : sent)];
+}
+
+/**
  * The signed-in user, or null — one query (session joined to user).
- * Sessions die on expiry or when the password changes.
+ * Sessions die on expiry or when the password changes; a dead one sent beside a
+ * live one is ignored.
  */
 export async function sessionUser(): Promise<typeof user.$inferSelect | null> {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-  const [row] = await db
+  const tokens = await sentSessionTokens();
+  if (!tokens.length) return null;
+  const rows = await db
     .select({ s: appSession, u: user })
     .from(appSession)
     .innerJoin(user, eq(user.id, appSession.userId))
-    .where(eq(appSession.tokenHash, sha256(token)));
-  if (!row || row.s.expiresAt < new Date() || row.s.passwordTag !== passwordTag()) return null;
-  return row.u;
+    .where(inArray(appSession.tokenHash, tokens.map(sha256)));
+  const now = new Date();
+  const tag = passwordTag();
+  return rows.find(({ s }) => s.expiresAt >= now && s.passwordTag === tag)?.u ?? null;
 }
 
 export async function endSession() {

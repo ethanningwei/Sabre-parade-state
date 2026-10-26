@@ -1,11 +1,11 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { inArray } from "drizzle-orm";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { appSession } from "@/lib/db/schema";
 import { isEnabled } from "@/lib/flags";
-import { SESSION_COOKIE } from "@/lib/session";
+import { SESSION_COOKIE, sentSessionTokens } from "@/lib/session";
 
 // Marks a v1 session started from the Mini App's "Parade state" tile, so v1's
 // layout offers the way back to Sabre. Nothing here exists with
@@ -31,15 +31,6 @@ export async function fromTelegram(): Promise<boolean> {
   return (await cookies()).get(FROM_TG_COOKIE)?.value === "1";
 }
 
-/** Every v1 session token the browser sent: one opened from the Mini App before 2026-10-19 may sit beside today's. */
-function sessionTokens(cookieHeader: string | null): string[] {
-  return (cookieHeader ?? "")
-    .split(";")
-    .map((c) => c.trim().split("="))
-    .filter(([k, v]) => k === SESSION_COOKIE && !!v)
-    .map(([, v]) => decodeURIComponent(v));
-}
-
 /**
  * v1's sign-out, after its own. A no-op with the flag off, so v1's response is
  * unchanged. For a session opened from the Mini App: every session the browser
@@ -50,7 +41,7 @@ export async function forgetFromTelegram() {
   if (!isEnabled("WHEREABOUTS")) return;
   const jar = await cookies();
   if (!jar.get(FROM_TG_COOKIE)) return;
-  const tokens = sessionTokens((await headers()).get("cookie"));
+  const tokens = await sentSessionTokens();
   if (tokens.length) {
     await db.delete(appSession).where(inArray(appSession.tokenHash, tokens.map((t) => createHash("sha256").update(t).digest("hex"))));
   }
