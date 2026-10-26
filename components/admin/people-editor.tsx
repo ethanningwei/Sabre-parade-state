@@ -50,7 +50,7 @@ export function PeopleEditor({ camps, people }: { camps: Camp[]; people: Person[
         <select
           value={campFilter}
           onChange={(e) => setCampFilter(e.target.value)}
-          className="h-10 min-w-0 flex-1 rounded-lg border bg-background px-3"
+          className="h-10 min-w-0 flex-1 rounded-lg border bg-card px-3"
         >
           <option value="all">All camps</option>
           {camps.map((c) => (
@@ -65,9 +65,9 @@ export function PeopleEditor({ camps, people }: { camps: Camp[]; people: Person[
       </div>
       <div className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" className="h-10 pl-9" />
+        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" className="h-10 bg-card pl-9 dark:bg-card" />
       </div>
-      <ul className="flex flex-col divide-y rounded-xl border bg-card">
+      <ul className="flex flex-col divide-y overflow-hidden rounded-2xl bg-card">
         {visible.map((p) => (
           <li key={p.id}>
             <button className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/50" onClick={() => setEditing(p)}>

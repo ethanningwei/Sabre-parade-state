@@ -36,10 +36,10 @@ export function BackToSabre() {
     const apply = () => {
       root.classList.add("tg-themed");
       root.classList.toggle("dark", app.colorScheme === "dark");
-      // Telegram's header and overscroll match v1's page, which is bg_color
+      // Telegram's header and overscroll match v1's page, the Mini App's (--page)
       if (app.isVersionAtLeast?.("6.1")) {
-        app.setHeaderColor?.("bg_color");
-        app.setBackgroundColor?.("bg_color");
+        app.setHeaderColor?.("secondary_bg_color");
+        app.setBackgroundColor?.("secondary_bg_color");
       }
     };
     apply();

@@ -20,7 +20,7 @@ export default function Loading() {
           <Skeleton key={i} className="h-8 rounded-full" style={{ width: `${w * 4}px` }} />
         ))}
       </div>
-      <div className="flex flex-col divide-y rounded-xl border bg-card">
+      <div className="flex flex-col divide-y overflow-hidden rounded-2xl bg-card">
         {Array.from({ length: 9 }, (_, i) => (
           <div key={i} className="flex items-center gap-3 px-3 py-3.5">
             <div className="flex flex-1 flex-col gap-1.5">

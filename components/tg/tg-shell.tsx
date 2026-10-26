@@ -54,7 +54,7 @@ function TelegramChrome({ signedIn }: { signedIn: boolean }) {
     const apply = () => {
       root.classList.add("tg-themed");
       root.classList.toggle("dark", app.colorScheme === "dark");
-      // Telegram's own header and overscroll match the page (miniapp.css --tg-page)
+      // Telegram's own header and overscroll match the page (--page, globals.css)
       if (app.isVersionAtLeast?.("6.1")) {
         app.setHeaderColor?.("secondary_bg_color");
         app.setBackgroundColor?.("secondary_bg_color");

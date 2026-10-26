@@ -16,7 +16,7 @@ export default async function AdminPage() {
       <div className="px-1">
         <h1 className="text-xl font-semibold tracking-tight">Admin</h1>
       </div>
-      <ul className="flex flex-col divide-y rounded-xl border bg-card">
+      <ul className="flex flex-col divide-y overflow-hidden rounded-2xl bg-card">
         {items.map(({ href, icon: Icon, title, desc, badge }) => (
           <li key={href}>
             <Link href={href} className="flex items-center gap-3 px-4 py-4 hover:bg-muted/50">

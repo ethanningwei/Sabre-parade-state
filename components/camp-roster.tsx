@@ -120,7 +120,7 @@ export function CampRoster({
       </div>
 
       {!camp.onShift && (
-        <div className="flex items-start gap-3 rounded-xl bg-offshift/10 p-3 text-sm">
+        <div className="flex items-start gap-3 rounded-2xl bg-offshift/10 p-3 text-sm">
           <Moon className="mt-0.5 size-4 shrink-0 text-offshift" />
           <p className="flex-1">
             <span className="font-medium">Off shift.</span> Counts as 00 present, and nobody here is checked or listed,
@@ -130,7 +130,7 @@ export function CampRoster({
         </div>
       )}
 
-      <div className="sticky top-14 z-20 -mx-4 flex flex-col gap-2 bg-background/90 px-4 py-2 backdrop-blur-md">
+      <div className="sticky top-14 z-20 -mx-4 flex flex-col gap-2 bg-page/90 px-4 py-2 backdrop-blur-md">
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -138,7 +138,7 @@ export function CampRoster({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search name or rank"
-              className="h-10 pl-9"
+              className="h-10 bg-card pl-9 dark:bg-card"
               inputMode="search"
             />
           </div>
@@ -170,7 +170,7 @@ export function CampRoster({
               onClick={() => setFilter(key)}
               className={cn(
                 "h-8 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors",
-                filter === key ? "border-primary bg-primary text-primary-foreground" : "bg-background text-muted-foreground",
+                filter === key ? "border-primary bg-primary text-primary-foreground" : "bg-card text-muted-foreground",
                 key === "issues" && issueCount > 0 && filter !== key && "border-issue/40 text-issue",
               )}
             >
@@ -180,7 +180,7 @@ export function CampRoster({
         </div>
       </div>
 
-      <ul className="-mt-2 flex flex-col divide-y rounded-xl border bg-card">
+      <ul className="-mt-2 flex flex-col divide-y overflow-hidden rounded-2xl bg-card">
         {visible.length === 0 && <li className="p-6 text-center text-sm text-muted-foreground">Nobody here.</li>}
         {visible.map((p) => {
           const personIssues = issuesByPerson.get(p.id) ?? [];
@@ -229,12 +229,12 @@ export function CampRoster({
       {duties.length > 0 && (
         <section className="flex flex-col gap-2">
           <div className="flex items-center justify-between px-1">
-            <h2 className="text-sm font-medium text-muted-foreground">Serving here (Extra/RF/SOL)</h2>
+            <h2 className="text-[0.8125rem] font-medium tracking-wide text-muted-foreground uppercase">Serving here (Extra/RF/SOL)</h2>
             <Link href="/duties" className="text-xs text-primary">
               Manage
             </Link>
           </div>
-          <ul className="flex flex-col divide-y rounded-xl border bg-card">
+          <ul className="flex flex-col divide-y overflow-hidden rounded-2xl bg-card">
             {duties.map((d) => (
               <li key={d.id} className="flex items-center justify-between px-3 py-2.5 text-sm">
                 <span>

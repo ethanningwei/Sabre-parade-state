@@ -13,7 +13,7 @@ export default function Loading() {
         <Skeleton className="h-8 w-16" />
       </div>
       {Array.from({ length: 4 }, (_, i) => (
-        <div key={i} className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+        <div key={i} className="flex flex-col gap-3 rounded-2xl bg-card p-4">
           <div className="flex items-center justify-between">
             <Skeleton className="h-5 w-28" />
             <Skeleton className="h-6 w-14" />

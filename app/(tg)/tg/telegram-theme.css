@@ -4,6 +4,7 @@
  * knows it's running in Telegram, so a plain browser keeps the app's theme.
  */
 :root.tg-themed {
+  --page: var(--tg-theme-secondary-bg-color, var(--tg-theme-bg-color));
   --background: var(--tg-theme-bg-color);
   --foreground: var(--tg-theme-text-color);
   --card: var(--tg-theme-section-bg-color, var(--tg-theme-secondary-bg-color));

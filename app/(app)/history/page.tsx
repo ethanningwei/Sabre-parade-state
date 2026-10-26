@@ -36,14 +36,14 @@ export default async function HistoryPage() {
         <p className="text-sm text-muted-foreground">Every parade state generated, newest first</p>
       </div>
       {rows.length === 0 && (
-        <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+        <div className="rounded-2xl bg-card p-8 text-center text-sm text-muted-foreground">
           Nothing generated yet.
         </div>
       )}
       {[...byDay].map(([day, list]) => (
         <section key={day} className="flex flex-col gap-2">
-          <h2 className="px-1 text-sm font-medium text-muted-foreground">{ddmmyy(day)}</h2>
-          <ul className="flex flex-col divide-y rounded-xl border bg-card">
+          <h2 className="px-1 text-[0.8125rem] font-medium tracking-wide text-muted-foreground uppercase">{ddmmyy(day)}</h2>
+          <ul className="flex flex-col divide-y overflow-hidden rounded-2xl bg-card">
             {list.map((r) => {
               const strength = /^Total Strength: (.+)$/m.exec(r.text)?.[1];
               return (

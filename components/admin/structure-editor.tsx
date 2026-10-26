@@ -49,7 +49,7 @@ export function StructureEditor({ subunits }: { subunits: Sub[] }) {
   return (
     <div className="flex flex-col gap-4">
       {subunits.map((s, si) => (
-        <section key={s.id} className="flex flex-col gap-2 rounded-xl border bg-card p-3">
+        <section key={s.id} className="flex flex-col gap-2 rounded-2xl bg-card p-3">
           <div className="flex items-center gap-1">
             <p className="flex-1 font-semibold">
               {s.name}

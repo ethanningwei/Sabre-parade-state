@@ -65,8 +65,8 @@ export default async function OverviewPage() {
         href="/parade"
         className={
           issues.length
-            ? "flex items-center gap-3 rounded-xl border border-issue/30 bg-issue/10 p-4 text-sm"
-            : "flex items-center gap-3 rounded-xl border border-present/30 bg-present/10 p-4 text-sm"
+            ? "flex items-center gap-3 rounded-2xl border border-issue/30 bg-issue/10 p-4 text-sm"
+            : "flex items-center gap-3 rounded-2xl border border-present/30 bg-present/10 p-4 text-sm"
         }
       >
         {issues.length ? (
@@ -86,7 +86,7 @@ export default async function OverviewPage() {
       </Link>
 
       <section className="flex flex-col gap-3">
-        <h2 className="px-1 text-sm font-medium text-muted-foreground">{phase === "ROT" ? "Platoons and sections" : "Subunits"}</h2>
+        <h2 className="px-1 text-[0.8125rem] font-medium tracking-wide text-muted-foreground uppercase">{phase === "ROT" ? "Platoons and sections" : "Subunits"}</h2>
         {state.subunits.map((s) => {
           // ROT (mockup 11): each platoon lists its sections, with their SC and who's away
           if (phase === "ROT") {

@@ -108,7 +108,7 @@ export function ParadeGenerator({
         <p className="text-sm text-muted-foreground">Checks everything first. Only a clean state can be generated.</p>
       </div>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,7.5rem)] items-end gap-3 rounded-xl border bg-card p-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,7.5rem)] items-end gap-3 rounded-2xl bg-card p-3">
         <div className="flex min-w-0 flex-col gap-1.5">
           <Label className="text-xs text-muted-foreground">CAA date</Label>
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-11" />
@@ -125,7 +125,7 @@ export function ParadeGenerator({
       </Button>
 
       {issues.length > 0 && (
-        <section className="flex flex-col gap-3 rounded-xl border border-issue/30 bg-issue/5 p-4">
+        <section className="flex flex-col gap-3 rounded-2xl border border-issue/30 bg-issue/5 p-4">
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 size-5 shrink-0 text-issue" />
             <div>
@@ -138,7 +138,7 @@ export function ParadeGenerator({
           {groups.map((g) => (
             <div key={g.scope} className="flex flex-col gap-1">
               <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{g.scope}</p>
-              <ul className="flex flex-col divide-y overflow-hidden rounded-lg border bg-card">
+              <ul className="flex flex-col divide-y overflow-hidden rounded-xl bg-card">
                 {g.items.map((i, n) => (
                   <li key={n}>
                     <Link
@@ -181,7 +181,7 @@ export function ParadeGenerator({
               .
             </p>
           )}
-          <pre className="overflow-x-auto rounded-xl border bg-muted/40 p-4 font-sans text-[14px] leading-relaxed whitespace-pre-wrap">
+          <pre className="overflow-x-auto rounded-2xl bg-card p-4 font-sans text-[14px] leading-relaxed whitespace-pre-wrap">
             {result.text}
           </pre>
         </section>

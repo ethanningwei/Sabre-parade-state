@@ -19,7 +19,7 @@ export function BottomNav({ isAdmin, homeSubunitId }: { isAdmin: boolean; homeSu
   ];
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md">
+    <nav className="fixed inset-x-0 bottom-0 z-30 border-t bg-page/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md">
       <ul className="mx-auto flex h-16 max-w-2xl items-stretch justify-around px-2">
         {items.map(({ href, label, icon: Icon, match }) => {
           const active = match(pathname);

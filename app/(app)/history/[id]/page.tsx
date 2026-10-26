@@ -40,7 +40,7 @@ export default async function HistoryItemPage({ params }: PageProps<"/history/[i
         </p>
       </div>
       <CopyButton text={row.ps.text} size="lg" className="h-11" />
-      <pre className="overflow-x-auto rounded-xl border bg-muted/40 p-4 font-sans text-[14px] leading-relaxed whitespace-pre-wrap">
+      <pre className="overflow-x-auto rounded-2xl bg-card p-4 font-sans text-[14px] leading-relaxed whitespace-pre-wrap">
         {row.ps.text}
       </pre>
     </div>

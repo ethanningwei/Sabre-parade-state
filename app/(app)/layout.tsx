@@ -12,7 +12,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="sticky top-0 z-30 border-b bg-background/85 pt-[env(safe-area-inset-top)] backdrop-blur-md">
+      <header className="sticky top-0 z-30 border-b bg-page/85 pt-[env(safe-area-inset-top)] backdrop-blur-md">
         {fromTg && <BackToSabre />}
         <div className="mx-auto flex h-14 w-full max-w-2xl items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-2.5">

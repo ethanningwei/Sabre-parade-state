@@ -138,24 +138,24 @@ export function DutiesView({
       </div>
 
       {duties.length === 0 && (
-        <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+        <div className="rounded-2xl bg-card p-8 text-center text-sm text-muted-foreground">
           Nobody is serving Extra, RF or SOL right now.
         </div>
       )}
 
       {counted.map(({ camp, list }) => (
         <section key={camp.id} className="flex flex-col gap-2">
-          <h2 className="px-1 text-sm font-medium text-muted-foreground">
+          <h2 className="px-1 text-[0.8125rem] font-medium tracking-wide text-muted-foreground uppercase">
             {camp.subunit} › {camp.name}
           </h2>
-          <ul className="flex flex-col divide-y rounded-xl border bg-card">{list.map((d) => row(d, homeName(d)))}</ul>
+          <ul className="flex flex-col divide-y overflow-hidden rounded-2xl bg-card">{list.map((d) => row(d, homeName(d)))}</ul>
         </section>
       ))}
 
       {notCounted.length > 0 && (
         <section className="flex flex-col gap-2">
-          <h2 className="px-1 text-sm font-medium text-muted-foreground">Not counted right now</h2>
-          <ul className="flex flex-col divide-y rounded-xl border border-dashed bg-card/50">
+          <h2 className="px-1 text-[0.8125rem] font-medium tracking-wide text-muted-foreground uppercase">Not counted right now</h2>
+          <ul className="flex flex-col divide-y overflow-hidden rounded-2xl border border-dashed bg-card/50">
             {notCounted.map((d) => row(d, whyNot(d)))}
           </ul>
         </section>

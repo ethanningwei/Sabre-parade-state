@@ -3,21 +3,14 @@
  * reach the v1 screens. Colours come from the theme tokens, which
  * telegram-theme.css maps onto Telegram's --tg-theme-* inside Telegram.
  *
- * Surfaces follow Telegram's own grouped lists: the page is the secondary
- * background and cards are sections on top of it.
+ * Surfaces follow Telegram's own grouped lists: the page is --page (the
+ * secondary background inside Telegram) and cards are sections on top of it.
  */
 .tg-app {
-  --tg-page: oklch(0.965 0.004 258);
   --tg-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  background: var(--tg-page);
+  background: var(--page);
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-}
-.dark .tg-app {
-  --tg-page: var(--background);
-}
-:root.tg-themed .tg-app {
-  --tg-page: var(--tg-theme-secondary-bg-color, var(--background));
 }
 
 /* keyboard focus: visible on every tappable thing, never on a tap */

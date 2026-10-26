@@ -24,7 +24,7 @@ export function SettingsForm(props: {
 
   return (
     <div className="flex flex-col gap-5">
-      <section className="flex flex-col gap-4 rounded-xl border bg-card p-4">
+      <section className="flex flex-col gap-4 rounded-2xl bg-card p-4">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="dn">Display name</Label>
           <Input id="dn" value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="h-11" />
@@ -71,7 +71,7 @@ export function SettingsForm(props: {
         </Button>
       </section>
 
-      <section className="flex flex-col gap-3 rounded-xl border bg-card p-4">
+      <section className="flex flex-col gap-3 rounded-2xl bg-card p-4">
         <p className="font-medium">Test the connection</p>
         {!props.tokenSet ? (
           <p className="text-sm text-muted-foreground">

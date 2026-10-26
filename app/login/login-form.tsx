@@ -24,7 +24,7 @@ export function LoginForm() {
           autoComplete="name"
           autoCapitalize="characters"
           required
-          className="h-12 text-base uppercase"
+          className="h-12 rounded-xl bg-card text-base uppercase dark:bg-card"
         />
         <p className="text-xs text-muted-foreground">Shown against every change you make.</p>
       </div>
@@ -36,7 +36,7 @@ export function LoginForm() {
           type="password"
           autoComplete="current-password"
           required
-          className="h-12 text-base"
+          className="h-12 rounded-xl bg-card text-base dark:bg-card"
         />
       </div>
       {state.error && (
