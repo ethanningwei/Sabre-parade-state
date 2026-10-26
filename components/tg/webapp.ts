@@ -19,6 +19,19 @@ export interface TelegramWebApp {
   isVersionAtLeast?(version: string): boolean;
   setHeaderColor?(color: "bg_color" | "secondary_bg_color" | `#${string}`): void;
   setBackgroundColor?(color: "bg_color" | "secondary_bg_color" | `#${string}`): void;
+  /** Telegram's own button at the bottom of the Mini App, outside the page (6.0+). */
+  MainButton?: {
+    isVisible: boolean;
+    setText(text: string): void;
+    show(): void;
+    hide(): void;
+    enable(): void;
+    disable(): void;
+    showProgress(leaveActive?: boolean): void;
+    hideProgress(): void;
+    onClick(cb: () => void): void;
+    offClick(cb: () => void): void;
+  };
   HapticFeedback?: {
     notificationOccurred(type: "error" | "success" | "warning"): void;
     impactOccurred(style: "light" | "medium" | "heavy" | "rigid" | "soft"): void;
@@ -47,3 +60,9 @@ export const tap = () => haptics()?.impactOccurred("light");
 export const buzzSuccess = () => haptics()?.notificationOccurred("success");
 /** Something refused or failed. */
 export const buzzError = () => haptics()?.notificationOccurred("error");
+
+/** Telegram's MainButton, inside Telegram only (a browser keeps the page's own button). */
+export const mainButton = () => {
+  const app = webApp();
+  return app?.initData ? app.MainButton : undefined;
+};

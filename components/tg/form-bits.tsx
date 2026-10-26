@@ -7,6 +7,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import type { ActionResult } from "@/lib/actions/shared";
 import { bigButtonClass } from "./ui";
+import { useMainButton } from "./use-main-button";
 import { buzzError, buzzSuccess, tick } from "./webapp";
 
 export { bigButtonClass, fieldClass, inputClass, textareaClass } from "./ui";
@@ -63,9 +64,16 @@ export function ErrorBox({ error }: { error: string | null }) {
   );
 }
 
+/**
+ * A step's main action. Inside Telegram it's Telegram's own MainButton (above
+ * the keyboard, never scrolled away); this button stays in the form, visually
+ * hidden, so Enter and the MainButton both submit through it.
+ */
 export function Submit({ pending, disabled, children }: { pending: boolean; disabled?: boolean; children: React.ReactNode }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const native = useMainButton(ref, { pending, disabled: !!disabled });
   return (
-    <Button type="submit" size="lg" className={bigButtonClass} disabled={pending || disabled} aria-busy={pending}>
+    <Button ref={ref} type="submit" size="lg" className={native ? "sr-only" : bigButtonClass} disabled={pending || disabled} aria-busy={pending}>
       {pending && <Loader2 className="animate-spin" />}
       {children}
     </Button>
