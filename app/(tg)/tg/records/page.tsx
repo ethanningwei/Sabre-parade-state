@@ -5,6 +5,7 @@ import { HistoryToggle } from "@/components/tg/history-toggle";
 import { NotOnRoster } from "@/components/tg/not-on-roster";
 import { RecordActions } from "@/components/tg/record-actions";
 import { RecordSummary } from "@/components/tg/record-summary";
+import { RecordsCalendar } from "@/components/tg/records-calendar";
 import { bigButtonClass, EmptyState } from "@/components/tg/ui";
 import { buttonVariants } from "@/components/ui/button";
 import { requireFeaturePage } from "@/lib/flags";
@@ -12,6 +13,7 @@ import { requireRegistered } from "@/lib/wb/auth";
 import { outcomeOrder } from "@/lib/wb/domain/describe";
 import { recordAccess } from "@/lib/wb/domain/access";
 import { awaitsOutcome, isCurrent, nestOutcomes } from "@/lib/wb/domain/rules";
+import { todaySgt } from "@/lib/wb/domain/timeline";
 import { rosterSelf } from "@/lib/wb/me";
 import { recordsOfPerson } from "@/lib/wb/records";
 
@@ -19,20 +21,25 @@ import { recordsOfPerson } from "@/lib/wb/records";
 // one tap away. Withdraw what's pending. What a doctor gave sits under the
 // visit it came from, so one afternoon reads as one card; a corrected or
 // voided outcome isn't repeated.
-export default async function MyRecordsPage({ searchParams }: { searchParams: Promise<{ all?: string | string[] }> }) {
+export default async function MyRecordsPage({ searchParams }: { searchParams: Promise<{ all?: string | string[]; month?: string | string[] }> }) {
   await requireFeaturePage();
   const member = await requireRegistered();
   const me = await rosterSelf(member);
   if (!me) return <NotOnRoster />;
-  const all = (await searchParams).all === "1";
-  const { top, under } = nestOutcomes(await recordsOfPerson(me.personId));
+  const params = await searchParams;
+  const all = params.all === "1";
+  const mine = await recordsOfPerson(me.personId);
+  const { top, under } = nestOutcomes(mine);
   for (const kids of under.values()) outcomeOrder(kids);
   const now = new Date();
   const records = all ? top : top.filter((r) => isCurrent(r, under.get(r.id) ?? [], now));
+  const today = todaySgt(now);
+  const month = typeof params.month === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(params.month) ? params.month : today.slice(0, 7);
 
   return (
     <div className="flex flex-col gap-4">
       <Header title={all ? "Full history" : "My records"} hint={`You have ${member.leaveLeft ?? 0} days of leave left.`} />
+      {top.length > 0 && <RecordsCalendar records={mine} month={month} today={today} href={(m) => `/tg/records?${all ? "all=1&" : ""}month=${m}`} />}
       <Link href="/tg/apply/outcome" className="tg-enter flex min-h-14 items-center gap-3 rounded-2xl border border-dashed border-muted-foreground/30 px-4 py-3 text-sm transition-colors duration-150 active:bg-muted">
         <FileHeart className="size-5 shrink-0 text-primary" aria-hidden />
         <span className="flex-1">
