@@ -1,6 +1,7 @@
-import { ClipboardCheck, CloudCheck } from "lucide-react";
+import { CloudCheck } from "lucide-react";
 import Link from "next/link";
 import { Header } from "@/components/tg/form-bits";
+import { InboxZero } from "@/components/tg/inbox-zero";
 import { OnensButton } from "@/components/tg/onens-button";
 import { RecordActions } from "@/components/tg/record-actions";
 import { RecordSummary } from "@/components/tg/record-summary";
@@ -9,7 +10,7 @@ import { requireFeaturePage } from "@/lib/flags";
 import { requireScreenPage } from "@/lib/wb/auth";
 import { recordWhat } from "@/lib/wb/domain/describe";
 import { recordAccess } from "@/lib/wb/domain/access";
-import { onensOwedFor, pendingFor } from "@/lib/wb/records";
+import { decidedToday, onensOwedFor, pendingFor } from "@/lib/wb/records";
 
 // Inbox: what's waiting on this commander, as two tabs (it replaces Approvals
 // and ONENS owed, 2026-10-16).
@@ -22,7 +23,7 @@ import { onensOwedFor, pendingFor } from "@/lib/wb/records";
 export default async function InboxPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[] }> }) {
   await requireFeaturePage();
   const member = await requireScreenPage("inbox");
-  const [pending, owed] = await Promise.all([pendingFor(member), onensOwedFor(member.grants)]);
+  const [pending, owed, decided] = await Promise.all([pendingFor(member), onensOwedFor(member.grants), decidedToday(member.id)]);
   const asked = (await searchParams).tab;
   const onens = asked === "onens" || (asked !== "approvals" && pending.length === 0 && owed.length > 0);
 
@@ -58,7 +59,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
           ))
         )
       ) : pending.length === 0 ? (
-        <EmptyState icon={<ClipboardCheck />} title="Nothing waiting on you." />
+        <InboxZero decided={decided} />
       ) : (
         pending.map((r, i) => (
           <RecordSummary key={r.id} r={r} i={i} showWho href={`/tg/records/${r.id}`}>

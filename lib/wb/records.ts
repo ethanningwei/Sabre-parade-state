@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, getTableColumns, gt, inArray, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, gte, inArray, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import { camp, duty, person, subunit } from "@/lib/db/schema";
@@ -8,7 +8,7 @@ import { manAccess, recordAccess, type GrantRow, type Viewer } from "@/lib/wb/do
 import { outcomeOrder } from "@/lib/wb/domain/describe";
 import type { WbRole } from "@/lib/wb/domain/roles";
 import { DEAD_STATES, REPORTED_KINDS, STANDING_STATES, visitFamily, type WbRecordKind } from "@/lib/wb/domain/rules";
-import type { Range } from "@/lib/wb/domain/timeline";
+import { dayRange, todaySgt, type Range } from "@/lib/wb/domain/timeline";
 import { wbAssignment, wbGrant, wbMember, wbRecord } from "@/lib/wb/db/schema";
 
 // Read models for the timeline: one record with who it's about, a person's
@@ -162,6 +162,13 @@ export async function childrenOf(parentIds: readonly string[], tx: Db = db): Pro
 export async function pendingFor(viewer: Viewer): Promise<RecordView[]> {
   const rows = await views(db, eq(wbRecord.state, "PENDING")).orderBy(asc(wbRecord.createdAt));
   return rows.map(toView).filter((r) => recordAccess(viewer, r).decide);
+}
+
+/** What this member decided today (SGT), newest first: Inbox's "all caught up". */
+export async function decidedToday(memberId: string, now: Date = new Date()): Promise<RecordView[]> {
+  const since = dayRange(todaySgt(now)).startAt;
+  const rows = await views(db, and(eq(wbRecord.decidedBy, memberId), gte(wbRecord.decidedAt, since), inArray(wbRecord.state, ["APPROVED", "REJECTED"]))).orderBy(desc(wbRecord.decidedAt));
+  return rows.map(toView);
 }
 
 /** MCs still owed on ONENS that this member decides for, oldest first. */
