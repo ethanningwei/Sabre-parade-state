@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { PART_LABEL, STRENGTH_PARTS, type Strength, type StrengthPart } from "@/lib/status";
+import { CountUp } from "@/components/count-up";
 
 const PART_STROKE: Record<StrengthPart, string> = {
   present: "stroke-present",
@@ -54,7 +55,7 @@ export function StrengthDial({ strength, present }: { strength: Strength; presen
           ))}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center" aria-hidden>
-          <span className="count-up font-mono text-4xl/none font-semibold tracking-tight tabular-nums" style={{ "--to": present } as React.CSSProperties} />
+          <CountUp value={present} className="font-mono text-4xl/none font-semibold tracking-tight tabular-nums" />
           <span className="mt-1 font-mono text-xs text-muted-foreground tabular-nums">of {strength.total}</span>
         </div>
       </div>

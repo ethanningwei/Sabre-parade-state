@@ -15,6 +15,7 @@ import { setStatus } from "@/lib/actions/attendance";
 import type { DutyType, IssueCode, SnapshotPerson } from "@/lib/parade/types";
 import { absenceSummary, type Strength } from "@/lib/status";
 import { cn } from "@/lib/utils";
+import { CountUp } from "@/components/count-up";
 
 type Filter = "all" | "absent" | "present" | "issues";
 const FILTER_DOT: Record<Exclude<Filter, "all">, string> = { absent: "bg-absent", present: "bg-present", issues: "bg-issue" };
@@ -118,7 +119,7 @@ export function CampRoster({
           </p>
         </div>
         <p className="font-mono text-2xl font-semibold tabular-nums">
-          {present}
+          <CountUp value={present} />
           <span className="text-base text-muted-foreground">/{total}</span>
         </p>
       </div>

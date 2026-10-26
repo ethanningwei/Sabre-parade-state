@@ -12,6 +12,7 @@ import { ABSENCE_TYPES, computeCoy, currentCaa, ddmmyy, validate, type CampState
 import { formatSgt } from "@/lib/format";
 import { addStrengths, strengthOf } from "@/lib/status";
 import { cn } from "@/lib/utils";
+import { CountUp } from "@/components/count-up";
 
 /** "1 OL · 1 MC", or "All in": ROT's line per section (mockup 11). */
 function absenceSummary(camps: CampState[]): string {
@@ -100,7 +101,7 @@ export default async function OverviewPage() {
                       {s.subunit.isHq && <span className="text-xs text-muted-foreground">{absenceSummary(s.camps)}</span>}
                     </span>
                     <span className="font-mono text-lg font-semibold tabular-nums">
-                      {s.present}
+                      <CountUp value={s.present} />
                       <span className="text-sm text-muted-foreground">/{s.total}</span>
                     </span>
                   </div>
@@ -151,7 +152,7 @@ export default async function OverviewPage() {
                     {mine && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">Yours</span>}
                   </div>
                   <span className="font-mono text-lg font-semibold tabular-nums">
-                    {s.present}
+                    <CountUp value={s.present} />
                     <span className="text-sm text-muted-foreground">/{s.total}</span>
                   </span>
                 </div>

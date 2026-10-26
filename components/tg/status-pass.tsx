@@ -4,6 +4,7 @@ import { StateChip } from "@/components/tg/record-summary";
 import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
 import type { WbRecordKind } from "@/lib/wb/domain/rules";
 import type { RecordView } from "@/lib/wb/records";
+import { CountUp } from "@/components/count-up";
 
 // The parts v1's strength bars use: medical, leave and off, others; present when there's no record.
 const KIND_PART: Record<WbRecordKind, "medical" | "leave" | "others"> = {
@@ -69,7 +70,7 @@ export function StatusPass({
       </span>
       {leaveLeft !== null && (
         <span className="flex shrink-0 flex-col items-center rounded-xl bg-page px-3 py-1.5">
-          <span className="font-mono text-xl/tight font-semibold tabular-nums">{leaveLeft}</span>
+          <CountUp value={leaveLeft} className="font-mono text-xl/tight font-semibold tabular-nums" />
           <span className="text-[0.6875rem] text-muted-foreground">days&apos; leave</span>
         </span>
       )}

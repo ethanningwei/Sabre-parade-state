@@ -8,6 +8,7 @@ import { canEditSubunit, requireViewer } from "@/lib/authz";
 import { currentParade } from "@/lib/data/current";
 import { computeCoy, currentCaa, validate } from "@/lib/parade";
 import { strengthOf } from "@/lib/status";
+import { CountUp } from "@/components/count-up";
 
 export default async function SubunitPage({ params }: PageProps<"/s/[subunitId]">) {
   const { subunitId } = await params;
@@ -30,7 +31,7 @@ export default async function SubunitPage({ params }: PageProps<"/s/[subunitId]"
           <p className="text-sm text-muted-foreground">{canEdit ? `Tap a ${phase === "ROT" ? "section" : "camp"} to update attendance` : "View only"}</p>
         </div>
         <p className="font-mono text-2xl font-semibold tabular-nums">
-          {state.present}
+          <CountUp value={state.present} />
           <span className="text-base text-muted-foreground">/{state.total}</span>
         </p>
       </div>
