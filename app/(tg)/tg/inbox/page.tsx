@@ -5,6 +5,7 @@ import { InboxZero } from "@/components/tg/inbox-zero";
 import { OnensButton } from "@/components/tg/onens-button";
 import { RecordActions } from "@/components/tg/record-actions";
 import { RecordSummary } from "@/components/tg/record-summary";
+import { SwipeToDecide } from "@/components/tg/swipe-to-decide";
 import { EmptyState, enter, Segmented } from "@/components/tg/ui";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireScreenPage } from "@/lib/wb/auth";
@@ -31,7 +32,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
     <div className="flex flex-col gap-4">
       <Header
         title="Inbox"
-        hint={onens ? (owed.length ? `${owed.length} still to upload, oldest first.` : undefined) : pending.length ? `${pending.length} waiting, oldest first.` : undefined}
+        hint={onens ? (owed.length ? `${owed.length} still to upload, oldest first.` : undefined) : pending.length ? `${pending.length} waiting, oldest first. Swipe right to approve, left to reject.` : undefined}
       />
       <Segmented
         label="Inbox"
@@ -61,11 +62,21 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
       ) : pending.length === 0 ? (
         <InboxZero decided={decided} />
       ) : (
-        pending.map((r, i) => (
-          <RecordSummary key={r.id} r={r} i={i} showWho href={`/tg/records/${r.id}`}>
-            <RecordActions recordId={r.id} can={recordAccess(member, r)} />
-          </RecordSummary>
-        ))
+        pending.map((r, i) => {
+          const can = recordAccess(member, r);
+          const card = (
+            <RecordSummary r={r} i={i} showWho href={`/tg/records/${r.id}`}>
+              <RecordActions recordId={r.id} can={can} />
+            </RecordSummary>
+          );
+          return can.decide ? (
+            <SwipeToDecide key={r.id} recordId={r.id} label={`${r.rank} ${r.name}`.trim()}>
+              {card}
+            </SwipeToDecide>
+          ) : (
+            <div key={r.id}>{card}</div>
+          );
+        })
       )}
     </div>
   );
