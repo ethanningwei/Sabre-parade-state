@@ -2,14 +2,14 @@ import { ArrowLeftRight, Bus, Car, CalendarPlus, CalendarRange, Contact, History
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { NeedsYou } from "@/components/tg/needs-you";
+import { StatusPass } from "@/components/tg/status-pass";
 import { ParadeStateTile } from "@/components/tg/parade-state-tile";
-import { StateChip } from "@/components/tg/record-summary";
 import { Tile } from "@/components/tg/tile";
 import { Group } from "@/components/tg/ui";
 import { isEnabled, requireFeaturePage } from "@/lib/flags";
+import { toSgt } from "@/lib/parade/time";
 import { getMember, type GrantRow } from "@/lib/wb/auth";
 import { companyOnly, screens } from "@/lib/wb/domain/access";
-import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
 import type { GridRow } from "@/lib/wb/domain/forecast";
 import { needsYou } from "@/lib/wb/domain/needs-you";
 import { isWaiting } from "@/lib/wb/domain/roster-flow";
@@ -64,7 +64,7 @@ export default async function TgHome() {
       <header className="tg-enter flex flex-col gap-0.5 px-1">
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 flex-col gap-0.5">
-            <p className="text-sm text-muted-foreground">Signed in as</p>
+            <p className="text-sm text-muted-foreground">{greeting(now)}</p>
             <h1 className="text-[1.625rem] leading-tight font-semibold tracking-tight">
               {me.rank} {me.name}
             </h1>
@@ -89,10 +89,9 @@ export default async function TgHome() {
       <NeedsYou lines={needs} />
 
       {self && (
-        <section className="tg-enter grid grid-cols-2 gap-2.5" style={{ "--i": 1 } as React.CSSProperties}>
-          <Slot label="Now" r={current} empty="Present" />
-          <Slot label="Next" r={next} empty="Nothing coming up" />
-        </section>
+        <div className="tg-enter" style={{ "--i": 1 } as React.CSSProperties}>
+          <StatusPass current={current} next={next} campName={self.campName} leaveLeft={member.leaveLeft ?? null} />
+        </div>
       )}
 
       {duties.length > 0 && (
@@ -111,30 +110,32 @@ export default async function TgHome() {
       <nav className="tg-enter flex flex-col gap-6" style={{ "--i": 2 } as React.CSSProperties}>
         {self && (
           <Group title="You" rows>
-            <Tile href="/tg/apply" icon={<CalendarPlus />} title="Apply or report" hint={`Report sick, MC, leave, off, MA, courses · ${member.leaveLeft ?? 0} days of leave left`} />
-            <Tile href="/tg/records" icon={<ListChecks />} title="My records" hint="Everything you've applied for and reported" />
-            {isEnabled("CLAIMS") && self && <Tile href="/tg/claims" icon={<Car />} title="Transport claims" hint="Ask before the trip; see what the OC decided" />}
+            <Tile href="/tg/apply" tone="blue" icon={<CalendarPlus />} title="Apply or report" hint={`Report sick, MC, leave, off, MA, courses · ${member.leaveLeft ?? 0} days of leave left`} />
+            <Tile href="/tg/records" tone="indigo" icon={<ListChecks />} title="My records" hint="Everything you've applied for and reported" />
+            {isEnabled("CLAIMS") && self && <Tile href="/tg/claims" tone="teal" icon={<Car />} title="Transport claims" hint="Ask before the trip; see what the OC decided" />}
           </Group>
         )}
         {commands && (
           <Group title="Commander" rows>
-            {parade && <ParadeStateTile />}
+            {parade && <ParadeStateTile tone="green" />}
             {manpower && (
               <Tile
                 href="/tg/manpower"
+                tone="violet"
                 icon={<CalendarRange />}
                 title="Manpower"
                 hint={rot ? "Who's in and who's away by section, the next 14 days" : "Who's on shift and who's away, today and the next 14 days"}
               />
             )}
-            {decides && <Tile href="/tg/inbox" icon={<Inbox />} title="Inbox" badge={pending.length + owed.length} hint={inboxHint(pending, owed.length, now)} />}
-            {hoto && <Tile href="/tg/hoto" icon={<ArrowLeftRight />} title="HOTO" hint="Log a handover" />}
-            {rf && <Tile href="/tg/rf" icon={<Bus />} title="RF and duties" badge={openRf.length} hint={rfHint(openRf.map((r) => r.campName))} />}
-            {sees.people && <Tile href="/tg/people" icon={<History />} title="Person history" hint="Anyone's records; void a mistake" />}
-            {sees.add && <Tile href="/tg/add" icon={<UsersRound />} title="Add for several men" hint="A course or duty they've been detailed for" />}
+            {decides && <Tile href="/tg/inbox" tone="red" icon={<Inbox />} title="Inbox" badge={pending.length + owed.length} hint={inboxHint(pending, owed.length, now)} />}
+            {hoto && <Tile href="/tg/hoto" tone="orange" icon={<ArrowLeftRight />} title="HOTO" hint="Log a handover" />}
+            {rf && <Tile href="/tg/rf" tone="pink" icon={<Bus />} title="RF and duties" badge={openRf.length} hint={rfHint(openRf.map((r) => r.campName))} />}
+            {sees.people && <Tile href="/tg/people" tone="slate" icon={<History />} title="Person history" hint="Anyone's records; void a mistake" />}
+            {sees.add && <Tile href="/tg/add" tone="blue" icon={<UsersRound />} title="Add for several men" hint="A course or duty they've been detailed for" />}
             {roster && (
               <Tile
                 href="/tg/roster"
+                tone="teal"
                 icon={<Contact />}
                 title="Roster"
                 badge={waiting}
@@ -146,35 +147,6 @@ export default async function TgHome() {
         {commands && rot && (sees.hoto || sees.rf) && <p className="-mt-3 px-1 text-xs text-muted-foreground">Shifts, HOTO, RF and duties are hidden in ROT.</p>}
       </nav>
     </div>
-  );
-}
-
-function Slot({ label, r, empty }: { label: string; r: RecordView | null; empty: string }) {
-  const inner = (
-    <>
-      <span className="text-[0.6875rem] font-semibold tracking-wider text-muted-foreground uppercase">{label}</span>
-      {r ? (
-        <>
-          <span className="leading-snug font-semibold">{KIND_LABEL[r.kind]}</span>
-          <span className="text-xs leading-snug text-muted-foreground">{recordWhat(r)}</span>
-          {r.state === "PENDING" && (
-            <span className="mt-auto pt-1">
-              <StateChip state={r.state} />
-            </span>
-          )}
-        </>
-      ) : (
-        <span className="leading-snug font-semibold">{empty}</span>
-      )}
-    </>
-  );
-  const cls = "flex min-h-26 flex-col gap-1 rounded-2xl bg-card p-3.5";
-  return r ? (
-    <Link href={`/tg/records/${r.id}`} className={`${cls} tg-press active:bg-muted`}>
-      {inner}
-    </Link>
-  ) : (
-    <div className={cls}>{inner}</div>
   );
 }
 
@@ -204,4 +176,10 @@ function rfHint(camps: readonly string[]): string {
   const names = [...new Set(camps)];
   if (!names.length) return "Camps short of men; ask, deploy, or assign Extra, RF or SOL";
   return `${names.length <= 2 ? names.join(" and ") : `${names[0]} +${names.length - 1}`} asking for men`;
+}
+
+/** "Good morning": by the hour in Singapore. */
+function greeting(now: Date): string {
+  const hour = Number(toSgt(now).time.slice(0, 2));
+  return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 }

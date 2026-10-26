@@ -4,6 +4,7 @@ import { ChevronRight, Loader2, NotebookText } from "lucide-react";
 import { useState } from "react";
 import { openParadeState } from "@/lib/wb/actions/parade";
 import { ErrorBox, useAction } from "./form-bits";
+import { tileIconClass, type TileTone } from "./tile";
 
 /**
  * Signs them in to the v1 web app by name, then loads `to` (a v1 screen) in
@@ -24,7 +25,7 @@ function useOpenParadeState(to: string) {
 }
 
 /** Home's and Admin's "Parade state": a Tile-shaped button onto v1's Overview. */
-export function ParadeStateTile() {
+export function ParadeStateTile({ tone }: { tone?: TileTone }) {
   const { busy, error, open } = useOpenParadeState("/");
   return (
     <>
@@ -34,7 +35,7 @@ export function ParadeStateTile() {
         onClick={open}
         className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left transition-colors duration-150 active:bg-muted disabled:opacity-100"
       >
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary [&_svg]:size-[18px]" aria-hidden>
+        <span className={tileIconClass(tone)} aria-hidden>
           <NotebookText />
         </span>
         <span className="flex min-w-0 flex-1 flex-col">
