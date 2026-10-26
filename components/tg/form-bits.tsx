@@ -7,7 +7,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import type { ActionResult } from "@/lib/actions/shared";
 import { bigButtonClass } from "./ui";
-import { tick, webApp } from "./webapp";
+import { buzzError, buzzSuccess, tick } from "./webapp";
 
 export { bigButtonClass, fieldClass, inputClass, textareaClass } from "./ui";
 
@@ -36,10 +36,10 @@ export function useAction() {
       const res = await fn();
       if (!res.ok) {
         setError(res.error);
-        webApp()?.HapticFeedback?.notificationOccurred("error");
+        buzzError();
         return;
       }
-      webApp()?.HapticFeedback?.notificationOccurred("success");
+      buzzSuccess();
       onOk(res.data);
     });
   return { pending, error, setError, call };
@@ -260,6 +260,7 @@ export function Choice({ on, onClick, children }: { on: boolean; onClick: () => 
         onClick();
       }}
       aria-pressed={on}
+      data-haptic="own"
       className={`tg-press flex min-h-12 items-center gap-2 rounded-xl border px-3.5 text-left ${on ? "border-primary bg-primary/10 font-medium" : "border-border bg-card active:bg-muted"}`}
     >
       <span className="flex flex-1 items-center gap-2">{children}</span>

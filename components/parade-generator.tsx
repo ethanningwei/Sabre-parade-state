@@ -3,7 +3,8 @@
 import { AlertTriangle, ChevronRight, Loader2, RefreshCw, Send } from "lucide-react";
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
+import { buzzSuccess } from "@/components/tg/webapp";
 import { CopyButton } from "@/components/copy-button";
 import {
   AlertDialog,
@@ -73,6 +74,7 @@ export function ParadeGenerator({
       if (!res.ok) return void toast.error(res.error);
       if ("id" in res.data) {
         setIssues([]);
+        buzzSuccess();
         setResult({ id: res.data.id, text: res.data.text, caa: `${ddmmyy(caa.date)} ${caa.time}H` });
       } else {
         setIssues(res.data.issues);

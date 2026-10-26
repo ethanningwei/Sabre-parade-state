@@ -11,7 +11,7 @@ import { TAKEN_MESSAGE } from "@/lib/wb/domain/registration";
 import { place } from "@/lib/wb/format";
 import { RANKS, rolesFor } from "@/lib/wb/domain/roles";
 import type { SubunitWithCamps } from "@/lib/wb/roster";
-import { webApp } from "./webapp";
+import { buzzError, buzzSuccess } from "./webapp";
 import { bigButtonClass, fieldClass, inputClass } from "./ui";
 
 type Details = RegisterInput["details"];
@@ -40,7 +40,7 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
 
   const fail = (msg: string) => {
     setError(msg);
-    webApp()?.HapticFeedback?.notificationOccurred("error");
+    buzzError();
   };
   const go = (s: Step) => {
     setError(null);
@@ -163,7 +163,7 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
             start(async () => {
               const res = await register({ personId: step.personId, self: step.self, details });
               if (!res.ok) return fail(res.error);
-              webApp()?.HapticFeedback?.notificationOccurred("success");
+              buzzSuccess();
               router.replace("/tg");
               router.refresh();
             })

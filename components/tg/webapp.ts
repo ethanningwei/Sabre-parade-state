@@ -31,5 +31,19 @@ export function webApp(): TelegramWebApp | null {
   return (window as unknown as { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp ?? null;
 }
 
-/** A light tick when an answer is picked. Telegram only; a browser does nothing. */
-export const tick = () => webApp()?.HapticFeedback?.selectionChanged();
+// Haptics, inside Telegram only: without launch data (a plain browser, or /tg
+// opened outside Telegram) there's nothing to buzz, and telegram-web-app.js
+// would only warn that it's unsupported.
+const haptics = () => {
+  const app = webApp();
+  return app?.initData ? app.HapticFeedback : undefined;
+};
+
+/** A light tick when an answer is picked. */
+export const tick = () => haptics()?.selectionChanged();
+/** A light tap on any button or link (see useTapHaptics). */
+export const tap = () => haptics()?.impactOccurred("light");
+/** Something saved. */
+export const buzzSuccess = () => haptics()?.notificationOccurred("success");
+/** Something refused or failed. */
+export const buzzError = () => haptics()?.notificationOccurred("error");

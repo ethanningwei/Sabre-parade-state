@@ -6,6 +6,7 @@ import Script from "next/script";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { v1BackLeaves } from "@/lib/wb/domain/parade-links";
+import { useTapHaptics } from "./use-tap-haptics";
 import { webApp } from "./webapp";
 
 // Telegram's chrome on the v1 web app, for a session started by the Mini App's
@@ -27,6 +28,7 @@ export function BackToSabre() {
   const onReady = useCallback(() => setInTelegram(!!webApp()?.initData), []);
   const onError = useCallback(() => setInTelegram(false), []);
   const pathname = usePathname();
+  useTapHaptics(!!inTelegram);
 
   useEffect(() => {
     const app = webApp();

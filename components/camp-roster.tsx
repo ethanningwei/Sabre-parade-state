@@ -3,7 +3,7 @@
 import { AlertTriangle, CheckCheck, ListChecks, Moon, Search, X } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { ShiftToggle } from "@/components/shift-toggle";
 import { StatusAvatar, StatusChip } from "@/components/status-chip";
 import { StrengthBar } from "@/components/strength-bar";

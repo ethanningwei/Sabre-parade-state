@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Logo } from "@/components/logo";
 import { startParamToPath } from "@/lib/wb/telegram/links";
+import { useTapHaptics } from "./use-tap-haptics";
 import { webApp } from "./webapp";
 
 /**
@@ -34,6 +35,7 @@ function TelegramChrome({ signedIn }: { signedIn: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const followed = useRef(false);
+  useTapHaptics();
 
   // A t.me/<bot>/app?startapp=... link (a card's Open) always lands on /tg.
   // Signed out, SignIn follows it after sign-in; signed in, follow it here,

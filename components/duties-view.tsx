@@ -2,7 +2,7 @@
 
 import { AlertTriangle, Info, Loader2, Plus, Search, X } from "lucide-react";
 import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

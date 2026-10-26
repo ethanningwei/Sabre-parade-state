@@ -77,6 +77,7 @@ export function PeopleList({
                   onToggle(p.personId);
                 }}
                 aria-pressed={on}
+                data-haptic="own"
                 className={`flex min-h-13 w-full items-center gap-3 px-4 py-2 text-left transition-colors duration-150 active:bg-muted ${on ? "bg-primary/10" : ""}`}
               >
                 <span className={`flex size-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors duration-150 ${on ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"}`} aria-hidden>

@@ -2,7 +2,7 @@
 
 import { Loader2, Plus, Search, UserMinus } from "lucide-react";
 import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   AlertDialog,
   AlertDialogAction,

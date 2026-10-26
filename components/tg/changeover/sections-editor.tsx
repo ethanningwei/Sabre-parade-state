@@ -128,7 +128,7 @@ export function SectionsEditor({ platoons, sectionId, men, placed, total }: { pl
           {shown.map((m) => {
             const on = picked.has(m.personId);
             return (
-              <button key={m.personId} type="button" role="checkbox" aria-checked={on} onClick={() => toggle(m.personId)} className="tg-press flex min-h-13 w-full items-center gap-3 px-4 py-2 text-left active:bg-muted">
+              <button key={m.personId} type="button" role="checkbox" aria-checked={on} data-haptic="own" onClick={() => toggle(m.personId)} className="tg-press flex min-h-13 w-full items-center gap-3 px-4 py-2 text-left active:bg-muted">
                 <span className={`flex size-[22px] shrink-0 items-center justify-center rounded-md ${on ? "bg-primary text-primary-foreground" : "border-2 border-muted-foreground/40"}`} aria-hidden>
                   {on && <Check className="size-3.5" strokeWidth={3} />}
                 </span>
