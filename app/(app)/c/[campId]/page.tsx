@@ -6,6 +6,7 @@ import { canEditSubunit, requireViewer } from "@/lib/authz";
 import { getReasonSuggestions } from "@/lib/data/reasons";
 import { currentSnapshot } from "@/lib/data/current";
 import { computeCoy, currentCaa, validate } from "@/lib/parade";
+import { strengthOf } from "@/lib/status";
 import { sabreLinksForCamp } from "@/lib/wb/v1-links";
 
 export default async function CampPage({ params, searchParams }: PageProps<"/c/[campId]">) {
@@ -47,6 +48,7 @@ export default async function CampPage({ params, searchParams }: PageProps<"/c/[
         camp={{ id: campState.camp.id, name: campState.camp.name, onShift: campState.onShift }}
         isHq={sub.subunit.isHq}
         present={campState.present}
+        strength={strengthOf([campState], sub.subunit.isHq)}
         total={campState.total}
         people={campState.camp.people}
         issues={issues}

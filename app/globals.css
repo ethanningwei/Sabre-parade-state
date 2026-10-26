@@ -12,6 +12,8 @@
   --color-offshift: var(--offshift);
   --color-duty: var(--duty);
   --color-issue: var(--issue);
+  --color-medical: var(--medical);
+  --color-others: var(--others);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
@@ -71,6 +73,9 @@
   --offshift: oklch(0.6 0.03 258);
   --duty: oklch(0.58 0.16 285);
   --issue: oklch(0.58 0.22 27);
+  /* strength bars and the dial: HL/MC/MA, and OTHERS (leave is --absent) */
+  --medical: oklch(0.6 0.17 15);
+  --others: oklch(0.62 0.11 220);
   --secondary: oklch(0.955 0.006 258);
   --secondary-foreground: oklch(0.21 0.014 258);
   --muted: oklch(0.955 0.006 258);
@@ -112,6 +117,8 @@
   --offshift: oklch(0.68 0.03 258);
   --duty: oklch(0.72 0.14 285);
   --issue: oklch(0.7 0.19 25);
+  --medical: oklch(0.7 0.15 15);
+  --others: oklch(0.72 0.1 220);
   --secondary: oklch(0.275 0.012 258);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.275 0.012 258);
@@ -174,5 +181,40 @@
     select {
       font-size: 0.875rem;
     }
+  }
+}
+
+/* ---------------------------------------------------------------- strength dial */
+/* The dial's number counts up from 0 (a registered integer animates; where
+   @property isn't supported it just shows the number). */
+@property --count {
+  syntax: "<integer>";
+  inherits: false;
+  initial-value: 0;
+}
+.count-up {
+  --count: var(--to);
+  counter-reset: n var(--count);
+}
+.count-up::after {
+  content: counter(n);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .count-up {
+    animation: count-up 700ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  /* each ring segment draws in from nothing */
+  .dial-seg {
+    animation: dial-draw 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
+@keyframes count-up {
+  from {
+    --count: 0;
+  }
+}
+@keyframes dial-draw {
+  from {
+    stroke-dasharray: 0 400;
   }
 }

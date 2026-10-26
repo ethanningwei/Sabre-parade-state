@@ -5,17 +5,19 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { ShiftToggle } from "@/components/shift-toggle";
-import { StatusChip } from "@/components/status-chip";
+import { StatusAvatar, StatusChip } from "@/components/status-chip";
+import { StrengthBar } from "@/components/strength-bar";
 import { StatusSheet } from "@/components/status-sheet";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { setStatus } from "@/lib/actions/attendance";
 import type { DutyType, IssueCode, SnapshotPerson } from "@/lib/parade/types";
-import { absenceSummary } from "@/lib/status";
+import { absenceSummary, type Strength } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 type Filter = "all" | "absent" | "present" | "issues";
+const FILTER_DOT: Record<Exclude<Filter, "all">, string> = { absent: "bg-absent", present: "bg-present", issues: "bg-issue" };
 
 export interface PersonIssue {
   personId: string;
@@ -27,6 +29,7 @@ export function CampRoster({
   camp,
   isHq,
   present,
+  strength,
   total,
   people,
   issues,
@@ -40,6 +43,7 @@ export function CampRoster({
   camp: { id: string; name: string; onShift: boolean };
   isHq: boolean;
   present: number;
+  strength: Strength;
   total: number;
   people: SnapshotPerson[];
   issues: PersonIssue[];
@@ -118,6 +122,7 @@ export function CampRoster({
           <span className="text-base text-muted-foreground">/{total}</span>
         </p>
       </div>
+      <StrengthBar strength={strength} className="mx-1 -mt-2 h-1.5" />
 
       {!camp.onShift && (
         <div className="flex items-start gap-3 rounded-2xl bg-offshift/10 p-3 text-sm">
@@ -169,11 +174,12 @@ export function CampRoster({
               key={key}
               onClick={() => setFilter(key)}
               className={cn(
-                "h-8 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors",
-                filter === key ? "border-primary bg-primary text-primary-foreground" : "bg-card text-muted-foreground",
-                key === "issues" && issueCount > 0 && filter !== key && "border-issue/40 text-issue",
+                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors",
+                filter === key ? "border-primary bg-primary text-primary-foreground" : "border-transparent bg-card text-foreground",
+                key === "issues" && issueCount > 0 && filter !== key && "bg-issue/10 text-issue",
               )}
             >
+              {key !== "all" && <span aria-hidden className={cn("size-2 rounded-full", FILTER_DOT[key], filter === key && "ring-2 ring-primary-foreground/70")} />}
               {label}
             </button>
           ))}
@@ -200,6 +206,7 @@ export function CampRoster({
                 onClick={() => (selecting ? toggle(p.id) : editable ? setSheetFor([p.id]) : undefined)}
                 disabled={!editable && !selecting}
               >
+                <StatusAvatar name={p.name} status={camp.onShift ? (p.absence?.type ?? "PRESENT") : "OFFSHIFT"} overdue={overdue} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[15px] font-medium">
                     <span className="text-muted-foreground">{p.rank || "—"}</span> {p.name}

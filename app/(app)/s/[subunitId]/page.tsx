@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { canEditSubunit, requireViewer } from "@/lib/authz";
 import { currentParade } from "@/lib/data/current";
 import { computeCoy, currentCaa, validate } from "@/lib/parade";
+import { strengthOf } from "@/lib/status";
 
 export default async function SubunitPage({ params }: PageProps<"/s/[subunitId]">) {
   const { subunitId } = await params;
@@ -74,7 +75,7 @@ export default async function SubunitPage({ params }: PageProps<"/s/[subunitId]"
                     <span className="text-muted-foreground">/{c.total}</span>
                   </span>
                 </div>
-                <StrengthBar present={c.present} total={c.total} />
+                <StrengthBar strength={strengthOf([c], state.subunit.isHq)} />
               </Link>
               {/* ROT's sections are always on shift: no toggle (mockup 11) */}
               {!state.subunit.isHq && phase !== "ROT" && (
