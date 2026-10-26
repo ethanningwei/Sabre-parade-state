@@ -3,6 +3,8 @@ import Link from "next/link";
 import { StateChip } from "@/components/tg/record-summary";
 import { KIND_LABEL, recordWhat } from "@/lib/wb/domain/describe";
 import type { WbRecordKind } from "@/lib/wb/domain/rules";
+import { WEEKDAY_NAMES, weekdayOf } from "@/lib/wb/domain/shifts";
+import { dayMonthYear } from "@/lib/wb/domain/timeline";
 import type { RecordView } from "@/lib/wb/records";
 import { CountUp } from "@/components/count-up";
 
@@ -33,12 +35,19 @@ export function StatusPass({
   next,
   campName,
   leaveLeft,
+  ordDate,
+  today,
 }: {
   current: RecordView | null;
   next: RecordView | null;
   campName: string;
   leaveLeft: number | null;
+  /** his ORD, 'YYYY-MM-DD', if he gave it at registration */
+  ordDate: string | null;
+  today: string;
 }) {
+  const toOrd = ordDate ? Math.round((Date.parse(`${ordDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / DAY_MS) : null;
+  const showOrd = toOrd !== null && toOrd >= 0;
   const part = current ? KIND_PART[current.kind] : "present";
   const now = (
     <>
@@ -68,12 +77,6 @@ export function StatusPass({
           <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Approved by {next.deciderLabel}</span>
         )}
       </span>
-      {leaveLeft !== null && (
-        <span className="flex shrink-0 flex-col items-center rounded-xl bg-page px-3 py-1.5">
-          <CountUp value={leaveLeft} className="font-mono text-xl/tight font-semibold tabular-nums" />
-          <span className="text-[0.6875rem] text-muted-foreground">days&apos; leave</span>
-        </span>
-      )}
     </>
   );
 
@@ -99,6 +102,29 @@ export function StatusPass({
       ) : (
         <div className="flex items-center gap-3 px-4 pt-3.5 pb-4">{after}</div>
       )}
+      {(showOrd || leaveLeft !== null) && (
+        <div className="grid auto-cols-fr grid-flow-col divide-x border-t">
+          {showOrd && (
+            <Stat accent value={toOrd!} label={toOrd === 0 ? "It's ORD day" : toOrd === 1 ? "day to ORD" : "days to ORD"}>
+              {WEEKDAY_NAMES[weekdayOf(ordDate!)]} {dayMonthYear(ordDate!)}
+            </Stat>
+          )}
+          {leaveLeft !== null && <Stat value={leaveLeft} label={leaveLeft === 1 ? "day of leave left" : "days of leave left"} />}
+        </div>
+      )}
     </section>
+  );
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** One of the pass's numbers: big, counting up, with what it is under it. */
+function Stat({ value, label, accent, children }: { value: number; label: string; accent?: boolean; children?: React.ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 px-4 pt-3 pb-3.5">
+      <CountUp value={value} className={cn("font-mono text-[1.75rem]/tight font-semibold tracking-tight tabular-nums", accent && "text-primary")} />
+      <span className="text-[0.8125rem] leading-snug text-muted-foreground">{label}</span>
+      {children && <span className="text-xs font-medium text-primary">{children}</span>}
+    </div>
   );
 }

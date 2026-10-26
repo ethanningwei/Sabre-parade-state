@@ -90,7 +90,7 @@ export default async function TgHome() {
 
       {self && (
         <div className="tg-enter" style={{ "--i": 1 } as React.CSSProperties}>
-          <StatusPass current={current} next={next} campName={self.campName} leaveLeft={member.leaveLeft ?? null} />
+          <StatusPass current={current} next={next} campName={self.campName} leaveLeft={member.leaveLeft ?? null} ordDate={member.ordDate ?? null} today={today} />
         </div>
       )}
 
@@ -110,7 +110,7 @@ export default async function TgHome() {
       <nav className="tg-enter flex flex-col gap-6" style={{ "--i": 2 } as React.CSSProperties}>
         {self && (
           <Group title="You" rows>
-            <Tile href="/tg/apply" tone="blue" icon={<CalendarPlus />} title="Apply or report" hint={`Report sick, MC, leave, off, MA, courses · ${member.leaveLeft ?? 0} days of leave left`} />
+            <Tile href="/tg/apply" tone="blue" icon={<CalendarPlus />} title="Apply or report" hint="Report sick, MC, leave, off, MA, courses" />
             <Tile href="/tg/records" tone="indigo" icon={<ListChecks />} title="My records" hint="Everything you've applied for and reported" />
             {isEnabled("CLAIMS") && self && <Tile href="/tg/claims" tone="teal" icon={<Car />} title="Transport claims" hint="Ask before the trip; see what the OC decided" />}
           </Group>
