@@ -121,3 +121,26 @@ export function PageBone({ cards = 3 }: { cards?: number }) {
     </div>
   );
 }
+
+/** A placeholder for a settings-style list: a title, then a card of tile rows. */
+export function ListBone({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="flex flex-col gap-4" aria-busy="true" aria-label="Loading">
+      <div className="flex flex-col gap-2 px-1">
+        <Bone className="h-7 w-40" />
+        <Bone className="h-4 w-56" />
+      </div>
+      <Group rows>
+        {Array.from({ length: rows }, (_, i) => (
+          <div key={i} className="flex min-h-14 items-center gap-3 px-4">
+            <Bone className="size-8 rounded-lg" />
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Bone className="h-4 w-32" />
+              <Bone className="h-3 w-48" />
+            </div>
+          </div>
+        ))}
+      </Group>
+    </div>
+  );
+}
