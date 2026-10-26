@@ -218,3 +218,30 @@
     stroke-dasharray: 0 400;
   }
 }
+
+/* ---------------------------------------------------------------- screen changes */
+/* PageTransition: the old screen fades out, then the new one fades in. Opacity
+   only, so it doesn't fight the Mini App's .tg-enter rise. */
+::view-transition-old(.page-out) {
+  animation: 120ms ease-in both page-fade reverse;
+}
+::view-transition-new(.page-in) {
+  animation: 180ms ease-out 60ms both page-fade;
+}
+@keyframes page-fade {
+  from {
+    opacity: 0;
+  }
+}
+/* taps during the fade reach the new screen */
+::view-transition {
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+}

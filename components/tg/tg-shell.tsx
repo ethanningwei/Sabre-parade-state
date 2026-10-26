@@ -5,6 +5,7 @@ import Script from "next/script";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Logo } from "@/components/logo";
+import { PageTransition } from "@/components/page-transition";
 import { startParamToPath } from "@/lib/wb/telegram/links";
 import { useTapHaptics } from "./use-tap-haptics";
 import { webApp } from "./webapp";
@@ -23,7 +24,7 @@ export function TgShell({ signedIn, children }: { signedIn: boolean; children: R
       {ready && <TelegramChrome signedIn={signedIn} />}
       <div className="tg-app flex min-h-dvh flex-1 flex-col">
         <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col pt-[calc(1rem+env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(2rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]">
-          {signedIn ? children : <SignIn ready={ready} />}
+          {signedIn ? <PageTransition>{children}</PageTransition> : <SignIn ready={ready} />}
         </main>
       </div>
     </>

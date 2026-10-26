@@ -4,6 +4,7 @@ import { currentCoy } from "@/lib/data/current";
 import { BottomNav } from "@/components/bottom-nav";
 import { UserMenu } from "@/components/user-menu";
 import { Logo } from "@/components/logo";
+import { PageTransition } from "@/components/page-transition";
 import { BackToSabre } from "@/components/tg/back-to-sabre";
 import { fromTelegram } from "@/lib/wb/from-telegram";
 
@@ -23,7 +24,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         </div>
       </header>
       <main className="mx-auto w-full max-w-2xl flex-1 px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
-        {children}
+        <PageTransition>{children}</PageTransition>
       </main>
       <BottomNav isAdmin={viewer.role === "admin"} homeSubunitId={viewer.role === "guardcomm" ? viewer.subunitId : null} />
     </div>
