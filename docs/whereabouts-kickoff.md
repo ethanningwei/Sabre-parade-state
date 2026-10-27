@@ -18,7 +18,7 @@ We're building the Sabre whereabouts system one phase at a time. This session is
    - It must stay free: no paid services, crons stay daily.
 5. Use Context7 for grammY, the Telegram Mini App API and Drizzle. Use `node_modules/next/dist/docs/` for Next 16.
 6. Commit in small steps, with `npm test`, `npm run typecheck` and `npm run lint` green each time, and `next build` green before you finish. Add pure tests and DB tests in the style of `tests/wb/claims.db.test.ts`.
-7. The preview is already set up (status §3a, "Preview environment"; the database is `ep-hidden-sea`). Apply the new migration to the Neon preview branch before I push, checking the host (§3a says how). Never touch the production database. Don't push; tell me when to push, then run `npm run wb:setup -- commands` if the command lists changed and `-- status` once the preview is built.
+7. The preview is already set up (status §3a, "Preview environment"; the database is `ep-hidden-sea`). Apply the new migration to the Neon preview branch before pushing, checking the host (§3a says how). Never touch the production database. Push after committing (to `whereabouts` and `main`), then run `npm run wb:setup -- commands` if the command lists changed and `-- status` once the preview is built.
 8. Before finishing:
    - Give me a short checklist of what to test on my phone.
    - Update `docs/whereabouts-status.md`: mark Phase 8's state in §2, update §3a (what exists now), write what comes next into §3b (the plan's "Later" list, or production rollout: merging `whereabouts` into `main` and switching the flags on there, with the claims sheet configured first), and add any new decisions and open questions to §5 and §6.

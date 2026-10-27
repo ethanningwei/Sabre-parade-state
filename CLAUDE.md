@@ -12,5 +12,5 @@
 - `lib/data/snapshot.ts`, `write-coy.ts` and `parse-export.ts` must stay importable from plain Node (the scripts use them): no `server-only`, no Next APIs. Pages use the per-request memo in `lib/data/current.ts`.
 - UI components are shadcn on **Base UI** (the `render` prop, not `asChild`). Check `components/ui/*` before use.
 - Mobile first: large tap targets, bottom sheets for editing, bottom nav. Native `<select>`s must not set `text-sm`, because iOS zooms on focus below 16px.
-- Production: Vercel `sin1` + Neon Singapore. Apply migrations to production **before** pushing code that needs them. **Auto mode blocks `git push`**, so commit and ask the user to push.
+- Production: Vercel `sin1` + Neon Singapore. Apply migrations to production **before** pushing code that needs them. **Push after every commit**, to both branches: `git push origin whereabouts whereabouts:main` (the user asked, 2026-10-27). The one exception: if a commit needs a migration that isn't on production yet, ask to apply it first and push after.
 - Never commit `credentials.json`, `.env*` (except `.env.example`) or `*-export.json`. `.env.production.local` holds only Vercel `[SENSITIVE]` placeholders, apart from the production `DATABASE_URL_UNPOOLED`.

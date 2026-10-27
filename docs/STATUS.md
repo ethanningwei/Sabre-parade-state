@@ -125,7 +125,7 @@ Questions to settle when planning v2:
 ## 6. Working on this repo (gotchas)
 
 - **Parity is sacred.** `npm test` must stay green when touching `lib/parade/render.ts` or `compute.ts`.
-- **Auto mode blocks `git push`.** Commit locally and ask the user to push.
+- **Push after every commit**, to `whereabouts` and `main` (`git push origin whereabouts whereabouts:main`; the user asked, 2026-10-27). If the code needs a migration production lacks, ask to apply it first, then push.
 - **`.env.production.local` has only placeholders.** It holds Vercel's `[SENSITIVE]` placeholders except `DATABASE_URL_UNPOOLED`, which the user filled in (production database).
   - Use it only for imports and migrations against production.
   - `next start` loads it automatically, so override `DATABASE_URL`, `AUTH_SECRET` and `APP_PASSWORD` when running a production build locally.

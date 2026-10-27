@@ -35,7 +35,7 @@
    - They're visible only to the trooper, their PC and PS, and OC, 2IC and CSM.
    - Every read is logged in `wb_audit`.
    - Store only the last 4 of an NRIC.
-8. **Auto mode blocks `git push`.** Commit on `whereabouts` and ask the user to push.
+8. **Push after every commit** to `whereabouts` and `main`: `git push origin whereabouts whereabouts:main` (the user asked, 2026-10-27). If it needs a migration production lacks, ask to apply that first, then push.
 9. **Check library docs:** grammY, the Telegram Mini App API (`initData`) and Drizzle via Context7. Next 16 via `node_modules/next/dist/docs/` (see AGENTS.md).
 
 ---
