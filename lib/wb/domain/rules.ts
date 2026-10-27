@@ -250,7 +250,8 @@ export function awaitsOutcome(r: CurrentRow, children: readonly CurrentRow[]): b
  * standing and not over yet (open-ended counts); still owing something (an
  * outcome to record, an MC to upload to ONENS), itself or through a child;
  * or rejected in the last week, while its dates haven't passed. Withdrawn,
- * voided, corrected and finished records are history.
+ * voided, corrected and finished records are history. A running status
+ * doesn't keep its visit current: it's in the Statuses panel (2026-10-27).
  */
 export function isCurrent(r: CurrentRow, children: readonly CurrentRow[], now: Date): boolean {
   switch (r.state) {
@@ -264,7 +265,7 @@ export function isCurrent(r: CurrentRow, children: readonly CurrentRow[], now: D
         !over(r, now) ||
         r.onens === "OWED" ||
         awaitsOutcome(r, children) ||
-        children.some((c) => STANDING_STATES.includes(c.state) && isCurrent(c, [], now))
+        children.some((c) => c.kind !== "STATUS" && STANDING_STATES.includes(c.state) && isCurrent(c, [], now))
       );
     default:
       return false;

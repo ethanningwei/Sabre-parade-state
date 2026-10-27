@@ -49,9 +49,10 @@ describe("isCurrent", () => {
     expect(isCurrent(rso, [row({ kind: "MC", state: "RECORDED", endAt: at(-2), onens: "OWED" })], NOW)).toBe(true);
   });
 
-  it("a report sick with a permanent status under it stays", () => {
+  it("a status doesn't keep its report sick current: it's in the Statuses panel", () => {
     const rsi = row({ kind: "RSI", endAt: at(-30), outcomeAt: at(-30) });
-    expect(isCurrent(rsi, [row({ kind: "STATUS", state: "RECORDED", endAt: null })], NOW)).toBe(true);
+    expect(isCurrent(rsi, [row({ kind: "STATUS", state: "RECORDED", endAt: null })], NOW)).toBe(false);
+    expect(isCurrent(rsi, [row({ kind: "STATUS", state: "RECORDED", endAt: null }), row({ kind: "MC", state: "RECORDED", endAt: at(2) })], NOW)).toBe(true);
   });
 
   it("a visit with nothing recorded yet stays until he answers; 'nothing given' ends it", () => {

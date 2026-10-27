@@ -9,8 +9,8 @@ import type { DayCamp } from "@/lib/wb/forecast-data";
 import type { ParadeStatus } from "@/lib/wb/projection";
 
 // Manpower's day view, one card per camp: who's on shift, strength against the
-// minimum, who's away and why (never a diagnosis), who's been sent in, and
-// who's on a status.
+// minimum, who's away and why (never a diagnosis), and who's been sent in.
+// Statuses aren't here: they're on the man's own pages (2026-10-27).
 
 /**
  * One camp on one day. `canOpen`: the viewer may open its records (a GC may not).
@@ -121,22 +121,7 @@ export function CampCard({
           </ul>
         </div>
       )}
-      {d.statuses.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">On status · present</p>
-          <ul className="flex flex-col gap-1 text-sm">
-            {d.statuses.map((s) => (
-              <li key={`${s.personId}${s.what}`}>
-                <span className="font-medium">
-                  {s.rank} {s.name}
-                </span>{" "}
-                <span className="text-muted-foreground">· {s.what}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {d.away.length === 0 && d.statuses.length === 0 && !(on && d.manning.duties.length) && <p className="text-sm text-muted-foreground">Everyone present.</p>}
+      {d.away.length === 0 && !(on && d.manning.duties.length) && <p className="text-sm text-muted-foreground">Everyone present.</p>}
       {onParadeState && (
         <ParadeStateLink
           to={`/c/${d.info.id}`}

@@ -22,7 +22,7 @@ import {
 } from "@/lib/wb/domain/forecast";
 import { campAccess, type GrantRow } from "@/lib/wb/domain/access";
 import { minimumLabel, onShiftAt, overrideLabel, overrideWindow, stintAround, usable, type Minimum, type ShiftPattern } from "@/lib/wb/domain/shifts";
-import { addDays, dayMonth, dayRange, rangeLabel, todaySgt, type Range } from "@/lib/wb/domain/timeline";
+import { addDays, dayMonth, dayRange, todaySgt, type Range } from "@/lib/wb/domain/timeline";
 import { memberLabel, type Db, type RecordView } from "@/lib/wb/records";
 
 // Shifts, minimum manning and the forecast: the reads. The rules are pure
@@ -226,19 +226,15 @@ export interface DayCamp {
   short: boolean;
   /** "on until 13/10 2100", "off · next on 16/10 2100", "Mon–Fri", "no pattern" */
   shiftNote: string;
-  statuses: { personId: string; rank: string; name: string; what: string }[];
 }
 
-/** One day for some camps: on shift or not, strength against the minimum, who's away and who's on status. */
+/** One day for some camps: on shift or not, strength against the minimum, who's away. Statuses are on the man's own pages, not here (2026-10-27). */
 export async function dayView(campIds: readonly string[], date: string, now: Date = new Date()): Promise<DayCamp[]> {
   const range = dayRange(date);
   const [input, minimums, camps] = await Promise.all([forecastInput(range, campIds, now), loadMinimums(), campsInfo()]);
   const manning = new Map(manningOf(snapshotFor(input, range)).map((m) => [m.campId, m]));
   // the away list includes pending requests (flagged); the strength doesn't
   const withPending = new Map(manningOf(snapshotFor(input, range, { pending: true })).map((m) => [m.campId, m]));
-  const people = new Map(input.base.subunits.flatMap((s) => s.camps.flatMap((c) => c.people.map((p) => [p.id, { ...p, campId: c.id }] as const))));
-  // statuses (light duty) keep a man present, so they're listed apart
-  const statusRows = input.records.filter((r) => r.kind === "STATUS" && r.state === "RECORDED");
   const pivot = date === todaySgt(now) ? now : range.startAt;
   const out: DayCamp[] = [];
   for (const id of campIds) {
@@ -256,12 +252,6 @@ export async function dayView(campIds: readonly string[], date: string, now: Dat
       label: v.label,
       short: v.gaps.length > 0,
       shiftNote: shiftNote(p, pivot),
-      statuses: statusRows
-        .filter((r) => people.get(r.personId)?.campId === id)
-        .map((r) => {
-          const who = people.get(r.personId)!;
-          return { personId: r.personId, rank: who.rank, name: who.name, what: `${r.detail || "STATUS"} · ${rangeLabel(r)}` };
-        }),
     });
   }
   return out;

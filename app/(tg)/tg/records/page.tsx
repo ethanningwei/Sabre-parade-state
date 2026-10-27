@@ -6,6 +6,7 @@ import { NotOnRoster } from "@/components/tg/not-on-roster";
 import { RecordActions } from "@/components/tg/record-actions";
 import { RecordSummary } from "@/components/tg/record-summary";
 import { RecordsCalendar } from "@/components/tg/records-calendar";
+import { StatusesPanel } from "@/components/tg/statuses-panel";
 import { bigButtonClass, EmptyState } from "@/components/tg/ui";
 import { buttonVariants } from "@/components/ui/button";
 import { requireFeaturePage } from "@/lib/flags";
@@ -13,14 +14,17 @@ import { requireRegistered } from "@/lib/wb/auth";
 import { outcomeOrder } from "@/lib/wb/domain/describe";
 import { recordAccess } from "@/lib/wb/domain/access";
 import { awaitsOutcome, isCurrent, nestOutcomes } from "@/lib/wb/domain/rules";
+import { statusesOf } from "@/lib/wb/domain/statuses";
 import { todaySgt } from "@/lib/wb/domain/timeline";
+import { photoIds } from "@/lib/wb/medical";
 import { rosterSelf } from "@/lib/wb/me";
 import { recordsOfPerson } from "@/lib/wb/records";
 
 // My records: what's still current, newest first, with Full history (?all=1)
 // one tap away. Withdraw what's pending. What a doctor gave sits under the
 // visit it came from, so one afternoon reads as one card; a corrected or
-// voided outcome isn't repeated.
+// voided outcome isn't repeated. His statuses are a panel of their own under
+// the calendar (2026-10-27); one a doctor gave stays a line in that visit's card.
 export default async function MyRecordsPage({ searchParams }: { searchParams: Promise<{ all?: string | string[]; month?: string | string[] }> }) {
   await requireFeaturePage();
   const member = await requireRegistered();
@@ -32,14 +36,18 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
   const { top, under } = nestOutcomes(mine);
   for (const kids of under.values()) outcomeOrder(kids);
   const now = new Date();
-  const records = all ? top : top.filter((r) => isCurrent(r, under.get(r.id) ?? [], now));
+  const statuses = statusesOf(mine, now);
+  const photos = await photoIds(mine.filter((r) => r.kind === "STATUS"));
+  const list = top.filter((r) => r.kind !== "STATUS");
+  const records = all ? list : list.filter((r) => isCurrent(r, under.get(r.id) ?? [], now));
   const today = todaySgt(now);
   const month = typeof params.month === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(params.month) ? params.month : today.slice(0, 7);
 
   return (
     <div className="flex flex-col gap-4">
       <Header title={all ? "Full history" : "My records"} hint={`You have ${member.leaveLeft ?? 0} days of leave left.`} />
-      {top.length > 0 && <RecordsCalendar records={mine} month={month} today={today} href={(m) => `/tg/records?${all ? "all=1&" : ""}month=${m}`} />}
+      {list.length > 0 && <RecordsCalendar records={mine} month={month} today={today} href={(m) => `/tg/records?${all ? "all=1&" : ""}month=${m}`} />}
+      <StatusesPanel live={statuses.live} past={statuses.past} photos={photos} addHref="/tg/statuses/declare" />
       <Link href="/tg/apply/outcome" className="tg-enter flex min-h-14 items-center gap-3 rounded-2xl border border-dashed border-muted-foreground/30 px-4 py-3 text-sm transition-colors duration-150 active:bg-muted">
         <FileHeart className="size-5 shrink-0 text-primary" aria-hidden />
         <span className="flex-1">
@@ -47,7 +55,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
         </span>
         <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" aria-hidden />
       </Link>
-      {top.length === 0 ? (
+      {list.length === 0 ? (
         <EmptyState icon={<Inbox />} title="Nothing yet">
           <p>Report sick, MCs, leave, off, MAs and courses show up here.</p>
           <Link href="/tg/apply" className={buttonVariants({ size: "lg", className: bigButtonClass })}>
@@ -73,7 +81,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
           );
         })
       )}
-      <HistoryToggle href="/tg/records" all={all} count={top.length} />
+      <HistoryToggle href="/tg/records" all={all} count={list.length} />
     </div>
   );
 }
