@@ -102,7 +102,20 @@ export function MaForm({
             </>
           )}
           {already && <AlreadyReported r={already} />}
-          <Submit pending={pending} disabled={!date || !!already || (!again && (!time || !place.trim()))}>
+          <Submit
+            pending={pending}
+            missing={
+              !date
+                ? "Pick the day."
+                : already
+                  ? "That day is already recorded (see above)."
+                  : !again && !time
+                    ? "Give the time of the appointment."
+                    : !again && !place.trim()
+                      ? "Say where it is."
+                      : null
+            }
+          >
             Record it
           </Submit>
         </form>

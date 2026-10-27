@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { addPersonAction, editPersonAction } from "@/lib/wb/actions/roster";
 import { roleOf } from "@/lib/wb/domain/roles";
 import { BigButton, ErrorBox, useAction } from "../form-bits";
-import { filledIn, PersonFields, rolesOf, type CampOption, type PersonValues } from "./person-fields";
+import { PersonFields, rolesOf, type CampOption, type PersonValues, unfilled } from "./person-fields";
 import { TgSheet } from "./tg-sheet";
 
 export interface EditablePerson {
@@ -71,7 +71,7 @@ export function PersonSheet({ open, onOpenChange, camps, person }: { open: boole
     >
       <PersonFields value={value} onChange={setValue} camps={camps} keepRole={keepRole} />
       <ErrorBox error={error} />
-      <BigButton pending={pending} disabled={!filledIn(value, keepRole)} onClick={save}>
+      <BigButton pending={pending} missing={unfilled(value, keepRole)} onClick={save}>
         {person ? (
           <>
             <Save aria-hidden /> Save

@@ -26,7 +26,9 @@ export interface PersonValues {
 }
 
 /** Ready to send: a rank, a name, a camp and a role (or the one v1 has, left alone, even blank). */
-export const filledIn = (v: PersonValues, keepRole?: string) => !!v.rank && v.name.trim().length >= 2 && !!v.campId && (!!v.role || v.role === keepRole);
+/** The first field still empty, or null. */
+export const unfilled = (v: PersonValues, keepRole?: string) =>
+  !v.rank ? "Pick his rank." : v.name.trim().length < 2 ? "Fill in his name." : !v.campId ? "Pick his camp." : !v.role && v.role !== keepRole ? "Pick his role." : null;
 
 /**
  * Rank, name, camp and role: what Add to roster, + Add person and Edit ask.

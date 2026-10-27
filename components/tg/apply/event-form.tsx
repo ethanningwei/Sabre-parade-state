@@ -55,7 +55,19 @@ export function EventQuestions({ a, set, today }: { a: EventAnswers; set: (a: Ev
   );
 }
 
-export const eventComplete = (a: EventAnswers) => !!(a.what.trim() && a.place.trim() && a.startDate && a.endDate && a.timeStart && a.timeEnd);
+/** The first question still unanswered, or null. */
+export const eventMissing = (a: EventAnswers) =>
+  !a.what.trim()
+    ? "Say what it is."
+    : !a.place.trim()
+      ? "Say where it is."
+      : !a.startDate || !a.endDate
+        ? "Give the first and last day."
+        : a.endDate < a.startDate
+          ? "The last day can't be before the first."
+          : !a.timeStart || !a.timeEnd
+            ? "Give the times."
+            : null;
 
 export function EventForm({ today }: { today: string }) {
   const [a, setA] = useState<EventAnswers>(emptyEvent(today));
@@ -86,7 +98,7 @@ export function EventForm({ today }: { today: string }) {
           }}
         >
           <EventQuestions a={a} set={setA} today={today} />
-          <Submit pending={pending} disabled={!eventComplete(a)}>
+          <Submit pending={pending} missing={eventMissing(a)}>
             Record it
           </Submit>
         </form>

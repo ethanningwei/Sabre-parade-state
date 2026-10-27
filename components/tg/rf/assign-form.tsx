@@ -56,7 +56,15 @@ export function AssignForm({ people, camps, today }: { people: PersonItem[]; cam
     setPicked(next);
   };
   const names = people.filter((p) => picked.has(p.personId)).map((p) => `${p.rank} ${p.name}`);
-  const complete = !!(type && (type === "SOL" || campId) && startDate && endDate && startTime && endTime);
+  const missing = !type
+    ? "Pick what it is: Extra, RF or SOL."
+    : type !== "SOL" && !campId
+      ? "Pick the camp."
+      : !startDate || !endDate || !startTime || !endTime
+        ? "Give from and until, with the times."
+        : endDate < startDate
+          ? "Until can't be before from."
+          : null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -67,7 +75,7 @@ export function AssignForm({ people, camps, today }: { people: PersonItem[]; cam
           <PeopleList people={people} picked={picked} onToggle={toggle} />
           <div className="sticky bottom-[calc(1rem+env(safe-area-inset-bottom))] flex flex-col gap-2 rounded-2xl border bg-card/95 p-3 shadow-lg shadow-black/5 backdrop-blur">
             <p className="text-sm">{picked.size ? `${picked.size} picked` : "Pick who it's for."}</p>
-            <BigButton onClick={() => setStep("what")} disabled={!picked.size}>
+            <BigButton onClick={() => setStep("what")} missing={picked.size ? null : "Pick at least one man."}>
               Next
             </BigButton>
           </div>
@@ -136,7 +144,7 @@ export function AssignForm({ people, camps, today }: { people: PersonItem[]; cam
               </Field>
             </>
           )}
-          <Submit pending={pending} disabled={!complete}>
+          <Submit pending={pending} missing={missing}>
             {type ? `${ASSIGNMENT_LABEL[type]} for ${picked.size}` : "Pick what it is"}
           </Submit>
         </form>

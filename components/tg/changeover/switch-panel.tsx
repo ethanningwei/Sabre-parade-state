@@ -35,7 +35,7 @@ export function SwitchPanel({ ready, preview }: { ready: boolean; preview: Switc
   const p = preview;
   return (
     <>
-      <BigButton disabled={!ready} onClick={() => setOpen(true)}>
+      <BigButton missing={ready ? null : "Every man needs a section first."} onClick={() => setOpen(true)}>
         Switch to ROT
       </BigButton>
       <TgSheet open={open} onOpenChange={setOpen} title="Switch to ROT?" description="The next parade state prints in the ROT format.">

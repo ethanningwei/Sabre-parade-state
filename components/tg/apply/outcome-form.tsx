@@ -82,16 +82,43 @@ export function OutcomeForm({
   const nothing = a.gotMc === false && a.gotStatus === false;
   const seenAsked = !!a.gotMc && asksSeenBy(parentKind);
   const onensAsked = !!a.gotMc && (parentKind === "RSO" || (seenAsked && a.seenBy === "CIVILIAN"));
-  const mcOk = !a.gotMc || (a.category && a.diagnosis.trim() && a.mcStart && a.mcEnd && a.mcEnd >= a.mcStart && (!seenAsked || a.seenBy));
-  const statusesOk =
-    !a.gotStatus ||
-    (a.statuses.length > 0 &&
-      a.statuses.every((s) => s.permanent !== null && s.type && (s.type !== "OTHER" || s.other.trim()) && s.startDate && (s.permanent || (s.endDate && s.endDate >= s.startDate))));
-  const photoOk = nothing || photoToken || (correcting && hasPhoto);
+  // the first thing still to fill in, in the order the form asks, or null
+  const statusMissing = (s: StatusAnswers, i: number) => {
+    const which = a.statuses.length > 1 ? `Status ${i + 1}: ` : "Status: ";
+    if (s.permanent === null) return `${which}pick Temporary or Permanent.`;
+    if (!s.type) return `${which}pick which status.`;
+    if (s.type === "OTHER" && !s.other.trim()) return `${which}write it as it is on the paper.`;
+    if (!s.startDate) return `${which}give the date it starts.`;
+    if (!s.permanent && !s.endDate) return `${which}give the date it ends.`;
+    if (!s.permanent && s.endDate < s.startDate) return `${which}it can't end before it starts.`;
+    return null;
+  };
+  const missing =
+    a.gotMc === null || a.gotStatus === null
+      ? "Answer both questions in step 1."
+      : nothing && !anchorId
+        ? "You got neither, so there's nothing to record."
+        : a.gotMc && !a.category
+          ? `Pick what the ${a.mcKind} was for.`
+          : a.gotMc && !a.diagnosis.trim()
+            ? "Fill in the diagnosis."
+            : a.gotMc && (!a.mcStart || !a.mcEnd)
+              ? `Give the first and last day of the ${a.mcKind}.`
+              : a.gotMc && a.mcEnd < a.mcStart
+                ? `The ${a.mcKind}'s last day can't be before its first.`
+                : seenAsked && !a.seenBy
+                  ? "Say who you saw: the camp MO or a civilian doctor."
+                  : a.gotStatus && !a.statuses.length
+                    ? "Pick how many statuses you got."
+                    : (a.gotStatus && a.statuses.map(statusMissing).find(Boolean)) ||
+                      (!nothing && !photoToken && !(correcting && hasPhoto)
+                        ? "Add a photo of the document. If it's still saving, wait for the tick."
+                        : onensAsked && a.onensUploaded === null
+                          ? "Say whether you've uploaded it to ONENS."
+                          : null);
   // the sections are numbered in the order they open
   let n = 1;
   const num = () => ++n;
-  const ready = a.gotMc !== null && a.gotStatus !== null && (!nothing || !!anchorId) && mcOk && statusesOk && photoOk && (!onensAsked || a.onensUploaded !== null);
 
   const submit = () =>
     call(
@@ -263,7 +290,7 @@ export function OutcomeForm({
         )}
 
         {a.gotMc !== null && a.gotStatus !== null && (
-          <Submit pending={pending} disabled={!ready}>
+          <Submit pending={pending} missing={missing}>
             {nothing ? (anchorId ? "Nothing given. Save" : "Nothing to record") : correcting ? "Save the correction" : "Record it"}
           </Submit>
         )}

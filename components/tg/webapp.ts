@@ -27,6 +27,8 @@ export interface TelegramWebApp {
     hide(): void;
     enable(): void;
     disable(): void;
+    /** a colour left undefined is left as it is */
+    setParams?(params: { color?: string; text_color?: string }): void;
     showProgress(leaveActive?: boolean): void;
     hideProgress(): void;
     onClick(cb: () => void): void;

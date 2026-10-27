@@ -53,7 +53,17 @@ export function RaiseForm({ camps, today }: { camps: RaiseCamp[]; today: string 
     );
   }
 
-  const complete = !!(campId && role && need && startDate && endDate && startTime && endTime && reason.trim().length >= 3);
+  const missing = !campId
+    ? "Pick the camp that needs them."
+    : !role
+      ? "Pick what it needs."
+      : !startDate || !endDate || !startTime || !endTime
+        ? "Give from and until, with the times."
+        : endDate < startDate
+          ? "Until can't be before from."
+          : reason.trim().length < 3
+            ? "Say why, in a few words."
+            : null;
   return (
     <form
       className="flex flex-col gap-6"
@@ -131,7 +141,7 @@ export function RaiseForm({ camps, today }: { camps: RaiseCamp[]; today: string 
           <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. TWO ON MC, ONE ON COURSE" aria-label="Why" className={textareaClass} maxLength={200} autoCapitalize="characters" />
         </Step>
       )}
-      <Submit pending={pending} disabled={!complete}>
+      <Submit pending={pending} missing={missing}>
         <Send aria-hidden /> Ask for {need} {need === 1 ? "man" : "men"}
       </Submit>
       <ErrorBox error={error} />

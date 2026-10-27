@@ -4,14 +4,14 @@ import { Loader2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "@/lib/toast";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Submit } from "../form-bits";
 import { addGrant, removeGrant } from "@/lib/wb/actions/admin";
 import type { GrantRowView } from "@/lib/wb/admin-data";
 import { onlyCampScope } from "@/lib/wb/domain/access";
 import { ROLE_LABELS, WB_ROLES, type WbRole } from "@/lib/wb/domain/roles";
 import type { SubunitWithCamps } from "@/lib/wb/roster";
-import { bigButtonClass, inputClass } from "../ui";
+import { inputClass } from "../ui";
 
 const selectClass = inputClass;
 
@@ -118,10 +118,9 @@ export function GrantsEditor({
             </optgroup>
           </select>
         </div>
-        <Button type="submit" size="lg" className={bigButtonClass} disabled={pending || !memberId || !role || !scope}>
-          {pending && <Loader2 className="animate-spin" />}
+        <Submit page pending={pending} missing={!memberId ? "Pick who." : !role ? "Pick the role." : !scope ? "Pick the scope." : null}>
           Grant
-        </Button>
+        </Submit>
       </form>
 
       <section className="flex flex-col gap-2">

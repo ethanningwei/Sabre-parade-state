@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { addEventFor } from "@/lib/wb/actions/records";
-import { emptyEvent, eventComplete, eventInput, EventQuestions, type EventAnswers } from "./apply/event-form";
+import { emptyEvent, eventMissing, eventInput, EventQuestions, type EventAnswers } from "./apply/event-form";
 import { BigButton, BigLink, DoneScreen, ErrorBox, Header, StepBar, Submit, useAction } from "./form-bits";
 import { PeopleList, type PersonItem } from "./people-list";
 
@@ -46,7 +46,7 @@ export function AddEventForm({ people, today }: { people: PersonItem[]; today: s
           <PeopleList people={people} picked={picked} onToggle={toggle} />
           <div className="sticky bottom-[calc(1rem+env(safe-area-inset-bottom))] flex flex-col gap-2 rounded-2xl border bg-card/95 p-3 shadow-lg shadow-black/5 backdrop-blur">
             <p className="text-sm">{picked.size ? `${picked.size} picked` : "Pick who it's for."}</p>
-            <BigButton onClick={() => setStep("what")} disabled={!picked.size}>
+            <BigButton onClick={() => setStep("what")} missing={picked.size ? null : "Pick at least one man."}>
               Next
             </BigButton>
           </div>
@@ -68,7 +68,7 @@ export function AddEventForm({ people, today }: { people: PersonItem[]; today: s
             </button>
           </div>
           <EventQuestions a={a} set={setA} today={today} />
-          <Submit pending={pending} disabled={!eventComplete(a)}>
+          <Submit pending={pending} missing={eventMissing(a)}>
             Record for {picked.size}
           </Submit>
         </form>

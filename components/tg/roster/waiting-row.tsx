@@ -6,7 +6,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { addToRosterAction, linkToRosterAction } from "@/lib/wb/actions/roster";
 import { BigButton, ErrorBox, useAction } from "../form-bits";
-import { filledIn, PersonFields, rolesOf, type CampOption, type PersonValues } from "./person-fields";
+import { PersonFields, rolesOf, type CampOption, type PersonValues, unfilled } from "./person-fields";
 import { TgSheet } from "./tg-sheet";
 
 export type { CampOption } from "./person-fields";
@@ -103,7 +103,7 @@ function AddSheet({
     <TgSheet open={open} onOpenChange={onOpenChange} title="Add to roster" description={`What ${label} registered with. Check it against the parade state before you add him.`}>
       <PersonFields value={value} onChange={setValue} camps={camps} />
       <ErrorBox error={error} />
-      <BigButton pending={pending} disabled={!filledIn(value)} onClick={save}>
+      <BigButton pending={pending} missing={unfilled(value)} onClick={save}>
         <UserPlus aria-hidden /> Add to the parade state
       </BigButton>
     </TgSheet>

@@ -48,7 +48,21 @@ export function SickForm({
 
   const earliest = forMan ? addDays(today, -1) : today;
   const already = where ? reported.find((r) => (r.kind === "RSI" || r.kind === "RSO") && r.date === date) : undefined;
-  const ready = where && date && symptoms.trim() && (where === "RSI" || clinic.trim()) && !already;
+  const missing = !date
+    ? "Pick the day."
+    : date < earliest
+      ? forMan
+        ? "As far back as yesterday only."
+        : "Pick today or a later day."
+      : already
+        ? "That day is already reported (see above)."
+        : where === "RSO" && !clinic.trim()
+          ? "Say which clinic or hospital."
+          : !symptoms.trim()
+            ? forMan
+              ? "Say what's wrong with him."
+              : "Say what's wrong."
+            : null;
   const hint = forMan
     ? forMan.approvesOnSave
       ? `You can approve it, so it's saved approved. ${forMan.who} is told.`
@@ -113,7 +127,7 @@ export function SickForm({
                 <Textarea id="symptoms" value={symptoms} onChange={(e) => setSymptoms(e.target.value)} placeholder="e.g. Fever and sore throat since last night" className={textareaClass} maxLength={300} />
               </Field>
             </Step>
-            <Submit pending={pending} disabled={!ready}>
+            <Submit pending={pending} missing={missing}>
               {forMan ? "Report it" : "Send to my commanders"}
             </Submit>
           </>

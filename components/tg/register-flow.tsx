@@ -11,6 +11,7 @@ import { TAKEN_MESSAGE } from "@/lib/wb/domain/registration";
 import { place } from "@/lib/wb/format";
 import { RANKS, rolesFor } from "@/lib/wb/domain/roles";
 import type { SubunitWithCamps } from "@/lib/wb/roster";
+import { Submit } from "./form-bits";
 import { buzzError, buzzSuccess } from "./webapp";
 import { bigButtonClass, fieldClass, inputClass } from "./ui";
 
@@ -91,10 +92,9 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
             placeholder="Your name on the parade state"
             className={fieldClass}
           />
-          <Button type="submit" size="lg" className={bigButtonClass} disabled={pending || name.trim().length < 2}>
-            {pending && <Loader2 className="animate-spin" />}
+          <Submit page pending={pending} missing={name.trim().length < 2 ? "Type at least two letters of your name." : null}>
             Find me
-          </Button>
+          </Submit>
         </form>
       )}
 
@@ -196,14 +196,15 @@ function SelfForm({
   const [rank, setRank] = useState("");
   const sub = structure.find((s) => s.id === subunitId);
   const roles = sub ? rolesFor(sub.isHq) : [];
-  const complete = name.trim().length >= 2 && campId && role && rank;
+  const missing =
+    name.trim().length < 2 ? "Fill in your name." : !subunitId ? "Pick your platoon." : !campId ? "Pick your camp." : !role ? "Pick your role." : !rank ? "Pick your rank." : null;
 
   return (
     <form
       className="flex flex-col gap-4"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!complete || !sub) return;
+        if (missing || !sub) return;
         const campName = sub.camps.find((c) => c.id === campId)?.name ?? "";
         onDone(
           { name, campId, role, rank: rank as (typeof RANKS)[number] },
@@ -266,9 +267,9 @@ function SelfForm({
           ))}
         </select>
       </Field>
-      <Button type="submit" size="lg" className={bigButtonClass} disabled={!complete}>
+      <Submit page pending={false} missing={missing}>
         Next
-      </Button>
+      </Submit>
     </form>
   );
 }

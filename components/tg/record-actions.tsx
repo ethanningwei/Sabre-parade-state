@@ -70,7 +70,7 @@ export function RecordActions({ recordId, can }: { recordId: string; can: Record
       {open === "why" && (
         <div className="tg-reveal flex flex-col gap-2">
           {note("Why not?", "Why not? They'll see it as you wrote it.")}
-          <BigButton pending={pending} disabled={!text.trim()} onClick={() => act(() => giveReason({ recordId, note: text }), "Sent")}>
+          <BigButton pending={pending} missing={text.trim() ? null : "Write the reason first."} onClick={() => act(() => giveReason({ recordId, note: text }), "Sent")}>
             Send the reason
           </BigButton>
         </div>
@@ -127,7 +127,7 @@ export function RecordActions({ recordId, can }: { recordId: string; can: Record
           <p className="text-xs text-muted-foreground">It comes off the timeline and they&apos;re told. Approved leave goes back to them.</p>
           {note("Why are you voiding it?", "Why? e.g. entered twice")}
           <div className="grid grid-cols-2 gap-2">
-            <BigButton variant="destructive" pending={pending} disabled={text.trim().length < 3} onClick={() => act(() => voidEntry({ recordId, reason: text }), "Voided")}>
+            <BigButton variant="destructive" pending={pending} missing={text.trim().length < 3 ? "Say why it's being voided, in a few words." : null} onClick={() => act(() => voidEntry({ recordId, reason: text }), "Voided")}>
               Void it
             </BigButton>
             <BigButton variant="outline" onClick={() => setOpen(null)}>

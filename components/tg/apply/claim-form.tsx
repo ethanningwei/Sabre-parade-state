@@ -96,8 +96,23 @@ export function ClaimForm({ today, office, sheetReady }: { today: string; office
 
   const startPlace = place(start, startText);
   const endPlace = place(end, endText);
-  const complete =
-    vehicle && first >= today && more !== null && (!more || also.length > 0) && startPlace && endPlace && (start !== "OTHER" || startText.trim()) && (end !== "OTHER" || endText.trim()) && reason.trim() && roundTrip !== null;
+  const missing = !vehicle
+    ? "Pick how you'll travel."
+    : !first || first < today
+      ? "Pick the day of the trip: today or later."
+      : more === null
+        ? "Say whether it's the same trip on other days too."
+        : more && !also.length
+          ? "Tick at least one more day, or choose Just that day."
+          : !startPlace || (start === "OTHER" && !startText.trim())
+            ? "Say where the trip starts."
+            : !endPlace || (end === "OTHER" && !endText.trim())
+              ? "Say where the trip ends."
+              : !reason.trim()
+                ? "Say what it's for."
+                : roundTrip === null
+                  ? "Say whether it's a round trip."
+                  : null;
 
   const submit = () =>
     call(
@@ -191,7 +206,7 @@ export function ClaimForm({ today, office, sheetReady }: { today: string; office
         <YesNo label="There and back again" value={roundTrip} onChange={setRoundTrip} />
       </Step>
 
-      <Submit pending={pending} disabled={!complete}>
+      <Submit pending={pending} missing={missing}>
         {more && also.length ? `Send ${also.length + 1} claims to the OC` : "Send to the OC"}
       </Submit>
       <ErrorBox error={error} />

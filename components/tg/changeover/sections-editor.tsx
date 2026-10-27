@@ -166,7 +166,7 @@ export function SectionsEditor({ platoons, sectionId, men, placed, total }: { pl
       <ErrorBox error={error} />
 
       <div className="fixed inset-x-0 bottom-0 z-10 mx-auto max-w-2xl bg-gradient-to-t from-background from-60% to-transparent px-4 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]">
-        <BigButton pending={pending} disabled={!picked.size} onClick={() => call(() => placeMenAction([...picked], sectionId), (r) => after(`${r.placed} added to ${r.section}.`))}>
+        <BigButton pending={pending} missing={picked.size ? null : "Pick at least one man."} onClick={() => call(() => placeMenAction([...picked], sectionId), (r) => after(`${r.placed} added to ${r.section}.`))}>
           {picked.size ? `Add ${picked.size} to ${section.name}` : `Tick men to add to ${section.name}`}
         </BigButton>
       </div>

@@ -34,7 +34,8 @@ export function useAction() {
   const call = <T,>(fn: () => Promise<ActionResult<T>>, onOk: (data: T) => void) =>
     start(async () => {
       setError(null);
-      const res = await fn();
+      // a dropped connection rejects instead of returning a result
+      const res = await fn().catch((): ActionResult<T> => ({ ok: false, error: "Couldn't reach Sabre. Check your signal and try again." }));
       if (!res.ok) {
         setError(res.error);
         buzzError();
@@ -65,18 +66,68 @@ export function ErrorBox({ error }: { error: string | null }) {
 }
 
 /**
+ * Why a main action can't go yet. The button stays tappable and only looks
+ * dimmed: a disabled one (Telegram's MainButton swallows taps while disabled)
+ * left him with a grey button and no reason. A tap says what's missing instead
+ * of going. In a form the browser's own checks (a date before `min`, an empty
+ * `required`) are said the same way, in the same place.
+ */
+function useMissing(missing: string | null | undefined) {
+  const [shown, setShown] = useState<{ text: string; native: boolean; at: number } | null>(null);
+  /** true when it may go */
+  const check = (form?: HTMLFormElement | null) => {
+    let text = missing || null;
+    let native = false;
+    if (!text && form && !form.checkValidity()) {
+      const bad = form.querySelector<HTMLInputElement>("input:invalid, select:invalid, textarea:invalid");
+      if (bad) {
+        const label = bad.getAttribute("aria-label") ?? bad.labels?.[0]?.textContent ?? "";
+        text = label ? `${label}: ${bad.validationMessage}` : bad.validationMessage;
+        native = true;
+      }
+    }
+    if (!text) {
+      setShown(null);
+      return true;
+    }
+    setShown({ text, native, at: Date.now() });
+    buzzError();
+    return false;
+  };
+  // follows the form: the next thing missing as he fills it in, gone once nothing is
+  const text = shown ? (shown.native ? shown.text : missing) : null;
+  return { check, hint: text ? <ErrorBox key={shown!.at} error={text} /> : null };
+}
+
+/**
  * A step's main action. Inside Telegram it's Telegram's own MainButton (above
  * the keyboard, never scrolled away); this button stays in the form, visually
- * hidden, so Enter and the MainButton both submit through it.
+ * hidden, so Enter and the MainButton both submit through it. `missing` says
+ * what's still to fill in (see useMissing). `page` keeps the page's own button.
  */
-export function Submit({ pending, disabled, children }: { pending: boolean; disabled?: boolean; children: React.ReactNode }) {
+export function Submit({ pending, missing, page, children }: { pending: boolean; missing?: string | null; page?: boolean; children: React.ReactNode }) {
   const ref = useRef<HTMLButtonElement>(null);
-  const native = useMainButton(ref, { pending, disabled: !!disabled });
+  const native = useMainButton(ref, { pending, dim: !!missing, off: page });
+  const { check, hint } = useMissing(missing);
   return (
-    <Button ref={ref} type="submit" size="lg" className={native ? "sr-only" : bigButtonClass} disabled={pending || disabled} aria-busy={pending}>
-      {pending && <Loader2 className="animate-spin" />}
-      {children}
-    </Button>
+    <>
+      {hint}
+      <Button
+        ref={ref}
+        type="submit"
+        size="lg"
+        className={native ? "sr-only" : `${bigButtonClass} ${missing ? "opacity-50" : ""}`}
+        disabled={pending}
+        aria-disabled={!!missing || undefined}
+        aria-busy={pending}
+        onClick={(e) => {
+          if (!check(ref.current?.form)) e.preventDefault();
+        }}
+      >
+        {pending && <Loader2 className="animate-spin" />}
+        {children}
+      </Button>
+    </>
   );
 }
 
@@ -85,19 +136,35 @@ export function BigButton({
   variant = "default",
   pending,
   disabled,
+  missing,
   children,
 }: {
   onClick: () => void;
   variant?: "default" | "outline" | "destructive" | "secondary";
   pending?: boolean;
   disabled?: boolean;
+  /** what's still to do before it can go: said on a tap (see useMissing) */
+  missing?: string | null;
   children: React.ReactNode;
 }) {
+  const { check, hint } = useMissing(missing);
   return (
-    <Button type="button" size="lg" variant={variant} className={bigButtonClass} onClick={onClick} disabled={pending || disabled} aria-busy={pending}>
-      {pending && <Loader2 className="animate-spin" />}
-      {children}
-    </Button>
+    <>
+      {hint}
+      <Button
+        type="button"
+        size="lg"
+        variant={variant}
+        className={`${bigButtonClass} ${missing ? "opacity-50" : ""}`}
+        onClick={() => check() && onClick()}
+        disabled={pending || disabled}
+        aria-disabled={!!missing || undefined}
+        aria-busy={pending}
+      >
+        {pending && <Loader2 className="animate-spin" />}
+        {children}
+      </Button>
+    </>
   );
 }
 

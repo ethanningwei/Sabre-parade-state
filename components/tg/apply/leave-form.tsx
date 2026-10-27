@@ -168,7 +168,7 @@ export function LeaveForm({ kind, today, leaveLeft, noApproval = false }: { kind
             {cost} day{cost === 1 ? "" : "s"} of leave · you have {leaveLeft} left
           </p>
           {refusal && cost > leaveLeft && <p className="px-1 text-xs text-muted-foreground">{refusal}</p>}
-          <BigButton onClick={() => setStep("where")} disabled={!!refusal}>
+          <BigButton onClick={() => setStep("where")} missing={refusal}>
             Next
           </BigButton>
         </section>
@@ -203,7 +203,7 @@ export function LeaveForm({ kind, today, leaveLeft, noApproval = false }: { kind
               </Field>
             </>
           )}
-          <Submit pending={false} disabled={kind === "AL" ? !place : !city.trim() || !country.trim()}>
+          <Submit pending={false} missing={kind === "AL" ? (!place ? "Pick where you'll be." : null) : !city.trim() ? "Fill in the city." : !country.trim() ? "Fill in the country." : null}>
             Next
           </Submit>
         </form>
@@ -233,7 +233,7 @@ export function LeaveForm({ kind, today, leaveLeft, noApproval = false }: { kind
               </Field>
             </div>
           )}
-          <Submit pending={pending} disabled={!reason || (reason === "OTHER" && !reasonOther.trim())}>
+          <Submit pending={pending} missing={!reason ? "Pick what it's for." : reason === "OTHER" && !reasonOther.trim() ? "Say briefly what it's for." : null}>
             {noApproval ? "Record it" : "Send for approval"}
           </Submit>
         </form>

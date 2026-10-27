@@ -43,7 +43,7 @@ export function PasteFlow() {
           <p>Sent in parts? Paste each part. A later paste only changes the men it names.</p>
         </div>
         <ErrorBox error={error} />
-        <BigButton pending={pending} disabled={!text.trim()} onClick={() => call(() => checkPasteAction(text), (c) => (setPicks(new Map()), setCheck(c)))}>
+        <BigButton pending={pending} missing={text.trim() ? null : "Paste the list first."} onClick={() => call(() => checkPasteAction(text), (c) => (setPicks(new Map()), setCheck(c)))}>
           Read the list
         </BigButton>
       </div>
@@ -155,7 +155,8 @@ export function PasteFlow() {
       <div className="fixed inset-x-0 bottom-0 z-10 mx-auto flex max-w-2xl flex-col gap-2 bg-gradient-to-t from-background from-70% to-transparent px-4 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <BigButton
           pending={pending}
-          disabled={!rows.length || twice}
+          disabled={twice}
+          missing={rows.length ? null : "Nothing to place yet: match at least one name."}
           onClick={() =>
             call(
               () => assignPastedAction(rows),
