@@ -69,6 +69,8 @@ export const wbMember = pgTable(
     selfCampId: uuid("self_camp_id").references(() => camp.id, { onDelete: "set null" }),
     /** null = signed in but not registered yet */
     registeredAt: tstz("registered_at"),
+    /** when he answered "Any statuses you already have?" (yes or no); null = not asked yet */
+    statusesAskedAt: tstz("statuses_asked_at"),
     active: boolean("active").default(true).notNull(),
     createdAt: tstz("created_at").defaultNow().notNull(),
     lastSeenAt: tstz("last_seen_at").defaultNow().notNull(),
@@ -153,7 +155,8 @@ export { WB_RECORD_KINDS, WB_RECORD_STATES, type WbRecordKind, type WbRecordStat
 
 export const wbRecordKind = pgEnum("wb_record_kind", WB_RECORD_KINDS);
 export const wbRecordState = pgEnum("wb_record_state", WB_RECORD_STATES);
-export const wbCreatedVia = pgEnum("wb_created_via", ["SELF", "PROXY", "IMPORT"]);
+// DECLARED: a status he already had when he joined Sabre (2026-10-27): no visit, the paper optional
+export const wbCreatedVia = pgEnum("wb_created_via", ["SELF", "PROXY", "IMPORT", "DECLARED"]);
 /** Phase 3: whether an MC still has to go up on ONENS. Only a civilian doctor's MC is ever OWED. */
 export const wbOnens = pgEnum("wb_onens", WB_ONENS);
 /** Phase 3: who wrote an MC that has no RSI/RSO above it to say so. */

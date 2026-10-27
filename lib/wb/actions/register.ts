@@ -105,13 +105,15 @@ const registerInput = z
 
 export type RegisterInput = z.input<typeof registerInput>;
 
-/** Registration's last step: link to the roster person (or record a SELF sign-up) and save the details. */
+/** Registration's details step: link to the roster person (or record a SELF sign-up) and save the details. */
 export async function register(raw: RegisterInput) {
   requireFeature();
   return run(async () => {
     const me = await actionMember();
-    const res = await registerMember(miniApp(me), registerInput.parse(raw));
+    const input = registerInput.parse(raw);
+    const res = await registerMember(miniApp(me), input);
     if (!res.ok) throw new UserError(res.error);
-    return undefined;
+    // on the roster and never asked: "Statuses you already have" is the last step (2026-10-27)
+    return { askStatuses: !!input.personId && !me.statusesAskedAt };
   });
 }

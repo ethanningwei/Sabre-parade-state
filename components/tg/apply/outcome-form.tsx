@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { recordOutcome } from "@/lib/wb/actions/medical";
-import { MC_CATEGORIES, STATUSES } from "@/lib/wb/domain/roles";
-import { asksSeenBy, MAX_STATUSES, type WbSeenBy } from "@/lib/wb/domain/rules";
+import { MC_CATEGORIES } from "@/lib/wb/domain/roles";
+import { asksSeenBy, type WbSeenBy } from "@/lib/wb/domain/rules";
 import { BigLink, Choice, DoneScreen, ErrorBox, Field, fieldClass, Header, inputClass, Step, Submit, useAction, YesNo } from "../form-bits";
 import { PhotoPicker } from "../photo-picker";
+import { blankStatus, StatusCard, StatusCount, statusInput, statusMissing, type StatusAnswers } from "./status-fields";
 
 // What the doctor gave him (ports Sabre Bot's OUTCOME). Two plain yes/no
 // questions first, so a man who got neither answers twice and is done. Then
@@ -15,13 +16,7 @@ import { PhotoPicker } from "../photo-picker";
 
 export type VisitKind = "RSI" | "RSO" | "MA";
 
-export interface StatusAnswers {
-  permanent: boolean | null;
-  type: string;
-  other: string;
-  startDate: string;
-  endDate: string;
-}
+export type { StatusAnswers };
 
 export interface OutcomeAnswers {
   gotMc: boolean | null;
@@ -35,8 +30,6 @@ export interface OutcomeAnswers {
   statuses: StatusAnswers[];
   onensUploaded: boolean | null;
 }
-
-export const blankStatus = (today: string): StatusAnswers => ({ permanent: null, type: "", other: "", startDate: today, endDate: today });
 
 export const blankOutcome = (today: string): OutcomeAnswers => ({
   gotMc: null,
@@ -83,16 +76,6 @@ export function OutcomeForm({
   const seenAsked = !!a.gotMc && asksSeenBy(parentKind);
   const onensAsked = !!a.gotMc && (parentKind === "RSO" || (seenAsked && a.seenBy === "CIVILIAN"));
   // the first thing still to fill in, in the order the form asks, or null
-  const statusMissing = (s: StatusAnswers, i: number) => {
-    const which = a.statuses.length > 1 ? `Status ${i + 1}: ` : "Status: ";
-    if (s.permanent === null) return `${which}pick Temporary or Permanent.`;
-    if (!s.type) return `${which}pick which status.`;
-    if (s.type === "OTHER" && !s.other.trim()) return `${which}write it as it is on the paper.`;
-    if (!s.startDate) return `${which}give the date it starts.`;
-    if (!s.permanent && !s.endDate) return `${which}give the date it ends.`;
-    if (!s.permanent && s.endDate < s.startDate) return `${which}it can't end before it starts.`;
-    return null;
-  };
   const missing =
     a.gotMc === null || a.gotStatus === null
       ? "Answer both questions in step 1."
@@ -110,7 +93,7 @@ export function OutcomeForm({
                   ? "Say who you saw: the camp MO or a civilian doctor."
                   : a.gotStatus && !a.statuses.length
                     ? "Pick how many statuses you got."
-                    : (a.gotStatus && a.statuses.map(statusMissing).find(Boolean)) ||
+                    : (a.gotStatus && a.statuses.map((s, i) => statusMissing(s, i, a.statuses.length)).find(Boolean)) ||
                       (!nothing && !photoToken && !(correcting && hasPhoto)
                         ? "Add a photo of the document. If it's still saving, wait for the tick."
                         : onensAsked && a.onensUploaded === null
@@ -129,7 +112,7 @@ export function OutcomeForm({
             ? { kind: a.mcKind, category: a.category as (typeof MC_CATEGORIES)[number], diagnosis: a.diagnosis, startDate: a.mcStart, endDate: a.mcEnd, seenBy: seenAsked ? a.seenBy : null }
             : null,
           statuses: a.gotStatus
-            ? a.statuses.map((s) => ({ permanent: !!s.permanent, type: s.type as (typeof STATUSES)[number], other: s.other, startDate: s.startDate, endDate: s.permanent ? null : s.endDate }))
+            ? a.statuses.map(statusInput)
             : [],
           photoToken,
           onensUploaded: onensAsked && !!a.onensUploaded,
@@ -214,63 +197,9 @@ export function OutcomeForm({
 
         {a.gotStatus && (
           <Step n={num()} title="Statuses">
-            <Field label="How many statuses did you get?">
-              <div className="grid grid-cols-4 gap-2">
-                {Array.from({ length: MAX_STATUSES }, (_, i) => i + 1).map((n) => (
-                  <Choice
-                    key={n}
-                    on={a.statuses.length === n}
-                    onClick={() => set({ statuses: Array.from({ length: n }, (_, i) => a.statuses[i] ?? blankStatus(today)) })}
-                  >
-                    <span className="w-full text-center">{n}</span>
-                  </Choice>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground">More than {MAX_STATUSES}? Record these, then the rest as a second entry.</p>
-            </Field>
+            <StatusCount label="How many statuses did you get?" statuses={a.statuses} today={today} onChange={(statuses) => set({ statuses })} />
             {a.statuses.map((s, i) => (
-              <div key={i} className="tg-reveal flex flex-col gap-4 rounded-2xl bg-card p-4">
-                <p className="font-medium">
-                  Status {i + 1} of {a.statuses.length}
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <Choice on={s.permanent === false} onClick={() => setStatus(i, { permanent: false })}>
-                    Temporary
-                  </Choice>
-                  <Choice on={s.permanent === true} onClick={() => setStatus(i, { permanent: true })}>
-                    Permanent
-                  </Choice>
-                </div>
-                <Field label="Which status?">
-                  <div className="flex flex-col gap-2">
-                    {STATUSES.map((t) => (
-                      <Choice key={t} on={s.type === t} onClick={() => setStatus(i, { type: t })}>
-                        {t}
-                      </Choice>
-                    ))}
-                    <Choice on={s.type === "OTHER"} onClick={() => setStatus(i, { type: "OTHER" })}>
-                      Something else
-                    </Choice>
-                  </div>
-                </Field>
-                {s.type === "OTHER" && (
-                  <div className="tg-reveal">
-                    <Field label="As written on the paper" htmlFor={`st${i}`}>
-                      <Input id={`st${i}`} value={s.other} onChange={(e) => setStatus(i, { other: e.target.value })} placeholder="e.g. EXCUSE LOWER LIMB" autoCapitalize="characters" className={fieldClass} maxLength={60} />
-                    </Field>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-2">
-                  <Field label="From">
-                    <input type="date" required className={inputClass} value={s.startDate} aria-label={`Status ${i + 1} from`} onChange={(e) => setStatus(i, { startDate: e.target.value, endDate: e.target.value > s.endDate ? e.target.value : s.endDate })} />
-                  </Field>
-                  {s.permanent !== true && (
-                    <Field label="Until">
-                      <input type="date" required className={inputClass} value={s.endDate} min={s.startDate} aria-label={`Status ${i + 1} until`} onChange={(e) => setStatus(i, { endDate: e.target.value })} />
-                    </Field>
-                  )}
-                </div>
-              </div>
+              <StatusCard key={i} s={s} i={i} count={a.statuses.length} onChange={(patch) => setStatus(i, patch)} />
             ))}
           </Step>
         )}

@@ -66,7 +66,7 @@ describe("registration (DB)", () => {
     await db.update(wbMember).set({ ordDate: "2020-01-01", registeredAt: new Date() }).where(eq(wbMember.telegramUserId, 1009));
     jar.clear();
     await as(1009, "Ethan");
-    expect(await register({ personId, details: { ...details, ord: "010120" } })).toEqual({ ok: true, data: undefined });
+    expect(await register({ personId, details: { ...details, ord: "010120" } })).toEqual({ ok: true, data: { askStatuses: true } });
   });
 
   it("signs in, matches a unique name and registers against the roster", async (ctx) => {
@@ -76,7 +76,8 @@ describe("registration (DB)", () => {
     expect(found).toMatchObject({ ok: true, data: { kind: "one", person: { name: "ETHAN TEO", rank: "3SG", taken: false } } });
     if (!found.ok || found.data.kind !== "one") throw new Error("unreachable");
 
-    expect(await register({ personId: found.data.person.personId, details })).toEqual({ ok: true, data: undefined });
+    // on the roster and never asked: "Statuses you already have" comes next (2026-10-27)
+    expect(await register({ personId: found.data.person.personId, details })).toEqual({ ok: true, data: { askStatuses: true } });
     const [m] = await db.select().from(wbMember).where(eq(wbMember.telegramUserId, 1001));
     expect(m).toMatchObject({
       personId: found.data.person.personId,
@@ -120,9 +121,10 @@ describe("registration (DB)", () => {
     const res = await register({ personId, details });
     expect(res).toEqual({ ok: false, error: expect.stringMatching(/already registered.*Ask your PS/) });
 
-    // the owner can re-register onto the same person
+    // the owner can re-register onto the same person; once he's answered about statuses, he isn't asked again
+    await db.update(wbMember).set({ statusesAskedAt: new Date() }).where(eq(wbMember.telegramUserId, 1003));
     await as(1003);
-    expect((await register({ personId, details: { ...details, leaveLeft: "10" } })).ok).toBe(true);
+    expect(await register({ personId, details: { ...details, leaveLeft: "10" } })).toEqual({ ok: true, data: { askStatuses: false } });
   });
 
   it("saves a SELF sign-up when they aren't on the roster", async (ctx) => {
@@ -133,7 +135,8 @@ describe("registration (DB)", () => {
       self: { name: "new guy", campId: tft.id, role: "ST CBT", rank: "PTE" },
       details: { ...details, stayout: "TEMP", stayoutUntil: "311299" },
     });
-    expect(res).toEqual({ ok: true, data: undefined });
+    // not on the roster: nowhere to save a status yet, so Home asks once he's added
+    expect(res).toEqual({ ok: true, data: { askStatuses: false } });
     const [m] = await db.select().from(wbMember).where(eq(wbMember.telegramUserId, 1005));
     expect(m).toMatchObject({ source: "SELF", personId: null, selfName: "NEW GUY", selfCampId: tft.id, stayout: "TEMP", stayoutUntil: "2099-12-31" });
 

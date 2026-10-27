@@ -164,7 +164,7 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
               const res = await register({ personId: step.personId, self: step.self, details });
               if (!res.ok) return fail(res.error);
               buzzSuccess();
-              router.replace("/tg");
+              router.replace(res.data.askStatuses ? "/tg/statuses/declare?from=register" : "/tg");
               router.refresh();
             })
           }

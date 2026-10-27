@@ -2,7 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { Refusal, type Delivery } from "@/lib/wb/core";
-import { wbRecord } from "@/lib/wb/db/schema";
+import { wbMember, wbRecord } from "@/lib/wb/db/schema";
 import { outcomeOrder, recordWhat } from "@/lib/wb/domain/describe";
 import { recordAccess } from "@/lib/wb/domain/access";
 import { asksSeenBy, isLive, isOutcome, kinOf, MAX_STATUSES, onensFor, outcomeParentRefusal, VISIT_KINDS, type WbSeenBy } from "@/lib/wb/domain/rules";
@@ -21,6 +21,10 @@ import { write, type Acting, type Outcome } from "@/lib/wb/write";
 // never edited, so both versions stay readable and the commanders are shown
 // what changed. An outcome needs no commander, so this is how a wrong MC date
 // gets fixed.
+//
+// Declared (2026-10-27): statuses he already had when he joined Sabre. No
+// visit, the paper optional, and any start date, but only statuses he still
+// has. Correcting a declared outcome keeps those rules.
 
 /** How far back an MC may start: a typo guard, not a rule. */
 const BACK_DAYS = 60;
@@ -54,6 +58,8 @@ export interface OutcomeInput {
   photoFileId: string | null;
   /** "Have you uploaded it to ONENS?" — only asked for a civilian MC */
   onensUploaded: boolean;
+  /** statuses he already had (see above); marks him as asked */
+  declared?: boolean;
 }
 
 export interface Recorded {
@@ -64,8 +70,9 @@ export interface Recorded {
   nothing: boolean;
 }
 
-function checkDates(what: string, start: string, end: string | null, maxDays: number, today: string): void {
-  if (start < addDays(today, -BACK_DAYS)) throw new Refusal(`${what} starts more than ${BACK_DAYS} days ago. Check the year, or tell your PS.`);
+/** `anyStart`: a status he already had may have started long ago. */
+function checkDates(what: string, start: string, end: string | null, maxDays: number, today: string, anyStart = false): void {
+  if (!anyStart && start < addDays(today, -BACK_DAYS)) throw new Refusal(`${what} starts more than ${BACK_DAYS} days ago. Check the year, or tell your PS.`);
   if (end === null) return;
   if (end < start) throw new Refusal(`${what} can't end before it starts.`);
   if (dayCount(dateRange(start, end)) > maxDays) throw new Refusal(`${what} is longer than ${maxDays} days. Check the dates.`);
@@ -89,7 +96,7 @@ export async function saveOutcome(courier: Courier, acting: Acting, input: Outco
       const by = await memberLabel(actor.id, tx);
       // ---------------------------------------------------------------- what it hangs off, and what it replaces
       let parent: typeof wbRecord.$inferSelect | null = null;
-      let previous: { id: string; evidenceFileId: string | null }[] = [];
+      let previous: { id: string; evidenceFileId: string | null; createdVia: string }[] = [];
       if (input.anchorId) {
         const [anchor] = await tx.select().from(wbRecord).where(eq(wbRecord.id, input.anchorId)).for("update");
         if (!anchor) throw new Refusal("That record has gone.");
@@ -108,6 +115,8 @@ export async function saveOutcome(courier: Courier, acting: Acting, input: Outco
       }
       const parentKind = parent?.kind ?? null;
       const now = new Date();
+      const declared = !!input.declared || (previous.length > 0 && previous.every((p) => p.createdVia === "DECLARED"));
+      if (input.declared && (input.mc || parent)) throw new Refusal("Only statuses you already have go here. For an MC, use Record an MC or status.");
 
       const replaced = previous.map((p) => p.id);
       const cancel = async () => {
@@ -142,7 +151,7 @@ export async function saveOutcome(courier: Courier, acting: Acting, input: Outco
       // ---------------------------------------------------------------- the paper
       let fileId = input.photoFileId;
       if (!fileId) fileId = previous.find((p) => p.evidenceFileId)?.evidenceFileId ?? null;
-      if (!fileId) throw new Refusal("Add a photo of the document.");
+      if (!fileId && !declared) throw new Refusal("Add a photo of the document.");
 
       const mc = input.mc;
       if (mc) {
@@ -153,7 +162,8 @@ export async function saveOutcome(courier: Courier, acting: Acting, input: Outco
       }
       input.statuses.forEach((st, i) => {
         if (!st.label.trim()) throw new Refusal(`Say which status (status ${i + 1}).`);
-        checkDates(`Status ${i + 1}`, st.startDate, st.endDate, STATUS_MAX_DAYS, today);
+        if (declared && st.endDate !== null && st.endDate < today) throw new Refusal(`Status ${i + 1} has already ended. Only add statuses you still have.`);
+        checkDates(`Status ${i + 1}`, st.startDate, st.endDate, STATUS_MAX_DAYS, today, declared);
       });
 
       // one created_at for every row: it's what ties one outcome together (records.ts outcomeBatch)
@@ -165,7 +175,7 @@ export async function saveOutcome(courier: Courier, acting: Acting, input: Outco
         state: "RECORDED" as const,
         evidenceFileId: fileId,
         createdBy: actor.id,
-        createdVia: "SELF" as const,
+        createdVia: declared && !mc ? ("DECLARED" as const) : ("SELF" as const),
         createdAt: now,
         updatedAt: now,
       };
@@ -210,6 +220,7 @@ export async function saveOutcome(courier: Courier, acting: Acting, input: Outco
 
       await cancel();
       await tx.insert(wbRecord).values(rows);
+      if (input.declared) await tx.update(wbMember).set({ statusesAskedAt: now }).where(eq(wbMember.id, actor.id));
       if (parent) await tx.update(wbRecord).set({ outcomeAt: now, updatedAt: now }).where(eq(wbRecord.id, parent.id));
       // the audit names what was recorded, never the diagnosis
       await audit({
@@ -220,6 +231,7 @@ export async function saveOutcome(courier: Courier, acting: Acting, input: Outco
           kinds: rows.map((r) => r.kind),
           parentId: parent?.id ?? null,
           replaces: replaced.length ? replaced : undefined,
+          declared: declared || undefined,
         },
       });
       return {
@@ -238,6 +250,18 @@ export async function saveOutcome(courier: Courier, acting: Acting, input: Outco
       const { delivery } = await c.postCard({ record: batch[0] }, { replaces: old.map(recordWhat) });
       await c.send({ telegramId: batch[0].ownerTelegramId }, ownSummary(batch, old.length > 0));
       return { recordIds: ids, anchorId, delivery, nothing: false };
+    },
+  });
+}
+
+/** "No statuses from before Sabre": only remembers that he was asked, so Home stops asking. */
+export async function noStatusesToDeclare(acting: Acting): Promise<Outcome<null>> {
+  return write(null, acting, {
+    parade: false,
+    async change({ tx, audit }) {
+      await tx.update(wbMember).set({ statusesAskedAt: new Date() }).where(eq(wbMember.id, acting.actor.id));
+      await audit({ action: "no-statuses", entity: "wb_member", entityId: acting.actor.id });
+      return null;
     },
   });
 }

@@ -28,7 +28,7 @@ export interface CardRecord {
   parentId: string | null;
   leaveDays: number | null;
   decisionNote: string | null;
-  createdVia: "SELF" | "PROXY" | "IMPORT";
+  createdVia: "SELF" | "PROXY" | "IMPORT" | "DECLARED";
   rank: string;
   name: string;
   campName: string;
@@ -158,8 +158,10 @@ export const anchorOf = (r: { id: string; parentId: string | null }) => r.parent
 export function outcomeCardText(rows: readonly CardRecord[], opts: { replaces?: readonly string[] } = {}): string {
   const first = rows[0];
   const dead = rows.every((r) => r.state === "CANCELLED");
-  const head = opts.replaces?.length ? "✏️ Outcome corrected" : "📝 Outcome recorded";
-  const lines = [`What the doctor gave · ${first.rank} ${first.name}`, place(first.campName, first.subunitName), ...rows.map(recordWhat)];
+  // statuses he already had when he joined (2026-10-27): no visit behind them
+  const declared = rows.every((r) => r.createdVia === "DECLARED");
+  const head = opts.replaces?.length ? (declared ? "✏️ Statuses corrected" : "✏️ Outcome corrected") : declared ? "📋 Statuses he already had" : "📝 Outcome recorded";
+  const lines = [`${declared ? "Declared by him" : "What the doctor gave"} · ${first.rank} ${first.name}`, place(first.campName, first.subunitName), ...rows.map(recordWhat)];
   const onens = rows.map((r) => onensLine(r.onens)).find(Boolean);
   if (onens) lines.push(onens);
   if (rows.some((r) => r.kind === "STATUS") && !rows.some((r) => r.kind === "MC" || r.kind === "HL")) lines.push("A status keeps him present.");

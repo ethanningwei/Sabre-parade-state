@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { NeedsYou } from "@/components/tg/needs-you";
 import { StatusPass } from "@/components/tg/status-pass";
+import { StatusesAsk } from "@/components/tg/statuses-ask";
 import { ParadeStateTile } from "@/components/tg/parade-state-tile";
 import { Tile } from "@/components/tg/tile";
 import { Group } from "@/components/tg/ui";
@@ -87,6 +88,8 @@ export default async function TgHome() {
       </header>
 
       <NeedsYou lines={needs} />
+
+      {self && !member.statusesAskedAt && <StatusesAsk />}
 
       {self && (
         <div className="tg-enter" style={{ "--i": 1 } as React.CSSProperties}>

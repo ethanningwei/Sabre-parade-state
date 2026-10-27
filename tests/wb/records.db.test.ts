@@ -14,7 +14,7 @@ import { wbAudit, wbCard, wbCommanderChat, wbGrant, wbMember, wbRecord } from "@
 import { decide, notRight, sayWhy, submit, undo, voidRecord, withdraw, type NewRecord } from "@/lib/wb/decide";
 import { outcomeOrder } from "@/lib/wb/domain/describe";
 import { eventFrom, leaveFrom, maFrom, offFrom, sickFrom, type OwnRecord } from "@/lib/wb/input";
-import { markOnens, saveOutcome, type McInput, type OutcomeInput, type StatusInput } from "@/lib/wb/outcome";
+import { markOnens, noStatusesToDeclare, saveOutcome, type McInput, type OutcomeInput, type StatusInput } from "@/lib/wb/outcome";
 import { clashFor, pendingFor, recordView, recordViews, reportedFor } from "@/lib/wb/records";
 import { cardKeyboard, cardText, outcomeCardText } from "@/lib/wb/telegram/cards";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
@@ -524,6 +524,52 @@ describe("medical (DB)", () => {
     expect(await markOnens(c, await acting(TROOPER, "BOT"), mcRow.id)).toMatchObject({ ok: true, value: { onens: "DONE" } });
     expect(c.sent).toEqual([{ redraw: { record: mcRow.id } }]);
     expect(await markOnens(c, await acting(TROOPER), mcRow.id)).toEqual({ ok: false, error: "Nothing is owed on ONENS for that." });
+  });
+
+  it("declared statuses (2026-10-27): any start, no photo, only ones still running; marks him asked; a correction keeps the rules", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await setup();
+    const c = recordingCourier();
+    const by = await acting(TROOPER);
+    const declared = (over: Partial<OutcomeInput>) => outcome({ photoFileId: null, declared: true, ...over });
+    const old = status({ label: "EXCUSE RMJ", startDate: day(-400), endDate: null });
+
+    // a temporary one already over, and an MC, are refused; nothing is saved or told
+    expect(await saveOutcome(c, by, declared({ statuses: [status({ startDate: day(-20), endDate: day(-1) })] }))).toEqual({
+      ok: false,
+      error: "Status 1 has already ended. Only add statuses you still have.",
+    });
+    expect(await saveOutcome(c, by, declared({ mc: mc(), statuses: [old] }))).toMatchObject({ ok: false, error: expect.stringMatching(/^Only statuses you already have/) });
+    expect(c.sent).toEqual([]);
+
+    // a permanent one from long ago and a running temporary one, with no photo
+    const head = ok(await saveOutcome(c, by, declared({ statuses: [old, status({ startDate: day(-90), endDate: day(10) })] }))).anchorId;
+    const rows = await db.select().from(wbRecord);
+    expect(rows.map((r) => [r.detail, r.createdVia, r.evidenceFileId, r.parentId === null])).toEqual(
+      expect.arrayContaining([
+        ["EXCUSE RMJ", "DECLARED", null, true],
+        ["LIGHT DUTY", "DECLARED", null, false],
+      ]),
+    );
+    expect(rows.find((r) => r.id === head)).toMatchObject({ kind: "STATUS", detail: "EXCUSE RMJ" });
+    const [me] = await db.select().from(wbMember).where(eq(wbMember.telegramUserId, TROOPER));
+    expect(me.statusesAskedAt).not.toBeNull();
+    expect(outcomeCardText(outcomeOrder(await recordViews(rows.map((r) => r.id))))).toMatch(/^📋 Statuses he already had\n\nDeclared by him · PTE IRFAN\nSLR · PLATOON 6\nEXCUSE RMJ/);
+
+    // correcting it through the ordinary outcome form: still no photo needed, still any start
+    expect(await saveOutcome(c, by, outcome({ anchorId: head, statuses: [old], photoFileId: null }))).toMatchObject({ ok: true });
+    const live = (await db.select().from(wbRecord)).filter((r) => r.state === "RECORDED");
+    expect(live).toMatchObject([{ detail: "EXCUSE RMJ", createdVia: "DECLARED" }]);
+  });
+
+  it("no statuses to declare: only marks him asked, and audits it", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await setup();
+    expect(await noStatusesToDeclare(await acting(TROOPER))).toEqual({ ok: true, value: null });
+    const [me] = await db.select().from(wbMember).where(eq(wbMember.telegramUserId, TROOPER));
+    expect(me.statusesAskedAt).not.toBeNull();
+    expect(await db.select().from(wbAudit).where(and(eq(wbAudit.action, "no-statuses"), eq(wbAudit.entityId, me.id)))).toHaveLength(1);
+    expect(await db.select().from(wbRecord)).toEqual([]);
   });
 });
 
