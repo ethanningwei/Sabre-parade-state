@@ -66,7 +66,7 @@
 | — | ROT: the changeover and ROT screens (not a phase), the user's go-ahead of 2026-10-24 | 🧪 Built 2026-10-24 on branch `rot-changeover` (6ddd440…0a25e0f, then these docs), not pushed. Migration **0012** (`wb_phase`, the draft, `wb_changeover`, `SC` in `wb_role`) on `sabre_test`/`sabre_dev` only, **not the preview**. **SC** mirrors GC at section level. **ROT parade state** in `lib/parade/render-rot.ts` (**provisional**: hand-written golden, no real sample yet), chosen by phase in v1's `generateParadeState`. **Changeover** in the Mini App (Settings › Changeover, COY HQ and admins): draft platoons/sections/SC/PC/PS, assign men (by camp, Move all of camp X, paste the Telegram list), preview, **Switch to ROT** and **Switch back**. ROT screens: Home, Settings, Roster, Manpower, evening round, and v1's Overview. Rehearsed locally twice: the Vigilance parade state came back byte-identical. Spec and handover in §3d |
 | — | Statuses he already had (not a phase), part C of the plan of 2026-10-27 | 🧪 Built 2026-10-27, not pushed. Migration **0013** (`wb_created_via` + DECLARED, `wb_member.statuses_asked_at`) on `sabre_test`, `sabre_dev`, the preview and **production** (applied 2026-10-27, before the push). **Statuses you already have** (`/tg/statuses/declare`): the last step of registration for a roster man, and a **Home card** ("Any statuses from before Sabre?", Add them / None) until he answers, so everyone already registered is asked. Permanent from any date, temporary only if still running, **the paper optional**. Saved DECLARED; the commanders' card reads "📋 Statuses he already had". Then parts B (Statuses panel, below) and A (stay-out in the night parade state): §3e |
 | — | Statuses panel (not a phase), part B of the plan of 2026-10-27 | 🧪 Built 2026-10-27, not pushed. No migration. **Person history and My records** show a man's statuses in a panel of their own (live, then a collapsed "Past statuses"), not as record cards. **Manpower's Day view no longer lists statuses.** A status no longer keeps its visit current. 752 tests. Checked in the browser pane (375×812, light and dark), not yet on a phone: phone check in §3e. Next: part A (stay-out), its own session |
-| — | Stay-out on the night parade state (not a phase), part A of the plan of 2026-10-27 | 🧪 Built 2026-10-27, not pushed. Migration **0014** (`wb_stayout_night`, `wb_projection.stayout_night`) on `sabre_test`, `sabre_dev`, the preview and **production (applied 2026-10-27)**. A registered stay-out man is on the parade state as **OTHERS (STAYOUT), no dates, from 2100 to 0600, only while his camp is on shift** (projection on). The evening round asks each platoon ("🏠 Stay-out tonight", ✅ Correct, 🛏 staying in per man); untapped nights still go on. Person history shows and changes it (his PC/PS, OC/2IC/CSM, ADMIN); Roster has a Stay-out filter. 772 tests. Checked in the browser pane (375×812, light and dark), not on a phone: phone check in §3e |
+| — | Stay-out on the night parade state (not a phase), part A of the plan of 2026-10-27 | 🧪 Built 2026-10-27, pushed (b6864ee). Migration **0014** (`wb_stayout_night`, `wb_projection.stayout_night`) on `sabre_test`, `sabre_dev`, the preview and **production (applied 2026-10-27)**. A registered stay-out man is on the parade state as **OTHERS (STAYOUT), no dates, from 2100 to 0600, only while his camp is on shift** (projection on). The evening round asks each platoon ("🏠 Stay-out tonight", ✅ Correct, 🛏 staying in per man); untapped nights still go on. Person history shows and changes it (his PC/PS, OC/2IC/CSM, ADMIN); Roster has a Stay-out filter. 772 tests. Checked in the browser pane (375×812, light and dark), not on a phone: the phone check, on production, is in §3e |
 | 8 | GC Camp check | ⏳ Next. Spec in §3b |
 
 **Prerequisites from the user** (tick off as they arrive):
@@ -534,14 +534,23 @@ Order: **C** statuses he already had (built), **B** a Statuses panel (built) on 
 - **Person history:** the header says "Stay-out (permanent)" / "Stay-out until 31/10" (nothing once a temporary one has passed). His PC/PS, OC/2IC/CSM and admins (`manAccess.stayout`, himself included) get **Stay-out: …**, a sheet with Not stay-out / Permanent / Until a date (DDMMYY). `setStayout` goes through `write()`, is audited `set-stayout`, and refuses a man who hasn't registered and a date in the past.
 - **Roster:** a "Stay-out · n" chip beside "Not registered" (one filter at a time; both now 44px tall), and "Stay-out" under the man's name.
 
-**Phone check for A** (0014 on the preview; projection on there):
-1. As his PS, open a registered man's Person history. Tap **Stay-out: No** → Until a date, 311026, Save. The header says "Stay-out until 31/10". Roster's **Stay-out** chip finds him.
-2. As his GC, open the same man: no Stay-out button.
-3. Run the evening round by hand (`npm run wb:setup -- evening` against the preview) on a day his camp is on shift tonight. The platoon's chat gets "🏠 Stay-out tonight 2100–0600 · 1" with ✅ Correct and 🛏 staying in.
-4. Tap 🛏 staying in: the line says "🛏 staying in" and the button turns into "🏠 … stays out". Tap it back. Tap ✅ Correct: "✅ Confirmed by …", and the Correct button goes. A PS of another platoon tapping gets an alert.
-5. After 2100, generate the parade state: he's under OTHERS as "(STAYOUT)", with no dates, and it isn't blocked as overdue. With "staying in" tapped instead, he isn't there.
-6. After 0600, generate the parade state: he's present again, with nobody tapping Back.
-7. Set him back to Not stay-out.
+**Phone check for A, on production** (rewritten 2026-10-27). @sabreopsbot's webhook is on production, so the preview has no bot until it gets its own (production-cutover.md C3). Projection is on in production (`wb:setup -- diff`). Use men who really are stay-out, not fake ones: anything set here is on the real parade state from 2100. Don't run `wb:setup -- evening` by hand: `WB_APP_URL` is production, so it re-sends the whole evening round to the real chats.
+
+*Before 1900, in the Mini App:*
+1. Roster › **Stay-out** chip. It should list the men who said they're stay-out at registration. If a man is missing, or listed but no longer stays out, fix him from his page (step 2). That's real data, so keep it true.
+2. Open one of them. The header says "Stay-out (permanent)" or "Stay-out until DD/MM", and the button says the same. Tap it, choose Until a date, type yesterday's date (DDMMYY), Save: refused, "The last day of his stay-out can't be in the past." Then type his real last night out (or Permanent), Save: toast, and the header updates.
+3. A man who hasn't registered has no Stay-out button. If a GC is around: on his phone, the same man has no Stay-out button either.
+
+*1900–1959, the evening round (the cron; heartbeat DM to the admins):*
+4. Each platoon whose stay-out men are on a camp on shift tonight gets "🏠 Stay-out tonight 2100–0600 · n", one line per man with his camp, ✅ Correct, and a "🛏 … staying in" button per man. A platoon with none gets nothing. The heartbeat says "n stay-out messages".
+5. Tap 🛏 on one man: his line gets "· 🛏 staying in", his button turns to "🏠 … stays out", and n drops by one. Tap it back. Tap ✅ Correct: "✅ Confirmed by <you>", and Correct goes. If a man really is staying in tonight, leave him on staying in.
+6. If a PS of another platoon is around: his tap gets an alert, and the message doesn't change.
+
+*After 2100:*
+7. Generate the parade state. Each stay-out man going out is under OTHERS as "N. RANK NAME (STAYOUT)", with no dates, and nothing is flagged overdue. Anyone on staying in isn't there.
+
+*Tomorrow after 0600:*
+8. Generate the parade state, or open any Mini App page: they're present again, and nobody was asked Back.
 
 ## 4. Telegram layout (decided 2026-10-12)
 | Where | Who | What the bot does there |
