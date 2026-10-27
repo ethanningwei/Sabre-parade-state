@@ -415,3 +415,41 @@ describe("waiting accounts: the badge, the evening line, the guard", () => {
     expect(await res.json()).toEqual({ error: "Your Sabre account is switched off. Ask your PS." });
   });
 });
+
+describe("stay-out from Person history (2026-10-27)", () => {
+  it("his PC or PS, or company command, changes it; not his GC; not a man who hasn't registered", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const { setStayout } = await import("@/lib/wb/stayout");
+    const { rosterFor } = await import("@/lib/wb/admin-data");
+    const man = await member({ personId: slr[2].id });
+    const gc = await member({ personId: slr[0].id, grants: [{ role: "GC", campId: ids.slr }] });
+    const ps = await member({ grants: [{ role: "PS", subunitId: ids.pl6 }] });
+    const otherPs = await member({ grants: [{ role: "PS", subunitId: ids.pl7 }] });
+    const admin = await member({ grants: [{ role: "ADMIN" }] });
+    const label = `${slr[2].rank} ${slr[2].name}`;
+    const now = new Date("2026-10-27T04:00:00Z");
+
+    expect(await setStayout(gc.by, slr[2].id, { stayout: "PERM", until: null }, now)).toEqual({
+      ok: false,
+      error: `Only ${label}'s PC or PS, or the OC, 2IC or CSM, can change his stay-out.`,
+    });
+    expect((await setStayout(otherPs.by, slr[2].id, { stayout: "PERM", until: null }, now)).ok).toBe(false);
+    expect(await setStayout(ps.by, slr[2].id, { stayout: "TEMP", until: "2026-10-26" }, now)).toEqual({ ok: false, error: "The last day of his stay-out can't be in the past." });
+    expect(await setStayout(ps.by, slr[2].id, { stayout: "TEMP", until: "2026-10-31" }, now)).toEqual({ ok: true, value: { label } });
+    expect((await db.select().from(wbMember).where(eq(wbMember.id, man.id)))[0]).toMatchObject({ stayout: "TEMP", stayoutUntil: "2026-10-31" });
+    const [a] = await db.select().from(wbAudit).where(eq(wbAudit.action, "set-stayout"));
+    expect(a).toMatchObject({ memberId: ps.id, entityId: man.id, before: { stayout: "NONE", stayoutUntil: null }, after: { stayout: "TEMP", stayoutUntil: "2026-10-31" } });
+
+    // Roster's filter
+    const roster = await rosterFor(ps.grants);
+    const flagged = roster.camps.flatMap((c) => c.people.filter((p) => p.stayout).map((p) => p.personId));
+    expect(flagged).toEqual([slr[2].id]);
+
+    expect((await setStayout(admin.by, slr[2].id, { stayout: "NONE", until: "2026-10-31" }, now)).ok).toBe(true);
+    expect((await db.select().from(wbMember).where(eq(wbMember.id, man.id)))[0]).toMatchObject({ stayout: "NONE", stayoutUntil: null });
+    expect(await setStayout(ps.by, slr[3].id, { stayout: "PERM", until: null }, now)).toEqual({
+      ok: false,
+      error: `${slr[3].rank} ${slr[3].name} hasn't registered, so Sabre can't keep his stay-out yet.`,
+    });
+  });
+});

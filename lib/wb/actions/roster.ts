@@ -4,13 +4,16 @@ import { z } from "zod";
 import { run, UserError } from "@/lib/actions/shared";
 import { requireFeature } from "@/lib/flags";
 import { actionMember } from "@/lib/wb/auth";
+import { ddmmyy } from "@/lib/wb/domain/registration";
 import { miniApp, zId } from "@/lib/wb/input";
 import { addPersonToRoster, addToRoster, editRosterPerson, linkToRoster, removeFromRoster } from "@/lib/wb/roster-flow";
+import { setStayout } from "@/lib/wb/stayout";
 import { courier } from "@/lib/wb/telegram/courier";
 
 // The Mini App's roster flow: Remove from roster (Person history); Add to
 // roster / Link to existing for a waiting account, and + Add person and Edit
-// (Roster). Rules and scope are in lib/wb/roster-flow.ts.
+// (Roster). Rules and scope are in lib/wb/roster-flow.ts. Stay-out (Person
+// history) is in lib/wb/stayout.ts.
 
 const commander = async () => miniApp(await actionMember());
 
@@ -64,6 +67,24 @@ export async function editPersonAction(personId: string, raw: z.input<typeof edi
   requireFeature();
   return run(async () => {
     const res = await editRosterPerson(await commander(), zId.parse(personId), editInput.parse(raw));
+    if (!res.ok) throw new UserError(res.error);
+    return res.value;
+  });
+}
+
+const stayoutInput = z
+  .object({ stayout: z.enum(["NONE", "PERM", "TEMP"]), until: z.string().optional().default("") })
+  .transform((d, ctx) => {
+    if (d.stayout !== "TEMP") return { stayout: d.stayout, until: null };
+    const until = ddmmyy(d.until);
+    if (!until) ctx.addIssue({ code: "custom", message: "Stay-out until: give the date as DDMMYY." });
+    return { stayout: d.stayout, until };
+  });
+
+export async function setStayoutAction(personId: string, raw: z.input<typeof stayoutInput>) {
+  requireFeature();
+  return run(async () => {
+    const res = await setStayout(await commander(), zId.parse(personId), stayoutInput.parse(raw));
     if (!res.ok) throw new UserError(res.error);
     return res.value;
   });

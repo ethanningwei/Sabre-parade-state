@@ -99,6 +99,13 @@
       "when": 1793067721272,
       "tag": "0013_wb_declared",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793069798283,
+      "tag": "0014_wb_stayout",
+      "breakpoints": true
     }
   ]
 }

@@ -12,7 +12,7 @@ import { wbAudit } from "@/lib/wb/audit";
 import { wbAudit as wbAuditTable } from "@/lib/wb/db/schema";
 import { Refusal } from "@/lib/wb/core";
 import { write, type Acting, type Outcome } from "@/lib/wb/write";
-import { wbAssignment, wbProjection, wbRecord, wbShiftEvent, wbShiftOverride, wbShiftPattern } from "@/lib/wb/db/schema";
+import { wbAssignment, wbMember, wbProjection, wbRecord, wbShiftEvent, wbShiftOverride, wbShiftPattern, wbStayoutNight } from "@/lib/wb/db/schema";
 import { manAccess } from "@/lib/wb/domain/access";
 import { toPattern } from "@/lib/wb/forecast-data";
 import {
@@ -28,6 +28,7 @@ import {
 } from "@/lib/wb/domain/projection";
 import { formatProjection, type Who } from "@/lib/wb/domain/projection-report";
 import { STANDING_STATES, type WbRecordKind, type WbRecordState } from "@/lib/wb/domain/rules";
+import { onStayout, stayoutNight } from "@/lib/wb/domain/stayout";
 
 // The projector: the timeline into the parade state (status §3b, plan §4f).
 // planNow() works out what v1 should say now (lib/wb/domain/projection.ts);
@@ -111,11 +112,26 @@ export async function loadPlanInput(tx: Reader, now: Date): Promise<PlanInput> {
         ownedAssignments.length ? inArray(wbAssignment.id, ownedAssignments) : sql`false`,
       ),
     );
+  // stay-out men, only between 2100 and 0600: registered, on the roster, and stay-out tonight
+  const night = stayoutNight(now);
+  const stayouts = night
+    ? (
+        await tx
+          .select({ personId: person.id, stayout: wbMember.stayout, stayoutUntil: wbMember.stayoutUntil, tapped: wbStayoutNight.state })
+          .from(wbMember)
+          .innerJoin(person, and(eq(person.id, wbMember.personId), eq(person.active, true)))
+          .leftJoin(wbStayoutNight, and(eq(wbStayoutNight.personId, person.id), eq(wbStayoutNight.night, night)))
+          .where(and(eq(wbMember.active, true), sql`${wbMember.registeredAt} is not null`, inArray(wbMember.stayout, ["PERM", "TEMP"])))
+      )
+        .filter((m) => onStayout(m, night))
+        .map((m) => ({ personId: m.personId, night, staysIn: m.tapped === "STAYING_IN" }))
+    : [];
+
   // closed projections matter only to say "a GC closed this one: don't reopen it"
   const recordIds = records.map((r) => r.id);
   const assignmentIds = assignments.map((a) => a.id);
   const byHand =
-    recordIds.length || assignmentIds.length
+    recordIds.length || assignmentIds.length || night
       ? await tx
           .select()
           .from(wbProjection)
@@ -125,6 +141,7 @@ export async function loadPlanInput(tx: Reader, now: Date): Promise<PlanInput> {
               or(
                 recordIds.length ? inArray(wbProjection.recordId, recordIds) : sql`false`,
                 assignmentIds.length ? inArray(wbProjection.assignmentId, assignmentIds) : sql`false`,
+                night ? eq(wbProjection.stayoutNight, night) : sql`false`,
               ),
             ),
           )
@@ -199,6 +216,7 @@ export async function loadPlanInput(tx: Reader, now: Date): Promise<PlanInput> {
     close: p.close,
     backConfirmedAt: p.backConfirmedAt,
     wrote: p.wrote,
+    stayoutNight: p.stayoutNight,
   });
   return {
     now,
@@ -211,6 +229,7 @@ export async function loadPlanInput(tx: Reader, now: Date): Promise<PlanInput> {
     camps: camps.map((c) => ({ ...c, post: c.post ?? c.name })),
     homeOf: new Map(people.map((p) => [p.id, p.campId])),
     projections: [...projections, ...byHand].map(asP),
+    stayouts,
   };
 }
 
@@ -242,11 +261,14 @@ async function apply(tx: Tx, w: Write, now: Date) {
       const wrote = absenceRow(w.values);
       if (w.replaces && res.after?.id === w.replaces.absenceId) {
         // a new end (an MC extended) needs a new "Back"
-        await tx.update(wbProjection).set({ recordId: w.recordId, wrote, updatedAt: now, backConfirmedAt: null, backConfirmedBy: null }).where(eq(wbProjection.id, w.replaces.id));
+        await tx
+          .update(wbProjection)
+          .set({ recordId: w.recordId, stayoutNight: w.stayoutNight ?? null, wrote, updatedAt: now, backConfirmedAt: null, backConfirmedBy: null })
+          .where(eq(wbProjection.id, w.replaces.id));
         return;
       }
       if (w.replaces) await closeProjection(tx, w.replaces.id, "REPLACED", now);
-      await tx.insert(wbProjection).values({ kind: "ABSENCE", personId: w.personId, recordId: w.recordId, absenceId: res.after!.id, wrote, wroteAt: now, updatedAt: now });
+      await tx.insert(wbProjection).values({ kind: "ABSENCE", personId: w.personId, recordId: w.recordId, stayoutNight: w.stayoutNight ?? null, absenceId: res.after!.id, wrote, wroteAt: now, updatedAt: now });
       return;
     }
     case "close-absence": {

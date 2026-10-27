@@ -8,7 +8,7 @@ import { writeCoy } from "@/lib/data/write-coy";
 import { db } from "@/lib/db";
 import { camp, person, subunit } from "@/lib/db/schema";
 import { submit } from "@/lib/wb/decide";
-import { wbAudit, wbCard, wbCommanderChat, wbConversation, wbGrant, wbMember, wbRecord, wbRfCard, wbRfRequest } from "@/lib/wb/db/schema";
+import { wbAudit, wbCard, wbCommanderChat, wbConversation, wbGrant, wbMember, wbRecord, wbRfCard, wbRfRequest, wbStayoutNight } from "@/lib/wb/db/schema";
 import { addDays, dateRange, todaySgt } from "@/lib/wb/domain/timeline";
 import { createBot } from "@/lib/wb/telegram/bot";
 import { courierOf } from "@/lib/wb/telegram/courier";
@@ -575,5 +575,61 @@ describe("bot: report for your men (fake Telegram)", () => {
     const nag = calls.find((x) => x.payload.chat_id === GC)!;
     expect(String(nag.payload.text)).toMatch(/^👤 PTE IRFAN isn't on Sabre yet\n\n[^]*\n\nYou reported this for him\. Get him to register in Sabre, so he can record what the doctor gave him\.$/);
     expect(nag.payload.reply_markup).toBeUndefined();
+  });
+});
+
+// ------------------------------------------------------------------ stay-out (2026-10-27)
+
+describe("bot: stay-out tonight (fake Telegram)", () => {
+  it("only his GC, PC or PS taps; staying in toggles; ✅ Correct confirms and redraws; a night that's over is refused", async (ctx) => {
+    if (!reachable) ctx.skip();
+    const [irfan] = await db.select({ id: person.id }).from(person).where(eq(person.name, "IRFAN"));
+    const [chunHei] = await db.select({ id: person.id }).from(person).where(eq(person.name, "CHUN HEI"));
+    const [slr] = await db.select({ id: camp.id }).from(camp).where(eq(camp.name, "SLR"));
+    const [{ id: pl7 }] = await db.select({ id: subunit.id }).from(subunit).where(eq(subunit.name, "PLATOON 7"));
+    await db.update(camp).set({ onShift: true }).where(eq(camp.id, slr.id));
+    await db.delete(wbStayoutNight);
+    const trooper = await member(81, [], irfan.id);
+    await db.update(wbMember).set({ stayout: "PERM" }).where(eq(wbMember.id, trooper.id));
+    await member(82, [{ role: "PS", subunitId: pl6 }], chunHei.id);
+    await member(85, [{ role: "PS", subunitId: pl7 }]);
+    const night = todaySgt();
+    const { stayoutRolls } = await import("@/lib/wb/stayout");
+    expect((await stayoutRolls(night, pl6)).map((r) => r.men.map((m) => m.name))).toEqual([["IRFAN"]]);
+    const states = async () => (await db.select({ state: wbStayoutNight.state }).from(wbStayoutNight)).map((r) => r.state);
+    const textOf = (c: typeof calls) => String(c.find((x) => x.method === "editMessageText")?.payload.text ?? "");
+
+    // another platoon's PS, and the man himself
+    expect(answerOf(await send(tap(`y:${pl6}:${night}:ok`, { from: 85, messageId: 5 })))).toMatchObject({ text: "Only their GC, PC or PS can confirm.", show_alert: true });
+    expect(answerOf(await send(tap(`y:${irfan.id}:${night}:in`, { from: 81, messageId: 5 })))).toMatchObject({ text: "Only PTE IRFAN's GC, PC or PS can say that.", show_alert: true });
+    expect(await states()).toEqual([]);
+
+    // staying in, and back out before anyone confirmed: untapped again
+    let c = await send(tap(`y:${irfan.id}:${night}:in`, { from: 82, messageId: 5 }));
+    expect(answerOf(c)).toMatchObject({ text: "PTE IRFAN staying in" });
+    expect(textOf(c)).toContain("• PTE IRFAN (SLR) · 🛏 staying in");
+    expect(await states()).toEqual(["STAYING_IN"]);
+    c = await send(tap(`y:${irfan.id}:${night}:in`, { from: 82, messageId: 5 }));
+    expect(answerOf(c)).toMatchObject({ text: "PTE IRFAN stays out" });
+    expect(await states()).toEqual([]);
+
+    // ✅ Correct: confirmed, by whom, and the Correct button goes
+    c = await send(tap(`y:${pl6}:${night}:ok`, { from: 82, messageId: 5 }));
+    expect(answerOf(c)).toMatchObject({ text: "Confirmed" });
+    expect(textOf(c)).toMatch(/✅ Confirmed by .*CHUN HEI$/);
+    const kb = c.find((x) => x.method === "editMessageText")!.payload.reply_markup as { inline_keyboard: { text: string; callback_data: string }[][] };
+    expect(kb.inline_keyboard).toEqual([[{ text: "🛏 PTE IRFAN staying in", callback_data: `y:${irfan.id}:${night}:in` }]]);
+    expect(await states()).toEqual(["CONFIRMED"]);
+    // staying in after all, then out again: confirmed like the rest
+    await send(tap(`y:${irfan.id}:${night}:in`, { from: 82, messageId: 5 }));
+    expect(await states()).toEqual(["STAYING_IN"]);
+    await send(tap(`y:${irfan.id}:${night}:in`, { from: 82, messageId: 5 }));
+    expect(await states()).toEqual(["CONFIRMED"]);
+    const [a] = await db.select().from(wbAudit).where(eq(wbAudit.action, "stayout-night")).limit(1);
+    expect(a.via).toBe("BOT");
+
+    expect(answerOf(await send(tap(`y:${pl6}:${addDays(night, -2)}:ok`, { from: 82, messageId: 5 })))).toMatchObject({ text: "That night is over.", show_alert: true });
+    await db.delete(wbStayoutNight);
+    await db.update(wbMember).set({ stayout: "NONE" }).where(eq(wbMember.id, trooper.id));
   });
 });

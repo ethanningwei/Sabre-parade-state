@@ -49,14 +49,16 @@ const WHY: Record<string, string> = {
   VOID: "its record was cancelled or moved",
   BACK: "Back confirmed",
   STOOD_DOWN: "stood down",
+  DONE: "stay-out night over",
 };
 
 function writeLine(w: Exclude<Write, { op: "shift" }>, camps: ReadonlyMap<string, string>): string {
   switch (w.op) {
     case "absence":
+      if (w.stayoutNight) return `${w.why === "open" ? "+" : "~"} 🏠 Stay-out tonight, until 0600`;
       return `${w.why === "open" ? "+" : "~"} ${absenceText(w.values)}${w.why === "switch" ? " (replaces the last one)" : ""}`;
     case "close-absence":
-      return `− back, present (${WHY[w.why]})`;
+      return `− back, present (${w.projection.stayoutNight && w.why === "VOID" ? "staying in, or no longer stay-out" : WHY[w.why]})`;
     case "duty":
       return `${w.why === "open" ? "+" : "~"} ${dutyText(w.values, camps)}`;
     case "end-duty":

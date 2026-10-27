@@ -18,17 +18,17 @@ export interface ListCamp {
   /** Person history / Remove from roster, for this viewer, for the men of this camp */
   history: boolean;
   remove: boolean;
-  people: { personId: string; rank: string; name: string; role: string; registered: boolean }[];
+  people: { personId: string; rank: string; name: string; role: string; registered: boolean; stayout: boolean }[];
 }
 
 /**
  * The roster in the viewer's scope: + Add person, a search, "Not registered"
- * as a filter, and one group per camp. Tap a man to edit him. With more than
+ * and "Stay-out" as filters (one at a time), and one group per camp. Tap a man to edit him. With more than
  * one camp, each starts folded unless a search is on.
  */
 export function RosterList({ camps, options, selfId }: { camps: ListCamp[]; options: CampOption[]; selfId: string | null }) {
   const [q, setQ] = useState("");
-  const [onlyUnregistered, setOnlyUnregistered] = useState(false);
+  const [only, setOnly] = useState<"unregistered" | "stayout" | null>(null);
   // kept after closing, so the sheet can slide away; `open` says whether it's up
   const [editing, setEditing] = useState<EditablePerson | "new" | null>(null);
   const [open, setOpen] = useState(false);
@@ -41,11 +41,18 @@ export function RosterList({ camps, options, selfId }: { camps: ListCamp[]; opti
   };
   const query = q.trim().toUpperCase();
   const unregistered = camps.reduce((n, c) => n + c.people.filter((p) => !p.registered).length, 0);
+  const stayout = camps.reduce((n, c) => n + c.people.filter((p) => p.stayout).length, 0);
   const shown = camps.map((c) => ({
     ...c,
-    people: c.people.filter((p) => (!onlyUnregistered || !p.registered) && (!query || `${p.rank} ${p.name}`.includes(query))),
+    people: c.people.filter(
+      (p) => (only !== "unregistered" || !p.registered) && (only !== "stayout" || p.stayout) && (!query || `${p.rank} ${p.name}`.includes(query)),
+    ),
   }));
-  const filtering = !!query || onlyUnregistered;
+  const filtering = !!query || !!only;
+  const chips = [
+    { key: "unregistered" as const, label: "Not registered", n: unregistered },
+    { key: "stayout" as const, label: "Stay-out", n: stayout },
+  ].filter((c) => c.n > 0);
   const hits = shown.reduce((n, c) => n + c.people.length, 0);
   const folded = camps.length > 1 && !filtering;
 
@@ -60,16 +67,19 @@ export function RosterList({ camps, options, selfId }: { camps: ListCamp[]; opti
         <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
         <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or rank" aria-label="Search name or rank" className={`${fieldClass} pl-10`} autoCapitalize="characters" />
       </div>
-      {unregistered > 0 && (
+      {chips.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 px-1">
-          <button
-            type="button"
-            aria-pressed={onlyUnregistered}
-            onClick={() => setOnlyUnregistered((v) => !v)}
-            className={`tg-press min-h-9 rounded-full border px-3.5 text-sm ${onlyUnregistered ? "border-primary bg-primary/10 font-medium text-primary" : "border-border bg-card active:bg-muted"}`}
-          >
-            Not registered · {unregistered}
-          </button>
+          {chips.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              aria-pressed={only === c.key}
+              onClick={() => setOnly((v) => (v === c.key ? null : c.key))}
+              className={`tg-press min-h-11 rounded-full border px-3.5 text-sm ${only === c.key ? "border-primary bg-primary/10 font-medium text-primary" : "border-border bg-card active:bg-muted"}`}
+            >
+              {c.label} · {c.n}
+            </button>
+          ))}
         </div>
       )}
       {filtering && (
@@ -97,7 +107,7 @@ export function RosterList({ camps, options, selfId }: { camps: ListCamp[]; opti
                       <span className="font-medium">
                         {p.rank} {p.name}
                       </span>
-                      <span className="text-xs text-muted-foreground">{[p.role, !p.registered && "Not registered"].filter(Boolean).join(" · ") || " "}</span>
+                      <span className="text-xs text-muted-foreground">{[p.role, !p.registered && "Not registered", p.stayout && "Stay-out"].filter(Boolean).join(" · ") || " "}</span>
                     </span>
                     <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" aria-hidden />
                   </button>

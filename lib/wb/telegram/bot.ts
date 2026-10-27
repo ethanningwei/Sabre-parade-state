@@ -16,8 +16,10 @@ import { markOnens } from "@/lib/wb/outcome";
 import { RF_CALLBACK } from "@/lib/wb/domain/rf";
 import { isWaiting, WAITING_REPLY } from "@/lib/wb/domain/roster-flow";
 import { closeRf } from "@/lib/wb/rf";
-import { BACK_CALLBACK } from "@/lib/wb/domain/projection-kinds";
+import { BACK_CALLBACK, STAYOUT_CALLBACK } from "@/lib/wb/domain/projection-kinds";
+import { stayoutMessage } from "@/lib/wb/domain/stayout";
 import { confirmBack } from "@/lib/wb/projection";
+import { markStayout } from "@/lib/wb/stayout";
 import { CARD_CALLBACK, NOT_RIGHT_CALLBACK, ONENS_CALLBACK } from "./cards";
 import { matchSubunit, QUICK_COMMANDS } from "./commands";
 import { miniAppLink, miniAppUrl } from "./links";
@@ -235,6 +237,26 @@ async function onBack(ctx: Context) {
   }
 }
 
+/** The evening "🏠 Stay-out tonight": y:<subunitId>:<night>:ok or y:<personId>:<night>:in. The message is redrawn from the roll. */
+async function onStayout(ctx: Context) {
+  const [, id, night, act] = ctx.match as RegExpMatchArray;
+  const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
+  if (!member) return void (await ctx.answerCallbackQuery({ text: "Open Sabre and register first.", show_alert: true }));
+  const res = await markStayout(acting(member), { id, night, act: act as "ok" | "in" });
+  if (!res.ok) return void (await ctx.answerCallbackQuery({ text: res.error, show_alert: true }));
+  await ctx.answerCallbackQuery({ text: res.value.said });
+  const roll = res.value.roll;
+  try {
+    if (!roll) await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+    else {
+      const m = stayoutMessage(roll);
+      await ctx.editMessageText(m.text, { reply_markup: { inline_keyboard: m.buttons.map((row) => row.map((b) => ({ text: b.text, callback_data: b.data }))) } });
+    }
+  } catch (e) {
+    if (!String((e as Error)?.message ?? e).includes("message is not modified")) console.error("wb stayout edit:", e);
+  }
+}
+
 /** A reply to a "Say why" prompt. Anything else passes through untouched. */
 async function onReply(ctx: Context, next: NextFunction) {
   const replyTo = ctx.msg?.reply_to_message;
@@ -270,6 +292,7 @@ export function createBot(token: string, botInfo?: UserFromGetMe): Bot {
   safe.callbackQuery(NOT_RIGHT_CALLBACK, onNotRight);
   safe.callbackQuery(RF_CALLBACK, onRfClose);
   safe.callbackQuery(BACK_CALLBACK, onBack);
+  safe.callbackQuery(STAYOUT_CALLBACK, onStayout);
   safe.on("message:text", onReply);
   // an old or unknown button: at least stop the spinner
   safe.on("callback_query:data", (ctx) => ctx.answerCallbackQuery());

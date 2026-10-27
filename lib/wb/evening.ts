@@ -25,6 +25,8 @@ import { backData } from "@/lib/wb/domain/projection-kinds";
 import { v1End } from "@/lib/wb/domain/projection";
 import { dayMonth } from "@/lib/wb/domain/timeline";
 import { dueBack, projectionReport, syncProjection } from "@/lib/wb/projection";
+import { stayoutMessage } from "@/lib/wb/domain/stayout";
+import { stayoutRolls } from "@/lib/wb/stayout";
 import { noticeText, onensData, outcomeButton } from "@/lib/wb/telegram/cards";
 import type { Button, Courier } from "@/lib/wb/telegram/courier";
 
@@ -63,6 +65,8 @@ export interface RoundSummary {
   rfExpired: number;
   /** "Back?" messages sent to commanders chats (Phase 6, projection on) */
   back: number;
+  /** "🏠 Stay-out tonight" messages sent to commanders chats (projection on, 2026-10-27) */
+  stayout: number;
   /** the admin's shadow diff / projection report sent (Phase 6) */
   projection: number;
   /** transport claims whose verdict was read back from the OC's sheet tonight (Phase 7) */
@@ -105,7 +109,7 @@ async function claim(date: string, force: boolean): Promise<boolean> {
 
 export async function eveningRound(courier: Courier, now: Date = new Date(), { force = false } = {}): Promise<RoundSummary> {
   const today = todaySgt(now);
-  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, nagged: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, rfExpired: 0, back: 0, projection: 0, claimsDecided: 0, claimsTold: 0, waiting: 0, ord: 0, ordTomorrow: 0, ordKept: 0 };
+  const summary: RoundSummary = { date: today, skipped: false, ending: 0, tomorrow: 0, onens: 0, chased: 0, nagged: 0, digests: 0, heartbeats: 0, short: 0, rf: 0, rfExpired: 0, back: 0, stayout: 0, projection: 0, claimsDecided: 0, claimsTold: 0, waiting: 0, ord: 0, ordTomorrow: 0, ordKept: 0 };
   if (!(await claim(today, force))) return { ...summary, skipped: true };
 
   const todayStart = dayRange(today).startAt;
@@ -287,6 +291,11 @@ export async function eveningRound(courier: Courier, now: Date = new Date(), { f
         const buttons: Button[][] = rows.map((r) => [{ text: `✅ ${r.rank} ${r.name} back`, data: backData(r.projectionId) }]);
         summary.back += await courier.send({ platoon: rows[0].subunitId }, text, buttons);
       }
+      // tonight's stay-out men, per platoon, for the GC to confirm; they go on at 2100 tapped or not (ROT has no shifts)
+      for (const roll of rot ? [] : await stayoutRolls(today)) {
+        const m = stayoutMessage(roll);
+        summary.stayout += await courier.send({ platoon: roll.subunitId }, m.text, m.buttons);
+      }
     }
     if (bootstrapAdminIds().length) summary.projection = await courier.send({ admins: true }, await projectionReport(res, new Date(now.getTime() - 24 * 60 * 60 * 1000)));
   } catch (e) {
@@ -318,7 +327,7 @@ async function heartbeat(courier: Courier, now: Date, s: RoundSummary): Promise<
     `${roster.n} on the roster · ${registered.n} registered\n` +
     `${pending.n} waiting on a decision · ${today.n} recorded today\n` +
     `${linked.n} commanders chats linked (${platoons.n} platoons)\n` +
-    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.rfExpired} RF expired, ${s.ord} ORD, ${s.ordTomorrow} ORD tomorrow${s.ordKept ? ` (${s.ordKept} kept)` : ""}, ${s.waiting} waiting for the roster, ${s.digests} digests, ${s.back} Back? messages${isEnabled("CLAIMS") ? `, ${s.claimsDecided} claims decided, ${s.claimsTold} told` : ""}\n\n` +
+    `Tonight: ${s.ending} ending, ${s.tomorrow} tomorrow, ${s.onens} ONENS, ${s.chased} chased, ${s.short} below minimum, ${s.rf} RF open, ${s.rfExpired} RF expired, ${s.ord} ORD, ${s.ordTomorrow} ORD tomorrow${s.ordKept ? ` (${s.ordKept} kept)` : ""}, ${s.waiting} waiting for the roster, ${s.digests} digests, ${s.back} Back? messages, ${s.stayout} stay-out messages${isEnabled("CLAIMS") ? `, ${s.claimsDecided} claims decided, ${s.claimsTold} told` : ""}\n\n` +
     "Sent every evening. If an evening goes by without one, the bot isn't running.";
   return courier.send({ admins: true }, text);
 }

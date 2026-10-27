@@ -7,6 +7,8 @@ import { camp, person, subunit } from "@/lib/db/schema";
 import { wbCommanderChat, wbGrant, wbMember, type WbRole } from "@/lib/wb/db/schema";
 import { inReach, reach, reachLabel, type GrantRow } from "@/lib/wb/domain/access";
 import { reachWhere } from "@/lib/wb/reach-sql";
+import { onStayout } from "@/lib/wb/domain/stayout";
+import { todaySgt } from "@/lib/wb/domain/timeline";
 
 // Read models for the Mini App's Admin and Roster screens.
 
@@ -144,6 +146,8 @@ export interface RosterRow {
   role: string;
   /** someone has registered as him */
   registered: boolean;
+  /** stay-out today (his account says so), for Roster's filter */
+  stayout: boolean;
 }
 
 export interface RosterCamp {
@@ -170,7 +174,7 @@ export interface Roster {
 export async function rosterFor(grants: readonly GrantRow[], hidden: ReadonlySet<string> = new Set()): Promise<Roster> {
   const [people, members, allCamps] = await Promise.all([
     db
-      .select({ personId: person.id, rank: person.rank, name: person.name, role: person.role, campId: person.campId, memberId: wbMember.id })
+      .select({ personId: person.id, rank: person.rank, name: person.name, role: person.role, campId: person.campId, memberId: wbMember.id, stayout: wbMember.stayout, stayoutUntil: wbMember.stayoutUntil })
       .from(person)
       .innerJoin(camp, eq(camp.id, person.campId))
       .innerJoin(subunit, eq(subunit.id, camp.subunitId))
@@ -187,7 +191,11 @@ export async function rosterFor(grants: readonly GrantRow[], hidden: ReadonlySet
   const roster = reach({ grants }, "roster");
   const camps = new Map<string, RosterCamp>();
   for (const c of allCamps) if (!hidden.has(c.id) && inReach(roster, { subunitId: c.subunitId, campId: c.id })) camps.set(c.id, { ...c, people: [] });
-  for (const p of people) camps.get(p.campId)?.people.push({ personId: p.personId, rank: p.rank, name: p.name, role: p.role, registered: !!p.memberId });
+  const today = todaySgt();
+  for (const p of people) {
+    const stayout = !!p.memberId && !!p.stayout && onStayout({ stayout: p.stayout, stayoutUntil: p.stayoutUntil }, today);
+    camps.get(p.campId)?.people.push({ personId: p.personId, rank: p.rank, name: p.name, role: p.role, registered: !!p.memberId, stayout });
+  }
   const live = members.filter((m) => m.active && m.registered && inReach(roster, m));
   return {
     reach: reachLabel(roster),

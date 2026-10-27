@@ -26,11 +26,15 @@
 //   its pattern says (off at weekends and on public holidays), or as an
 //   admin's override in the Mini App says. A GC's toggle in the web app is
 //   switched back (the user, 2026-10-14): only admins override.
+// - Stay-out (2026-10-27): a stay-out man is OTHERS (STAYOUT), no dates, from
+//   2100 to 0600, only while his camp is on shift and nothing else has him
+//   away. No "Back": it closes at 0600 (DONE), or when he's staying in.
 
 import { statusFields, type AbsenceFields } from "@/lib/core/status-fields";
 import { toSgt } from "@/lib/parade/time";
 import type { AbsenceType, DutyType } from "@/lib/parade/types";
 import { weeklyWant, type ShiftOverride, type ShiftPattern } from "./shifts";
+import { STAYOUT_VALUES, stayoutNight } from "./stayout";
 import { addDays } from "./timeline";
 import type { WbProjectionClose } from "./projection-kinds";
 import type { WbAssignmentState, WbAssignmentType } from "./rf";
@@ -125,6 +129,16 @@ export interface PProjection {
   backConfirmedAt: Date | null;
   /** what the projector last wrote (absenceRow / dutyRow), to spot a GC's edit */
   wrote: unknown;
+  /** a stay-out absence (no record): the night it's for */
+  stayoutNight?: string | null;
+}
+
+/** A man on stay-out tonight (only while stayoutNight(now) says it's night). */
+export interface PStayout {
+  personId: string;
+  night: string;
+  /** a commander tapped "staying in" for this night */
+  staysIn: boolean;
 }
 
 export interface PlanInput {
@@ -143,8 +157,10 @@ export interface PlanInput {
   camps: readonly PCamp[];
   /** personId -> his camp */
   homeOf: ReadonlyMap<string, string>;
-  /** open projections, and closed ones for the records and assignments above */
+  /** open projections, and closed ones for the records and assignments above (and tonight's stay-outs) */
   projections: readonly PProjection[];
+  /** men on stay-out tonight; empty outside 2100–0600. Optional so older callers work */
+  stayouts?: readonly PStayout[];
 }
 
 // ------------------------------------------------------------------ the plan
@@ -175,10 +191,10 @@ export interface DutyValues {
 }
 
 export type Write =
-  /** open or change the man's absence: setStatus (same type edits in place, else replaces) */
-  | { op: "absence"; personId: string; recordId: string; values: AbsenceValues; replaces: PProjection | null; why: "open" | "update" | "switch" }
-  /** close the absence the projector owns: setStatus PRESENT */
-  | { op: "close-absence"; personId: string; projection: PProjection; why: "VOID" | "BACK" }
+  /** open or change the man's absence: setStatus (same type edits in place, else replaces). A stay-out has no record, only its night */
+  | { op: "absence"; personId: string; recordId: string | null; stayoutNight?: string; values: AbsenceValues; replaces: PProjection | null; why: "open" | "update" | "switch" }
+  /** close the absence the projector owns: setStatus PRESENT. DONE: a stay-out night over at 0600 */
+  | { op: "close-absence"; personId: string; projection: PProjection; why: "VOID" | "BACK" | "DONE" }
   | { op: "duty"; personId: string; assignmentId: string; values: DutyValues; projection: PProjection | null; why: "open" | "update" }
   | { op: "end-duty"; personId: string; assignmentId: string | null; projection: PProjection; why: "STOOD_DOWN" | "BACK" | "VOID" }
   /**
@@ -381,6 +397,10 @@ export function planProjection(input: PlanInput): Plan {
   const ownerOfDuty = new Map(open.filter((p) => p.kind === "DUTY" && p.dutyId).map((p) => [p.dutyId!, p]));
   const byHandRecords = new Set(input.projections.filter((p) => p.close === "BY_HAND" && p.recordId).map((p) => p.recordId!));
   const byHandAssignments = new Set(input.projections.filter((p) => p.close === "BY_HAND" && p.assignmentId).map((p) => p.assignmentId!));
+  const nightKey = (personId: string, night: string) => `${personId}\u0000${night}`;
+  const byHandNights = new Set(input.projections.filter((p) => p.close === "BY_HAND" && p.stayoutNight && p.personId).map((p) => nightKey(p.personId!, p.stayoutNight!)));
+  const tonight = stayoutNight(now);
+  const stayoutOf = new Map((input.stayouts ?? []).filter((x) => x.night === tonight).map((x) => [x.personId, x]));
 
   // the projector's rows a GC has since closed or edited in the web app: let go of them
   const handled = new Set<string>();
@@ -390,6 +410,7 @@ export function planProjection(input: PlanInput): Plan {
       plan.marks.push({ op: "by-hand", projection: p });
       handled.add(p.id);
       if (p.recordId) byHandRecords.add(p.recordId);
+      if (p.stayoutNight && p.personId) byHandNights.add(nightKey(p.personId, p.stayoutNight));
     }
     const d = p.dutyId ? dutyById.get(p.dutyId) : undefined;
     if (p.kind === "DUTY" && (!d || !dutySays(d, p.wrote))) {
@@ -444,6 +465,7 @@ export function planProjection(input: PlanInput): Plan {
   // ---- absences, one man at a time
   const people = new Set<string>();
   for (const r of input.records) people.add(r.personId);
+  for (const x of stayoutOf.values()) people.add(x.personId);
   for (const p of open) if (p.kind === "ABSENCE" && p.personId && !handled.has(p.id)) people.add(p.personId);
 
   for (const personId of people) {
@@ -461,6 +483,7 @@ export function planProjection(input: PlanInput): Plan {
     const mineLive = mine && !handled.has(mine.id) ? mine : null;
     const home = input.homeOf.get(personId);
     const offShift = home !== undefined && onShift.get(home) === false;
+    const so = stayoutOf.get(personId);
 
     if (top) {
       const values = absenceValues(top)!;
@@ -477,6 +500,22 @@ export function planProjection(input: PlanInput): Plan {
       }
       const why = !mineLive ? "open" : v1!.type === values.status ? "update" : "switch";
       plan.writes.push({ op: "absence", personId, recordId: top.id, values, replaces: mineLive, why });
+      continue;
+    }
+
+    // ---- stay-out: only when nothing else has him away, and his camp is on shift
+    const mineStayout = mineLive?.stayoutNight ? mineLive : null;
+    const goesOut = !!so && !so.staysIn && !byHandNights.has(nightKey(personId, so.night)) && home !== undefined && onShift.get(home) === true;
+    if (goesOut && so && (!v1 || mineStayout)) {
+      // a GC's own entry, or v1's "RF @ X" for a duty, is left alone, and so is an ended record waiting for "Back"
+      if (mineStayout?.stayoutNight === so.night) continue; // already there: a changed row was let go above
+      plan.writes.push({ op: "absence", personId, recordId: null, stayoutNight: so.night, values: STAYOUT_VALUES, replaces: mineStayout, why: mineStayout ? "update" : "open" });
+      continue;
+    }
+    if (mineStayout) {
+      // over at 0600 (no "Back"), or staying in, taken off stay-out, or his camp went off: he isn't out now
+      if (offShift) plan.notes.push({ op: "waiting", personId, recordId: "", reason: "his team is off shift" });
+      else plan.writes.push({ op: "close-absence", personId, projection: mineStayout, why: tonight === mineStayout.stayoutNight ? "VOID" : "DONE" });
       continue;
     }
 

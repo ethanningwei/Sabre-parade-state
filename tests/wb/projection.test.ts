@@ -15,6 +15,7 @@ import {
   type V1Absence,
   type V1Duty,
 } from "@/lib/wb/domain/projection";
+import { STAYOUT_VALUES } from "@/lib/wb/domain/stayout";
 
 const at = (date: string, time = "0000") => sgtToInstant({ date, time });
 const NOW = at("2026-10-14", "1000");
@@ -330,5 +331,70 @@ describe("planning weekday camps (2026-10-14)", () => {
     const p = plan({ now: SAT, camps: withBdk(true), records: [al], weekly: [{ ...bdk, overrides: [], wrote: null }] });
     expect(p.writes.map((w) => w.op)).toEqual(["shift"]);
     expect(p.notes).toContainEqual(expect.objectContaining({ op: "waiting", personId: "p4" }));
+  });
+});
+
+describe("planning stay-out (2026-10-27)", () => {
+  const NIGHT = "2026-10-14";
+  const T2130 = at(NIGHT, "2130");
+  const out = (o: Partial<{ personId: string; night: string; staysIn: boolean }> = {}) => ({ personId: "p1", night: NIGHT, staysIn: false, ...o });
+  /** his stay-out absence as the projector writes it, and its projection */
+  const stayingOut = (night = NIGHT, extra: Partial<PProjection> = {}) => {
+    const row = absenceRow(STAYOUT_VALUES);
+    const a = v1abs({ personId: "p1", ...row });
+    return { a, p: proj({ personId: "p1", absenceId: a.id, wrote: row, stayoutNight: night, ...extra }) };
+  };
+
+  it("written at 2100 while his camp is on shift: OTHERS (STAYOUT), no dates", () => {
+    const p = plan({ now: T2130, stayouts: [out()] });
+    expect(p.writes).toEqual([{ op: "absence", personId: "p1", recordId: null, stayoutNight: NIGHT, values: STAYOUT_VALUES, replaces: null, why: "open" }]);
+    expect(absenceRow(STAYOUT_VALUES)).toMatchObject({ type: "OTHERS", otherReason: "STAYOUT", startDate: null, endDate: null });
+  });
+
+  it("not written off shift (and nothing said), outside the window, or when he's staying in", () => {
+    expect(plan({ now: T2130, stayouts: [out({ personId: "p3" })] })).toEqual({ writes: [], marks: [], notes: [] });
+    expect(plan({ now: at(NIGHT, "2059"), stayouts: [out()] }).writes).toEqual([]);
+    expect(plan({ now: T2130, stayouts: [out({ night: "2026-10-13" })] }).writes).toEqual([]);
+    expect(plan({ now: T2130, stayouts: [out({ staysIn: true })] }).writes).toEqual([]);
+  });
+
+  it("a real record wins; a GC's own entry is left alone, silently", () => {
+    const mc = rec({ kind: "MC" });
+    const p = plan({ now: T2130, records: [mc], stayouts: [out()] });
+    expect(p.writes).toEqual([expect.objectContaining({ op: "absence", recordId: mc.id, why: "open" })]);
+    expect(plan({ now: T2130, absences: [v1abs()], stayouts: [out()] })).toEqual({ writes: [], marks: [], notes: [] });
+  });
+
+  it("already there: nothing; a row from a night no sync closed moves to tonight", () => {
+    const { a, p } = stayingOut();
+    expect(plan({ now: T2130, absences: [a], projections: [p], stayouts: [out()] }).writes).toEqual([]);
+    const old = stayingOut("2026-10-13");
+    expect(plan({ now: T2130, absences: [old.a], projections: [old.p], stayouts: [out()] }).writes).toEqual([
+      expect.objectContaining({ op: "absence", recordId: null, stayoutNight: NIGHT, replaces: old.p, why: "update" }),
+    ]);
+  });
+
+  it("closed at 0600 without Back (DONE); staying in closes it (VOID)", () => {
+    const { a, p } = stayingOut();
+    expect(plan({ now: at("2026-10-15", "0630"), absences: [a], projections: [p] }).writes).toEqual([{ op: "close-absence", personId: "p1", projection: p, why: "DONE" }]);
+    expect(plan({ now: at("2026-10-15", "0300"), absences: [a], projections: [p], stayouts: [out({ staysIn: true })] }).writes).toEqual([
+      { op: "close-absence", personId: "p1", projection: p, why: "VOID" },
+    ]);
+  });
+
+  it("an MC approved overnight switches it", () => {
+    const { a, p } = stayingOut();
+    const mc = rec({ kind: "MC", startAt: at("2026-10-15"), endAt: at("2026-10-17") });
+    const res = plan({ now: at("2026-10-15", "0200"), records: [mc], absences: [a], projections: [p], stayouts: [out()] });
+    expect(res.writes).toEqual([expect.objectContaining({ op: "absence", recordId: mc.id, replaces: p, why: "switch" })]);
+  });
+
+  it("a GC who marks him present by hand isn't overruled that night", () => {
+    const { p } = stayingOut();
+    const res = plan({ now: T2130, projections: [p], stayouts: [out()] });
+    expect(res.marks).toEqual([{ op: "by-hand", projection: p }]);
+    expect(res.writes).toEqual([]);
+    // the next sync: the closed row comes back as BY_HAND
+    expect(plan({ now: at(NIGHT, "2300"), projections: [{ ...p, closedAt: T2130, close: "BY_HAND" }], stayouts: [out()] }).writes).toEqual([]);
   });
 });

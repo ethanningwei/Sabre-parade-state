@@ -315,8 +315,10 @@ export interface ManAccess {
   removes: boolean;
   /** Person history */
   history: boolean;
-  /** "Back?": his camp's GC, his platoon's PC or PS, or OC/2IC/CSM */
+  /** "Back?", and his night on the evening "Stay-out tonight": his camp's GC, his platoon's PC or PS, or OC/2IC/CSM */
   confirmsBack: boolean;
+  /** change whether he's stay-out: his platoon's PC or PS, or OC/2IC/CSM/ADMIN company-wide (2026-10-27) */
+  stayout: boolean;
 }
 
 export function manAccess(viewer: { personId?: string | null; grants: readonly GrantRow[] }, man: Where & { personId?: string }): ManAccess {
@@ -331,6 +333,7 @@ export function manAccess(viewer: { personId?: string | null; grants: readonly G
     removes,
     history: commands || removes,
     confirmsBack: at(g, BACK_ROLES, man),
+    stayout: at(g, PLATOON_REMOVERS, man) || companyWide(g, COMPANY_REMOVERS),
   };
 }
 

@@ -2,7 +2,8 @@
 // timeline reaches v1 (loadSnapshot) through the v1 cores, a GC's own entry is
 // never overwritten, an ended MC waits for "Back", a void closes, a deploy is a
 // v1 duty with its home absence, stand down ends it, a HOTO flips on_shift,
-// and switching projection off leaves ordinary v1 rows. Uses sabre_test.
+// switching projection off leaves ordinary v1 rows, and a stay-out man is on
+// the night parade state as (STAYOUT). Uses sabre_test.
 
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,8 +12,10 @@ import { writeCoy } from "@/lib/data/write-coy";
 import { getCoyByKey, loadSnapshot } from "@/lib/data/snapshot";
 import { db } from "@/lib/db";
 import { absence, auditLog, camp, duty, person, user } from "@/lib/db/schema";
+import { renderParadeState } from "@/lib/parade/render";
 import { sgtToInstant } from "@/lib/parade/time";
-import { wbAssignment, wbAudit, wbMember, wbProjection, wbRecord, wbShiftEvent, wbShiftOverride, wbShiftPattern } from "@/lib/wb/db/schema";
+import { validate } from "@/lib/parade/validate";
+import { wbAssignment, wbAudit, wbMember, wbProjection, wbRecord, wbShiftEvent, wbShiftOverride, wbShiftPattern, wbStayoutNight } from "@/lib/wb/db/schema";
 import { WEEKDAYS } from "@/lib/wb/domain/shifts";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
 
@@ -395,5 +398,76 @@ describe("weekday camps (2026-10-14)", () => {
     // Monday: the override is over and the pattern says on anyway
     await syncProjection(at("2026-10-19", "0700"));
     expect(await onShift(ids.bdk)).toBe(true);
+  });
+});
+
+describe("stay-out (2026-10-27)", () => {
+  const NIGHT = "2026-10-14";
+  const stayOut = async (stayout: "PERM" | "TEMP" = "PERM") => {
+    await db.delete(wbStayoutNight);
+    await db.update(wbMember).set({ stayout: "NONE", stayoutUntil: null }); // only him, whatever other files left
+    await db.insert(wbMember).values({ telegramUserId: TG, personId: t1, registeredAt: NOW, stayout, stayoutUntil: stayout === "TEMP" ? NIGHT : null });
+  };
+  afterAll(async () => {
+    if (!reachable) return;
+    await db.delete(wbStayoutNight);
+    // linked to TFT's first man, whom later files register again
+    await db.delete(wbMember).where(eq(wbMember.telegramUserId, TG));
+  });
+
+  it("from 2100 he's on the parade state as (STAYOUT), no dates; at 0600 it closes without Back", async (ctx) => {
+    if (!reachable) ctx.skip();
+    live();
+    await stayOut("TEMP");
+    expect((await syncProjection(at(NIGHT, "2059"))).plan.writes).toEqual([]);
+    expect(await syncProjection(at(NIGHT, "2130"))).toMatchObject({ applied: 1, failed: [] });
+    expect(await snapshotAbsence(t1)).toMatchObject({ type: "OTHERS", otherReason: "STAYOUT", startDate: null, endDate: null });
+    const [me] = await db.select({ rank: person.rank, name: person.name }).from(person).where(eq(person.id, t1));
+    const text = renderParadeState(await loadSnapshot(await getCoyByKey("SABRE")), { date: NIGHT, time: "2130" });
+    expect(text).toMatch(new RegExp(`\\n\\d+\\. ${me.rank} ${me.name} \\(STAYOUT\\)\\n`));
+    expect(validate(await loadSnapshot(await getCoyByKey("SABRE")), { date: NIGHT, time: "2330" }).filter((i) => i.message.includes("STAYOUT"))).toEqual([]);
+    // a second sync changes nothing; nor does "Back?" ask about him
+    expect((await syncProjection(at(NIGHT, "2300"))).plan.writes).toEqual([]);
+    expect(await dueBack(at("2026-10-16"))).toEqual([]);
+
+    const done = await syncProjection(at("2026-10-15", "0630"));
+    expect(done.plan.writes).toEqual([expect.objectContaining({ op: "close-absence", why: "DONE" })]);
+    expect(await openOf(t1)).toBeUndefined();
+    expect((await db.select().from(wbProjection).where(eq(wbProjection.personId, t1)))[0]).toMatchObject({ close: "DONE", stayoutNight: NIGHT, recordId: null, backConfirmedAt: null });
+    // his temporary stay-out ended that night: nothing the next
+    expect((await syncProjection(at("2026-10-15", "2130"))).plan.writes).toEqual([]);
+  });
+
+  it("staying in keeps him off, or takes him off; a GC's own entry wins", async (ctx) => {
+    if (!reachable) ctx.skip();
+    live();
+    await stayOut();
+    await db.insert(wbStayoutNight).values({ personId: t1, night: NIGHT, state: "STAYING_IN" });
+    expect((await syncProjection(at(NIGHT, "2130"))).plan.writes).toEqual([]);
+    await db.delete(wbStayoutNight);
+    await syncProjection(at(NIGHT, "2135"));
+    expect(await openOf(t1)).toMatchObject({ otherReason: "STAYOUT" });
+    await db.insert(wbStayoutNight).values({ personId: t1, night: NIGHT, state: "STAYING_IN" });
+    expect((await syncProjection(at(NIGHT, "2200"))).plan.writes).toEqual([expect.objectContaining({ op: "close-absence", why: "VOID" })]);
+    expect(await openOf(t1)).toBeUndefined();
+
+    await db.delete(wbStayoutNight);
+    await db.delete(wbProjection);
+    await db.transaction((tx) => setStatusCore(tx, GC, { personIds: [t1], status: "AL", otherReason: "", startDate: NIGHT, startTime: null, endDate: "2026-10-16", endTime: null, maTiming: "", maLocation: "" }));
+    expect(await syncProjection(at(NIGHT, "2300"))).toMatchObject({ plan: { writes: [], notes: [] } });
+    expect(await openOf(t1)).toMatchObject({ type: "AL" });
+  });
+
+  it("the evening round asks his platoon about tonight, with ✅ Correct and staying in", async (ctx) => {
+    if (!reachable) ctx.skip();
+    live();
+    await stayOut();
+    const on = recordingCourier();
+    expect(await eveningRound(on, at(NIGHT, "1900"), { force: true })).toMatchObject({ stayout: 1 });
+    const msg = on.sent.find((x) => "send" in x && x.text.startsWith("🏠 Stay-out tonight"));
+    expect(msg && "text" in msg && msg.text).toMatch(/^🏠 Stay-out tonight 2100–0600 · 1\n/);
+    expect(msg && "buttons" in msg && msg.buttons?.map((r) => r[0].text)).toEqual(["✅ Correct", expect.stringMatching(/^🛏 .* staying in$/)]);
+    // not on the parade state yet at 1900
+    expect(await openOf(t1)).toBeUndefined();
   });
 });

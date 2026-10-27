@@ -165,7 +165,13 @@ describe("manAccess (a man in SLR, PLATOON 6)", () => {
     expect(can.history).toBe(want.commands || want.removes);
   });
 
-  it("a GC's reach stops at his camp", () => {
+  it("stay-out: his platoon's PC or PS, OC/2IC/CSM and admins, himself included; not his GC (2026-10-27)", () => {
+    const yes = ["PS · PLATOON 6", "PC · PLATOON 6", "OC", "2IC", "CSM", "ADMIN"] as const;
+    for (const who of Object.keys(W) as Who[]) expect([who, manAccess(as(W[who]), { ...SLR, personId: "p-man" }).stayout]).toEqual([who, (yes as readonly string[]).includes(who)]);
+    expect(manAccess({ personId: "p-man", grants: W["PS · PLATOON 6"] }, { ...SLR, personId: "p-man" }).stayout).toBe(true);
+  });
+
+    it("a GC's reach stops at his camp", () => {
     expect(manAccess(as(W["GC · SLR"]), SFT_A)).toMatchObject({ sends: false, proxies: false, confirmsBack: false });
   });
 

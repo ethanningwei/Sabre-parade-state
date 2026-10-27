@@ -22,6 +22,7 @@ import { VEHICLE_TYPES, WB_CLAIM_STATES } from "../domain/claims";
 import { PHASES, type ChangeoverLog } from "../domain/rot";
 import { WB_PROJECTION_CLOSES, WB_PROJECTION_KINDS } from "../domain/projection-kinds";
 import { WB_SHIFT_KINDS, type WbShiftKind } from "../domain/shifts";
+import { WB_STAYOUT_NIGHT_STATES } from "../domain/stayout";
 import { WB_ONENS, WB_RECORD_KINDS, WB_RECORD_STATES, WB_SEEN_BY, type WbRecordKind, type WbRecordState } from "../domain/rules";
 
 // ---------------------------------------------------------------------------
@@ -474,6 +475,8 @@ export const wbProjection = pgTable(
     /** the evening "X's MC ended. Back?" tap: the projector closes the v1 row once it has ended */
     backConfirmedAt: tstz("back_confirmed_at"),
     backConfirmedBy: uuid("back_confirmed_by").references(() => wbMember.id, { onDelete: "set null" }),
+    /** an ABSENCE a stay-out night wrote (no record): the night it's for (2026-10-27) */
+    stayoutNight: date("stayout_night"),
   },
   (t) => [
     index("wb_projection_record_idx").on(t.recordId),
@@ -483,6 +486,31 @@ export const wbProjection = pgTable(
     uniqueIndex("wb_projection_absence_uq").on(t.absenceId).where(sql`${t.closedAt} is null`),
     uniqueIndex("wb_projection_duty_uq").on(t.dutyId).where(sql`${t.closedAt} is null`),
   ],
+);
+
+// ---------------------------------------------------------------- stay-out (2026-10-27)
+
+export const wbStayoutNightState = pgEnum("wb_stayout_night_state", WB_STAYOUT_NIGHT_STATES);
+
+/**
+ * What a commander tapped on the evening "🏠 Stay-out tonight" for one man and
+ * one night: CONFIRMED (✅ Correct) or STAYING_IN (not put on the parade state).
+ * Only taps are stored: an untapped stay-out man still goes on at 2100.
+ */
+export const wbStayoutNight = pgTable(
+  "wb_stayout_night",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => person.id, { onDelete: "cascade" }),
+    /** the date the night starts (2100), as stayoutNight() gives it */
+    night: date("night").notNull(),
+    state: wbStayoutNightState("state").notNull(),
+    by: uuid("by").references(() => wbMember.id, { onDelete: "set null" }),
+    at: tstz("at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("wb_stayout_night_uq").on(t.personId, t.night)],
 );
 
 // ---------------------------------------------------------------- Phase 7
