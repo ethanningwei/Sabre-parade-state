@@ -1,15 +1,18 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
+import { cookies } from "next/headers";
 import { ForbiddenError } from "@/lib/authz";
 import { currentSnapshot } from "@/lib/data/current";
 import { db } from "@/lib/db";
 import { person, user } from "@/lib/db/schema";
 import { UserError } from "@/lib/errors";
-import { startSession } from "@/lib/session";
+import { SESSION_COOKIE, startSession } from "@/lib/session";
 import { validate } from "@/lib/parade/validate";
 import { currentCaa } from "@/lib/parade/time";
 import type { GrantRow, Member } from "@/lib/wb/auth";
 import { wbAudit } from "@/lib/wb/audit";
+import { wbParadeSession } from "@/lib/wb/db/schema";
 import { reach, screens } from "@/lib/wb/domain/access";
 import { issuesInScope } from "@/lib/wb/domain/parade-links";
 import { markFromTelegram } from "@/lib/wb/from-telegram";
@@ -48,6 +51,9 @@ export async function signInToParadeState(m: Member): Promise<{ name: string }> 
 
   // embedded: Telegram Web runs the Mini App in a frame, where a SameSite=Lax cookie is dropped
   await startSession(name, { embedded: true });
+  // whose session it is: v1's edits through it stay within his reach (lib/wb/parade-scope.ts)
+  const token = (await cookies()).get(SESSION_COOKIE)!.value;
+  await db.insert(wbParadeSession).values({ tokenHash: createHash("sha256").update(token).digest("hex"), memberId: m.id });
   await markFromTelegram();
   const [u] = await db.select({ id: user.id }).from(user).where(sql`lower(${user.name}) = lower(${name})`);
   await wbAudit(db, { memberId: m.id, via: "MINIAPP", action: "open-parade-state", entity: "user", entityId: u.id, after: { name } });

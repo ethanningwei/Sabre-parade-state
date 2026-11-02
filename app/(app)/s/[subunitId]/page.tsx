@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ShiftToggle } from "@/components/shift-toggle";
 import { StrengthBar } from "@/components/strength-bar";
 import { Card } from "@/components/ui/card";
-import { canEditSubunit, requireViewer } from "@/lib/authz";
+import { canEditCamp, requireViewer } from "@/lib/authz";
 import { currentParade } from "@/lib/data/current";
 import { computeCoy, currentCaa, validate } from "@/lib/parade";
 import { strengthOf } from "@/lib/status";
@@ -15,7 +15,7 @@ export default async function SubunitPage({ params }: PageProps<"/s/[subunitId]"
   const [viewer, { snapshot, phase }] = await Promise.all([requireViewer(), currentParade()]);
   const state = computeCoy(snapshot).subunits.find((s) => s.subunit.id === subunitId);
   if (!state) notFound();
-  const canEdit = canEditSubunit(viewer, subunitId);
+  const canEdit = (campId: string) => canEditCamp(viewer, { subunitId, campId });
 
   const issuesByCamp = new Map<string, number>();
   for (const i of validate(snapshot, currentCaa())) {
@@ -28,7 +28,7 @@ export default async function SubunitPage({ params }: PageProps<"/s/[subunitId]"
       <div className="flex items-end justify-between px-1">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">{state.subunit.name}</h1>
-          <p className="text-sm text-muted-foreground">{canEdit ? `Tap a ${phase === "ROT" ? "section" : "camp"} to update attendance` : "View only"}</p>
+          <p className="text-sm text-muted-foreground">{state.camps.some((c) => canEdit(c.camp.id)) ? `Tap a ${phase === "ROT" ? "section" : "camp"} to update attendance` : "View only"}</p>
         </div>
         <p className="font-mono text-2xl font-semibold tabular-nums">
           <CountUp value={state.present} />
@@ -82,7 +82,7 @@ export default async function SubunitPage({ params }: PageProps<"/s/[subunitId]"
               {!state.subunit.isHq && phase !== "ROT" && (
                 <div className="flex items-center justify-between border-t pt-3">
                   <span className="text-sm text-muted-foreground">On shift</span>
-                  <ShiftToggle campId={c.camp.id} campName={c.camp.name} onShift={c.onShift} disabled={!canEdit} />
+                  <ShiftToggle campId={c.camp.id} campName={c.camp.name} onShift={c.onShift} disabled={!canEdit(c.camp.id)} />
                 </div>
               )}
             </Card>

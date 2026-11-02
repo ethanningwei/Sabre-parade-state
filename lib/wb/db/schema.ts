@@ -15,7 +15,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { absence, camp, coy, duty, person, subunit } from "../../db/schema";
+import { absence, appSession, camp, coy, duty, person, subunit } from "../../db/schema";
 import { WB_ROLES, type WbRole } from "../domain/roles";
 import { RF_ROLES, WB_ASSIGNMENT_STATES, WB_ASSIGNMENT_TYPES, WB_RF_STATES } from "../domain/rf";
 import { VEHICLE_TYPES, WB_CLAIM_STATES } from "../domain/claims";
@@ -128,6 +128,22 @@ export const wbCommanderChat = pgTable("wb_commander_chat", {
   chatTitle: text("chat_title").default("").notNull(),
   linkedBy: uuid("linked_by").references(() => wbMember.id, { onDelete: "set null" }),
   linkedAt: tstz("linked_at").defaultNow().notNull(),
+});
+
+/**
+ * A v1 session opened from the Mini App's "Parade state", and whose it is: v1's
+ * edits through it reach only as far as his parade-state grants (the user,
+ * 2026-11-02). Goes when v1 ends the session.
+ */
+export const wbParadeSession = pgTable("wb_parade_session", {
+  /** app_session.token_hash */
+  tokenHash: text("token_hash")
+    .primaryKey()
+    .references(() => appSession.tokenHash, { onDelete: "cascade" }),
+  memberId: uuid("member_id")
+    .notNull()
+    .references(() => wbMember.id, { onDelete: "cascade" }),
+  createdAt: tstz("created_at").defaultNow().notNull(),
 });
 
 /** Every whereabouts change, and (from Phase 3) every read of a diagnosis or document. */

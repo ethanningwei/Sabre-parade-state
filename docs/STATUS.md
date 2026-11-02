@@ -112,7 +112,7 @@ What already helps:
   - v2 mostly needs screens (per-person history, "who's on MC this week", counts per platoon) and perhaps future-dated or planned absences. Today an absence counts from when it's created.
 - **Report sick:** likely a workflow (reported → seen at MA/medical centre → MC/light duty result) that ends by creating an `absence`. Decide whether GCs or the soldiers themselves report.
 - **Transport claims:** a new domain (claims, amounts, approvals). It probably needs **individual logins** first, because approvals need identities.
-- **Individual logins:** likely a prerequisite for anything with approvals or personal data. The dormant `role`/`subunitId` scoping in `lib/authz.ts` is ready to reuse.
+- **Individual logins:** likely a prerequisite for anything with approvals or personal data. The `role`/`subunitId` scoping in `lib/authz.ts` is live for sessions opened from the Mini App (whereabouts, 2026-11-02): a GC edits his camp, a PS or PC his platoon (`docs/whereabouts-status.md`).
 
 Questions to settle when planning v2:
 1. Which module comes first?

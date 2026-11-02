@@ -14,7 +14,8 @@ import { absence, auditLog, camp, duty, person, subunit, user } from "@/lib/db/s
 import { exampleSnapshot } from "../fixtures/example-snapshot";
 
 const session = vi.hoisted(() => ({ user: null as null | { id: string; name: string; role: "admin" | "guardcomm" | "pending"; subunitId: string | null; active: boolean } }));
-vi.mock("@/lib/session", () => ({ sessionUser: async () => session.user }));
+// a password sign-in: full access, whatever the flag (lib/wb/parade-scope.ts)
+vi.mock("@/lib/session", () => ({ sessionUser: async () => session.user, sentSessionTokens: async () => [], passwordSignInEnabled: () => true }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 const { setStatus, setCampShift } = await import("@/lib/actions/attendance");

@@ -21,7 +21,8 @@ import { exampleSnapshot } from "../fixtures/example-snapshot";
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 const session = vi.hoisted(() => ({ user: null as null | { id: string; name: string; role: "admin"; subunitId: null; active: boolean } }));
-vi.mock("@/lib/session", () => ({ sessionUser: async () => session.user }));
+// a password sign-in: full access, whatever the flag (lib/wb/parade-scope.ts)
+vi.mock("@/lib/session", () => ({ sessionUser: async () => session.user, sentSessionTokens: async () => [], passwordSignInEnabled: () => true }));
 const { PROJECTOR_USER, syncProjection } = await import("@/lib/wb/projection");
 const { currentSnapshot } = await import("@/lib/data/current");
 const { generateParadeState } = await import("@/lib/actions/parade");

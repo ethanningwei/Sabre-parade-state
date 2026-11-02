@@ -1,5 +1,5 @@
 import { DutiesView } from "@/components/duties-view";
-import { canEditSubunit, requireViewer } from "@/lib/authz";
+import { canEditCamp, requireViewer } from "@/lib/authz";
 import { currentSnapshot } from "@/lib/data/current";
 import { currentCaa, indexCamps, servingCampId, validate } from "@/lib/parade";
 
@@ -16,7 +16,7 @@ export default async function DutiesPage({ searchParams }: PageProps<"/duties">)
       post: c.post,
       onShift: c.onShift,
       subunit: s.name,
-      canEdit: canEditSubunit(viewer, s.id),
+      canEdit: canEditCamp(viewer, { subunitId: s.id, campId: c.id }),
     })),
   );
   const roster = snapshot.subunits.flatMap((s) =>

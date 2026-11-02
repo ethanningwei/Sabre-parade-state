@@ -2,7 +2,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CampRoster } from "@/components/camp-roster";
-import { canEditSubunit, requireViewer } from "@/lib/authz";
+import { canEditCamp, requireViewer } from "@/lib/authz";
 import { getReasonSuggestions } from "@/lib/data/reasons";
 import { currentSnapshot } from "@/lib/data/current";
 import { computeCoy, currentCaa, validate } from "@/lib/parade";
@@ -53,7 +53,7 @@ export default async function CampPage({ params, searchParams }: PageProps<"/c/[
         people={campState.camp.people}
         issues={issues}
         duties={duties.map((d) => ({ id: d.id, type: d.type, rank: d.rank, name: d.name }))}
-        canEdit={canEditSubunit(viewer, sub.subunit.id)}
+        canEdit={canEditCamp(viewer, { subunitId: sub.subunit.id, campId })}
         reasons={reasons}
         today={caa.date}
         openPersonId={typeof person === "string" ? person : null}
