@@ -27,6 +27,14 @@ export interface Where {
 // ------------------------------------------------------------------ roles
 
 const ADMIN: readonly WbRole[] = ["ADMIN"];
+/**
+ * ASAs run and maintain the app (the user, 2026-11-02): within their grant they
+ * see and fix everything (records, diagnoses and photos, the roster, shifts,
+ * Admin, the parade state) but decide nothing, and never their own records.
+ */
+const ASA: readonly WbRole[] = ["ASA"];
+/** The Admin screen, shift patterns and /here: ADMIN or an ASA. */
+const ADMINS: readonly WbRole[] = [...ADMIN, ...ASA];
 /** Decide a platoon's requests: its PC or PS. GCs don't decide. */
 const PLATOON_DECIDERS: readonly WbRole[] = ["PC", "PS"];
 /** Decide anyone's: company HQ. */
@@ -39,7 +47,7 @@ const COMPANY_DECIDERS: readonly WbRole[] = ["OC", "2IC", "CSM"];
  */
 const CAMP_COMMANDERS: readonly WbRole[] = ["GC", "SC"];
 /** Add an event for several men: commanders, plus a camp's own GC or SC. */
-const PROXIES: readonly WbRole[] = ["PC", "PS", ...CAMP_COMMANDERS];
+const PROXIES: readonly WbRole[] = ["PC", "PS", ...CAMP_COMMANDERS, ...ASA];
 /**
  * Raise, deploy and assign: Sabre Bot's GC and every HQ role, each within
  * their grant (decided 2026-10-13); ADMIN alone can't. Asking for manpower and
@@ -48,12 +56,12 @@ const PROXIES: readonly WbRole[] = ["PC", "PS", ...CAMP_COMMANDERS];
 const RF_ROLES: readonly WbRole[] = ["GC", "PC", "PS", "OC", "2IC", "CSM", "ASA"];
 /** Roster: adding, editing and moving men, and the accounts waiting to be added. */
 const ROSTER_ROLES: readonly WbRole[] = [...CAMP_COMMANDERS, "PS", "PC", "OC", "2IC", "CSM", "ASA", "ADMIN"];
-const PLATOON_REMOVERS: readonly WbRole[] = ["PC", "PS"];
+const PLATOON_REMOVERS: readonly WbRole[] = ["PC", "PS", ...ASA];
 const COMPANY_REMOVERS: readonly WbRole[] = ["OC", "2IC", "CSM", "ADMIN"];
 /** "Back?" on a projected absence or duty (2026-10-14). */
-const BACK_ROLES: readonly WbRole[] = [...CAMP_COMMANDERS, "PC", "PS", "OC", "2IC", "CSM"];
-/** "Parade state": signs them in to the v1 web app by name. Troopers and ASAs don't get it. */
-const PARADE_ROLES: readonly WbRole[] = [...CAMP_COMMANDERS, "PS", "PC", "OC", "2IC", "CSM", "ADMIN"];
+const BACK_ROLES: readonly WbRole[] = [...CAMP_COMMANDERS, "PC", "PS", "OC", "2IC", "CSM", ...ASA];
+/** "Parade state": signs them in to the v1 web app by name. Troopers don't get it; ASAs do (2026-11-02). */
+const PARADE_ROLES: readonly WbRole[] = [...CAMP_COMMANDERS, "PS", "PC", "OC", "2IC", "CSM", "ADMIN", ...ASA];
 
 // ------------------------------------------------------------------ reach
 
@@ -105,9 +113,9 @@ const at = (grants: readonly GrantRow[], roles: readonly WbRole[], p: { subunitI
 const companyWide = (grants: readonly GrantRow[], roles: readonly WbRole[]) => reachOf(grants, roles) === "company";
 const holds = (grants: readonly GrantRow[], roles: readonly WbRole[]) => reachesAnything(reachOf(grants, roles));
 
-/** His platoon's PC or PS, or OC/2IC/CSM company-wide: viewing, voiding, medical, ONENS, Person history. */
+/** His platoon's PC or PS, OC/2IC/CSM company-wide, or an ASA in reach: viewing, medical, ONENS, Person history. Voiding is the approval chain's (`approves`), plus an ASA's. */
 const commandsAt = (grants: readonly GrantRow[], p: { subunitId: string; campId?: string | null }) =>
-  at(grants, PLATOON_DECIDERS, p) || companyWide(grants, COMPANY_DECIDERS);
+  at(grants, PLATOON_DECIDERS, p) || companyWide(grants, COMPANY_DECIDERS) || at(grants, ASA, p);
 const decidesAnything = (grants: readonly GrantRow[]) => holds(grants, PLATOON_DECIDERS) || companyWide(grants, COMPANY_DECIDERS);
 
 // ------------------------------------------------------------------ screens
@@ -135,18 +143,19 @@ export type Screen = keyof Screens;
 /** Which screens a member sees at all (Home's tiles, and each screen's gate). */
 export function screens(viewer: { grants: readonly GrantRow[] }): Screens {
   const g = viewer.grants;
-  const decides = decidesAnything(g);
+  // an ASA sees what a commander sees (Inbox shows him ONENS owed; he decides nothing)
+  const oversees = decidesAnything(g) || holds(g, ASA);
   return {
-    inbox: decides,
-    people: decides,
+    inbox: oversees,
+    people: oversees,
     // a GC (an SC in ROT) sees Manpower for his own camp (2026-10-16)
-    manpower: decides || holds(g, CAMP_COMMANDERS),
-    hoto: holds(g, ["GC", ...PLATOON_DECIDERS]) || companyWide(g, COMPANY_DECIDERS),
+    manpower: oversees || holds(g, CAMP_COMMANDERS),
+    hoto: holds(g, ["GC", ...PLATOON_DECIDERS, ...ASA]) || companyWide(g, COMPANY_DECIDERS),
     rf: holds(g, RF_ROLES),
     add: holds(g, PROXIES) || companyWide(g, COMPANY_DECIDERS),
     roster: holds(g, ROSTER_ROLES),
-    shifts: holds(g, ADMIN) || holds(g, PLATOON_DECIDERS),
-    admin: holds(g, ADMIN),
+    shifts: holds(g, ADMINS) || holds(g, PLATOON_DECIDERS),
+    admin: holds(g, ADMINS),
     parade: holds(g, PARADE_ROLES),
   };
 }
@@ -199,13 +208,16 @@ export function approverOf(ownerRoles: readonly WbRole[]): string | null {
   return "your PC or PS";
 }
 
-/** Why this viewer can't decide this request, in words. */
-export function decideRefusalText(viewer: { personId: string | null }, r: Request & { subunitName: string }): string {
-  if (viewer.personId === r.personId) return "You can't decide your own request. It's with the commander above you.";
+/** Why this viewer can't decide this request (or void this record: the same chain), in words. */
+export function decideRefusalText(viewer: { personId: string | null }, r: Request & { subunitName: string }, verb: "decide" | "void" = "decide"): string {
+  const thing = verb === "decide" ? "request" : "record";
+  if (viewer.personId === r.personId) {
+    return verb === "decide" ? "You can't decide your own request. It's with the commander above you." : "You can't void your own record. Ask the commander above you.";
+  }
   const deciders = platoonDecidersFor(r.ownerRoles);
-  if (!deciders.length) return "Only OC, 2IC or CSM can decide this.";
-  if (deciders.length === 1) return `Only ${r.subunitName}'s PC, or OC, 2IC or CSM, can decide a PS's request.`;
-  return `Only ${r.subunitName}'s PC or PS can decide this.`;
+  if (!deciders.length) return `Only OC, 2IC or CSM can ${verb} this.`;
+  if (deciders.length === 1) return `Only ${r.subunitName}'s PC, or OC, 2IC or CSM, can ${verb} a PS's ${thing}.`;
+  return `Only ${r.subunitName}'s PC or PS can ${verb} this.`;
 }
 
 /**
@@ -244,7 +256,7 @@ export interface RecordAccess {
   markOnens: boolean;
   /**
    * Who may read a diagnosis or a document photo: the trooper himself, his PC
-   * and PS, and OC/2IC/CSM. Not a GC, not another platoon, not an admin.
+   * and PS, OC/2IC/CSM, and an ASA (2026-11-02). Not a GC, not another platoon, not an ADMIN alone.
    * Every read is audited (lib/wb/medical.ts). Who only.
    */
   seeMedical: boolean;
@@ -275,12 +287,20 @@ export function recordAccess(
     undo: commands && !r.hasOutcome && undoRefusal(r, viewer.id, "", now) === null,
     // one reason, never overwritten (2026-10-12; the user, 2026-10-21)
     sayWhy: r.state === "REJECTED" && r.decidedBy === viewer.id && !r.decisionNote,
-    void: commands && nextState(r.state, "void") !== null,
+    // void follows the approval chain, so nobody voids his own or a peer's (the user, 2026-11-02);
+    // OC/2IC/CSM save their own approved, so they may take their own back; an ASA anyone's but his own
+    void: voids(viewer, r) && nextState(r.state, "void") !== null,
     withdraw: owner && !reported && nextState(r.state, "withdraw") !== null,
     notRight: !!r.kind && reported && notRightRefusal({ kind: r.kind, state: r.state, createdVia: "PROXY", personId: r.personId }, viewer.personId) === null,
     markOnens: owner || commands,
     seeMedical: owner || commands,
   };
+}
+
+/** Whether his grants let him void this record, whatever its state: the approval chain, OC/2IC/CSM their own, an ASA anyone else's in reach. */
+export function voids(viewer: { personId: string | null; grants: readonly GrantRow[] }, r: Request): boolean {
+  const owner = !!viewer.personId && viewer.personId === r.personId;
+  return approves(viewer, r) || (owner && needsNoApproval(viewer)) || (!owner && at(viewer.grants, ASA, r));
 }
 
 /**
@@ -305,19 +325,19 @@ export function visitAccess(
 // ------------------------------------------------------------------ a man, a camp, a post, a platoon
 
 export interface ManAccess {
-  /** role: his platoon's PC or PS, or company command (view and void his records) */
+  /** role: his platoon's PC or PS, or company command (view his records) */
   commands: boolean;
   /** send him somewhere (deploy, Assign Extra/RF/SOL), wherever the request is: scope over the man (2026-10-13) */
   sends: boolean;
   /** add an event for him (Add for several men) */
   proxies: boolean;
-  /** Remove from roster: his platoon's PC or PS, or OC/2IC/CSM/ADMIN company-wide; never yourself */
+  /** Remove from roster: his platoon's PC or PS, an ASA, or OC/2IC/CSM/ADMIN company-wide; never yourself */
   removes: boolean;
   /** Person history */
   history: boolean;
-  /** "Back?", and his night on the evening "Stay-out tonight": his camp's GC, his platoon's PC or PS, or OC/2IC/CSM */
+  /** "Back?", and his night on the evening "Stay-out tonight": his camp's GC, his platoon's PC or PS, OC/2IC/CSM, or an ASA */
   confirmsBack: boolean;
-  /** change whether he's stay-out: his platoon's PC or PS, or OC/2IC/CSM/ADMIN company-wide (2026-10-27) */
+  /** change whether he's stay-out: his platoon's PC or PS, an ASA, or OC/2IC/CSM/ADMIN company-wide (2026-10-27) */
   stayout: boolean;
 }
 
@@ -352,21 +372,21 @@ export function campAccess(viewer: { grants: readonly GrantRow[] }, camp: Where)
 
 /**
  * A physical camp: its teams share the post. `hoto`: a GC of either team, the
- * platoon's PC/PS, or OC/2IC/CSM. `editShifts`: its pattern and minimum
- * manning, for ADMIN anywhere or the platoon's PC/PS.
+ * platoon's PC/PS, an ASA, or OC/2IC/CSM. `editShifts`: its pattern and minimum
+ * manning, for ADMIN or an ASA anywhere, or the platoon's PC/PS.
  */
 export function postAccess(viewer: { grants: readonly GrantRow[] }, post: { subunitId: string; teams: readonly { id: string }[] }): { hoto: boolean; editShifts: boolean } {
   const g = viewer.grants;
   const platoon = { subunitId: post.subunitId };
   return {
-    hoto: post.teams.some((t) => at(g, ["GC"], { subunitId: post.subunitId, campId: t.id })) || at(g, PLATOON_DECIDERS, platoon) || companyWide(g, COMPANY_DECIDERS),
-    editShifts: holds(g, ADMIN) || at(g, PLATOON_DECIDERS, platoon),
+    hoto: post.teams.some((t) => at(g, ["GC"], { subunitId: post.subunitId, campId: t.id })) || at(g, [...PLATOON_DECIDERS, ...ASA], platoon) || companyWide(g, COMPANY_DECIDERS),
+    editShifts: holds(g, ADMINS) || at(g, PLATOON_DECIDERS, platoon),
   };
 }
 
-/** `linkChat`: /here, its PC or PS (or a company-wide grant), or ADMIN. */
+/** `linkChat`: /here, its PC or PS (or a company-wide grant), ADMIN or an ASA. */
 export function platoonAccess(viewer: { grants: readonly GrantRow[] }, subunitId: string): { linkChat: boolean } {
-  return { linkChat: at(viewer.grants, PLATOON_DECIDERS, { subunitId }) || holds(viewer.grants, ADMIN) };
+  return { linkChat: at(viewer.grants, PLATOON_DECIDERS, { subunitId }) || holds(viewer.grants, ADMINS) };
 }
 
 // ------------------------------------------------------------------ RF

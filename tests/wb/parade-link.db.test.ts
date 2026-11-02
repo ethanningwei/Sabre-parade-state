@@ -194,13 +194,10 @@ describe("open the parade state (DB)", () => {
     expect((await sessionUser())?.name).toBe(TG_ONLY);
   });
 
-  it("refuses a trooper, an ASA and a non-member, and signs nobody in", async (ctx) => {
+  it("refuses a trooper and a non-member, and signs nobody in", async (ctx) => {
     if (!reachable) ctx.skip();
     await memberWith(1, [], { personId: gcPerson.id });
     expect(await openParadeState()).toEqual({ ok: false, error: expect.stringMatching(/^Only GCs, PSs, PCs/) });
-
-    await memberWith(2, [{ role: "ASA" }]);
-    expect(await openParadeState()).toMatchObject({ ok: false });
 
     jar.clear();
     expect(await openParadeState()).toEqual({ ok: false, error: "Please reopen Sabre from Telegram." });

@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { Refusal, type Delivery } from "@/lib/wb/core";
 import { wbMember, wbRecord, type WbRecordKind } from "@/lib/wb/db/schema";
-import { decideRefusalText, manAccess, needsNoApproval, recordAccess, reportAccess } from "@/lib/wb/domain/access";
+import { decideRefusalText, manAccess, needsNoApproval, recordAccess, reportAccess, voids } from "@/lib/wb/domain/access";
 import { STATE_LABEL } from "@/lib/wb/domain/describe";
 import {
   initialState,
@@ -365,7 +365,7 @@ export async function notRight(courier: Courier, by: Acting, recordId: string): 
 }
 
 /**
- * A commander takes an approved or recorded entry off the timeline, with
+ * A commander above the man (the approval chain), or an ASA, takes an approved or recorded entry off the timeline, with
  * whatever it produced (an RSO and its MC are one afternoon). Cancelled, never
  * deleted; whoever approved it stays on the row, and the voider and why go in
  * the note and the audit. Approved leave is refunded.
@@ -377,7 +377,7 @@ export async function voidRecord(courier: Courier, by: Acting, recordId: string,
     async change({ tx, audit }) {
       const before = await recordView(recordId, tx);
       if (!before) throw new Refusal("That record has gone.");
-      if (!recordAccess(by.actor, before).commands) throw new Refusal(`Only ${before.subunitName}'s PC or PS can void this.`);
+      if (!voids(by.actor, before)) throw new Refusal(decideRefusalText(by.actor, before, "void"));
       if (why.length < 3) throw new Refusal("Say why you're voiding it.");
       const voider = await memberLabel(by.actor.id, tx);
       const [row] = await tx.select().from(wbRecord).where(eq(wbRecord.id, recordId)).for("update");

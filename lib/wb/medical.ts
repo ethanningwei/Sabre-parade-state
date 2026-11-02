@@ -7,7 +7,7 @@ import { recordAccess, type GrantRow } from "@/lib/wb/domain/access";
 import type { RecordView } from "@/lib/wb/records";
 
 // The only way to read a diagnosis or a document photo's file_id. Each read is
-// checked against recordAccess().seeMedical (the trooper, his PC/PS, OC/2IC/CSM) and
+// checked against recordAccess().seeMedical (the trooper, his PC/PS, OC/2IC/CSM, an ASA) and
 // written to wb_audit, whether it's a page showing the diagnosis or the file
 // route sending the photo. Nothing here is ever sent to a group chat.
 

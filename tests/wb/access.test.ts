@@ -88,7 +88,8 @@ describe("screens", () => {
     ["CSM", ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "parade"]],
     // company roles scoped to a platoon decide nothing, but still raise, deploy and edit the roster there
     ["OC · PLATOON 5", ["rf", "roster", "parade"]],
-    ["ASA", ["rf", "roster"]],
+    // an ASA runs the app: everything a commander sees, plus Admin (2026-11-02)
+    ["ASA", ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "shifts", "admin", "parade"]],
     ["ADMIN", ["roster", "shifts", "admin", "parade"]],
   ])("%s", (who, on) => {
     expect(screens(as(W[who]))).toEqual(row(...on));
@@ -135,10 +136,10 @@ describe("reach", () => {
     expect(reachLabel({ subunitIds: [], campIds: ["slr", "bdk"] })).toBe("Your camps");
   });
 
-  it("Roster: ASAs and admins too; the parade state: not ASAs", () => {
+  it("Roster and the parade state: ASAs and admins too (ASAs since 2026-11-02)", () => {
     expect(reach(as(W.ASA), "roster")).toBe("company");
     expect(reach(as(W.ADMIN), "roster")).toBe("company");
-    expect(reach(as(W.ASA), "parade")).toEqual({ subunitIds: [], campIds: [] });
+    expect(reach(as(W.ASA), "parade")).toBe("company");
     expect(reach(as(W.ADMIN), "parade")).toBe("company");
   });
 });
@@ -157,7 +158,7 @@ describe("manAccess (a man in SLR, PLATOON 6)", () => {
     ["2IC", { commands: true, sends: true, proxies: true, removes: true, confirmsBack: true }],
     ["CSM", { commands: true, sends: true, proxies: true, removes: true, confirmsBack: true }],
     ["OC · PLATOON 5", { commands: false, sends: false, proxies: false, removes: false, confirmsBack: false }],
-    ["ASA", { commands: false, sends: true, proxies: false, removes: false, confirmsBack: false }],
+    ["ASA", { commands: true, sends: true, proxies: true, removes: true, confirmsBack: true }],
     ["ADMIN", { commands: false, sends: false, proxies: false, removes: true, confirmsBack: false }],
   ])("%s", (who, want) => {
     const can = manAccess(as(W[who]), { ...SLR, personId: "p-man" });
@@ -165,8 +166,8 @@ describe("manAccess (a man in SLR, PLATOON 6)", () => {
     expect(can.history).toBe(want.commands || want.removes);
   });
 
-  it("stay-out: his platoon's PC or PS, OC/2IC/CSM and admins, himself included; not his GC (2026-10-27)", () => {
-    const yes = ["PS · PLATOON 6", "PC · PLATOON 6", "OC", "2IC", "CSM", "ADMIN"] as const;
+  it("stay-out: his platoon's PC or PS, OC/2IC/CSM, ASAs and admins, himself included; not his GC (2026-10-27)", () => {
+    const yes = ["PS · PLATOON 6", "PC · PLATOON 6", "OC", "2IC", "CSM", "ASA", "ASA · SLR", "ADMIN"] as const;
     for (const who of Object.keys(W) as Who[]) expect([who, manAccess(as(W[who]), { ...SLR, personId: "p-man" }).stayout]).toEqual([who, (yes as readonly string[]).includes(who)]);
     expect(manAccess({ personId: "p-man", grants: W["PS · PLATOON 6"] }, { ...SLR, personId: "p-man" }).stayout).toBe(true);
   });
@@ -192,7 +193,7 @@ describe("campAccess", () => {
     ["PS · PLATOON 6", { asks: true, forecast: true }],
     ["PS · PLATOON 5", { asks: false, forecast: false }],
     ["OC", { asks: true, forecast: true }],
-    ["ASA", { asks: true, forecast: false }],
+    ["ASA", { asks: true, forecast: true }],
     ["ADMIN", { asks: false, forecast: false }],
     ["nobody", { asks: false, forecast: false }],
   ])("SLR: %s", (who, want) => {
@@ -212,7 +213,7 @@ describe("postAccess (SFT, a pair)", () => {
     ["PC · PLATOON 6", { hoto: true, editShifts: true }],
     ["PS · PLATOON 5", { hoto: false, editShifts: false }],
     ["OC", { hoto: true, editShifts: false }],
-    ["ASA", { hoto: false, editShifts: false }],
+    ["ASA", { hoto: true, editShifts: true }],
     ["ADMIN", { hoto: false, editShifts: true }],
   ])("%s", (who, want) => {
     const grants = who === "GC · SFT B" ? [g("GC", { campId: "sft-b" })] : W[who];
@@ -359,6 +360,42 @@ describe("recordAccess", () => {
     expect(recordAccess(ps, approved, new Date(now.getTime() + 11 * 60_000)).undo).toBe(false);
   });
 
+  it("void follows the approval chain: never his own or a peer's (the user, 2026-11-02)", () => {
+    const approved: Parameters<typeof recordAccess>[1] = { ...rec, state: "APPROVED", decidedBy: "m9", decidedAt: now };
+    const voids = (v: { personId: string | null; grants: GrantRow[] }, r: typeof approved) => recordAccess({ id: "x", ...v }, r, now).void;
+    // a trooper's: his PC or PS, company HQ, or an ASA; not another platoon, a GC or an admin
+    expect(voids({ personId: "ps", grants: W["PS · PLATOON 6"] }, approved)).toBe(true);
+    expect(voids({ personId: "pc", grants: W["PC · PLATOON 6"] }, approved)).toBe(true);
+    expect(voids({ personId: "csm", grants: W.CSM }, approved)).toBe(true);
+    expect(voids({ personId: null, grants: W["PS · PLATOON 5"] }, approved)).toBe(false);
+    expect(voids({ personId: null, grants: [g("GC", { campId: "sft-a" })] }, approved)).toBe(false);
+    expect(voids({ personId: null, grants: W.ASA }, approved)).toBe(true);
+    expect(voids({ personId: null, grants: W.ADMIN }, approved)).toBe(false);
+    // a PS's: the PC or company HQ, never another PS, never himself
+    const psLeave = { ...approved, personId: "ps", ownerRoles: ["PS" as const] };
+    expect(voids({ personId: "ps2", grants: W["PS · PLATOON 6"] }, psLeave)).toBe(false);
+    expect(voids({ personId: "ps", grants: W["PS · PLATOON 6"] }, psLeave)).toBe(false);
+    expect(voids({ personId: "pc", grants: W["PC · PLATOON 6"] }, psLeave)).toBe(true);
+    // a PC's: OC, 2IC or CSM only
+    const pcLeave = { ...approved, personId: "pc", ownerRoles: ["PC" as const] };
+    expect(voids({ personId: "pc", grants: W["PC · PLATOON 6"] }, pcLeave)).toBe(false);
+    expect(voids({ personId: "ps", grants: W["PS · PLATOON 6"] }, pcLeave)).toBe(false);
+    expect(voids({ personId: "oc", grants: W.OC }, pcLeave)).toBe(true);
+    // OC, 2IC and CSM save their own approved, so they take their own back; and each other's
+    const ocLeave = { ...approved, personId: "oc", ownerRoles: ["OC" as const] };
+    expect(voids({ personId: "oc", grants: W.OC }, ocLeave)).toBe(true);
+    expect(voids({ personId: "csm", grants: W.CSM }, ocLeave)).toBe(true);
+    // an ASA: anyone's, a PC's or OC's included, but never his own; and he decides nothing
+    expect(voids({ personId: "asa", grants: W.ASA }, pcLeave)).toBe(true);
+    expect(voids({ personId: "asa", grants: W.ASA }, ocLeave)).toBe(true);
+    expect(voids({ personId: "asa", grants: W.ASA }, { ...approved, personId: "asa", ownerRoles: ["ASA" as const] })).toBe(false);
+    expect(recordAccess({ id: "x", personId: "asa", grants: W.ASA }, { ...rec, personId: "p1" }, now)).toMatchObject({ view: true, decide: false, approves: false, seeMedical: true });
+    // a recorded one (an MC, a status) the same way
+    expect(voids({ personId: "ps", grants: W["PS · PLATOON 6"] }, { ...psLeave, state: "RECORDED" as const })).toBe(false);
+    expect(decideRefusalText({ personId: "ps" }, { ...psLeave, subunitName: "PLATOON 6" }, "void")).toBe("You can't void your own record. Ask the commander above you.");
+    expect(decideRefusalText({ personId: "ps2" }, { ...psLeave, subunitName: "PLATOON 6" }, "void")).toBe("Only PLATOON 6's PC, or OC, 2IC or CSM, can void a PS's record.");
+  });
+
   it.each<[string, { personId: string | null; grants: GrantRow[] }, boolean]>([
     ["the trooper", { personId: "p1", grants: [] }, true],
     ["his PS", { personId: "ps", grants: W["PS · PLATOON 6"] }, true],
@@ -368,7 +405,7 @@ describe("recordAccess", () => {
     ["CSM", { personId: null, grants: W.CSM }, true],
     ["another platoon's PS", { personId: null, grants: W["PS · PLATOON 5"] }, false],
     ["his camp's GC", { personId: null, grants: [g("GC", { campId: "sft-a" })] }, false],
-    ["an ASA", { personId: null, grants: W.ASA }, false],
+    ["an ASA", { personId: null, grants: W.ASA }, true],
     ["an admin", { personId: null, grants: W.ADMIN }, false],
     ["someone not on the roster", { personId: null, grants: [] }, false],
   ])("a diagnosis: %s → %s", (_t, v, want) => {
@@ -500,7 +537,7 @@ describe("reportAccess: report sick or an MA for one of his men", () => {
     ["OC", BDK, true, true],
     ["2IC", SLR, true, true],
     ["CSM", SLR, true, true],
-    ["ASA", SLR, false, false],
+    ["ASA", SLR, true, false], // reports, but never approves: his PC or PS still decides
     ["ADMIN", SLR, false, false],
     ["nobody", SLR, false, false],
   ];

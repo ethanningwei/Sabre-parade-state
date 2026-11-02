@@ -65,8 +65,8 @@ describe("issuesInScope", () => {
     expect(count([{ role: "OC", subunitId: null, campId: null }])).toBe(5);
   });
 
-  it("troopers' and ASAs' grants count nothing", () => {
-    expect(count([{ role: "ASA", subunitId: null, campId: null }])).toBe(0);
+  it("a trooper counts nothing; an ASA counts everything (2026-11-02)", () => {
+    expect(count([{ role: "ASA", subunitId: null, campId: null }])).toBe(5);
     expect(count([])).toBe(0);
   });
 });

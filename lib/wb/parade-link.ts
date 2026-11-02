@@ -37,7 +37,7 @@ async function nameFor(m: Member): Promise<string> {
 /** Starts a v1 session for the member and marks it as from Telegram. Returns the v1 name. */
 export async function signInToParadeState(m: Member): Promise<{ name: string }> {
   if (!screens(m).parade) {
-    throw new ForbiddenError("Only GCs, PSs, PCs, the OC, 2IC, CSM and admins can open the parade state from here.");
+    throw new ForbiddenError("Only GCs, PSs, PCs, the OC, 2IC, CSM, ASAs and admins can open the parade state from here.");
   }
   const name = await nameFor(m);
   if (name.length < 2) throw new UserError("Your name is missing. Redo My details, then try again.");

@@ -105,6 +105,33 @@ describe("approval chain (DB, 2026-10-14)", () => {
     expect(await leaveOf(PS)).toBe(11);
   });
 
+  it("void follows the chain: a PS can't void his own approved leave, the PC can (the user, 2026-11-02)", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await setup();
+    await member(PC, pl6People[0], [{ role: "PC", subunitId: pl6 }]);
+    const c = recordingCourier();
+    const id = await applyAl(c, PS);
+    await decide(c, await acting(PC), id, "approve");
+    expect(await leaveOf(PS)).toBe(11);
+    expect(await voidRecord(c, await acting(PS), id, "Not going")).toEqual({ ok: false, error: "You can't void your own record. Ask the commander above you." });
+    expect(await leaveOf(PS)).toBe(11);
+    expect(await voidRecord(c, await acting(PC), id, "Not going")).toMatchObject({ ok: true, value: { state: "CANCELLED" } });
+    expect(await leaveOf(PS)).toBe(14);
+  });
+
+  it("an ASA voids anyone's but decides nothing (the user, 2026-11-02)", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await setup();
+    const ASA = 5001;
+    await member(ASA, pl6People[2], [{ role: "ASA" }]);
+    const c = recordingCourier();
+    const id = await applyAl(c);
+    expect((await decide(c, await acting(ASA), id, "approve")).ok).toBe(false);
+    await decide(c, await acting(PS), id, "approve");
+    expect(await voidRecord(c, await acting(ASA), id, "Entered twice")).toMatchObject({ ok: true, value: { state: "CANCELLED" } });
+    expect(await leaveOf(TROOPER)).toBe(14);
+  });
+
   it("an ADMIN may approve his own", async (ctx) => {
     if (!reachable) ctx.skip();
     await member(TROOPER, irfan);
@@ -643,15 +670,13 @@ describe("report for your men (DB)", () => {
     expect(c.sent[1]).toMatchObject({ send: { telegramId: TROOPER }, text: `PTE JOSHUA LAU reported your MA on ${on(1)}. Not right?\n\nIf the doctor gives you an MC or status, tap Update outcome.` });
   });
 
-  it("scope: a GC his camp only, a PS his platoon; an ASA, a trooper or himself can't; leave and off never", async (ctx) => {
+  it("scope: a GC his camp only, a PS his platoon; a trooper or himself can't; leave and off never", async (ctx) => {
     if (!reachable) ctx.skip();
     await withGc();
-    await member(ASA, null, [{ role: "ASA" }]);
     const [srf] = await db.select({ id: person.id }).from(person).innerJoin(camp, eq(camp.id, person.campId)).where(and(eq(camp.name, "SRF A"), eq(person.active, true))).limit(1);
     const c = recordingCourier();
     expect(await report(c, GC, srf.id, sickFor())).toMatchObject({ ok: false, error: expect.stringMatching(/isn't in your scope/) });
     expect(await report(c, PS, pl5Person, sickFor())).toEqual({ ok: false, error: "LCP PARTHIV isn't in your scope." });
-    expect(await report(c, ASA, irfan, sickFor())).toMatchObject({ ok: false, error: expect.stringMatching(/isn't in your scope/) });
     expect(await report(c, TROOPER, pl6People[0], sickFor())).toMatchObject({ ok: false, error: expect.stringMatching(/isn't in your scope/) });
     expect(await report(c, PS, chunHei, sickFor())).toEqual({ ok: false, error: "Report it as your own." });
     for (const rec of [leaveFrom(al(), 14), offFrom({ startDate: day(3), startTime: "0800", endDate: day(3), endTime: "2359" })]) {
@@ -659,6 +684,15 @@ describe("report for your men (DB)", () => {
     }
     expect(c.sent).toEqual([]);
     expect(await db.select().from(wbRecord)).toEqual([]);
+  });
+
+  it("an ASA reports for anyone, and it waits for the man's PC or PS (2026-11-02)", async (ctx) => {
+    if (!reachable) ctx.skip();
+    await setup();
+    await member(ASA, null, [{ role: "ASA" }]);
+    const r = ok(await report(recordingCourier(), ASA, irfan, sickFor())).records[0];
+    expect(r).toMatchObject({ kind: "RSO", state: "PENDING", createdVia: "PROXY" });
+    expect((await pendingFor((await acting(PS)).actor)).map((x) => x.id)).toEqual([r.id]);
   });
 
   it("backdating: yesterday at most for a report, today for his own", () => {
