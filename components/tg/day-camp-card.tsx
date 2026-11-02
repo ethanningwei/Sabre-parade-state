@@ -1,4 +1,4 @@
-import { Hourglass } from "lucide-react";
+import { ClipboardList, Hourglass } from "lucide-react";
 import Link from "next/link";
 import { ParadeStateLink } from "@/components/tg/parade-state-tile";
 import { ParadeStatusLine } from "@/components/tg/parade-status";
@@ -23,9 +23,12 @@ export function CampCard({
   parade,
   canOpen,
   onParadeState,
+  strengthHref,
   rot = false,
 }: {
   rot?: boolean;
+  /** today, a guardroom in Vigilance: its strength list for a conduct (CPT) */
+  strengthHref?: string;
   d: DayCamp;
   i: number;
   parade: ReadonlyMap<string, ParadeStatus>;
@@ -122,6 +125,15 @@ export function CampCard({
         </div>
       )}
       {d.away.length === 0 && !(on && d.manning.duties.length) && <p className="text-sm text-muted-foreground">Everyone present.</p>}
+      {strengthHref && (
+        <Link
+          href={strengthHref}
+          className={`-mx-4 flex min-h-12 items-center gap-2 border-t px-4 py-2.5 text-sm font-medium text-primary transition-colors duration-150 active:bg-muted ${onParadeState ? "" : "-mb-4 rounded-b-2xl"}`}
+        >
+          <ClipboardList className="size-4" aria-hidden />
+          <span className="flex-1">Strength list for a conduct</span>
+        </Link>
+      )}
       {onParadeState && (
         <ParadeStateLink
           to={`/c/${d.info.id}`}

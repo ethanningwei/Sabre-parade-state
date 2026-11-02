@@ -152,6 +152,7 @@ function DayView({
                 parade={parade}
                 canOpen={manAccess({ grants }, { subunitId: d.info.subunitId, campId: d.info.id }).commands}
                 onParadeState={paradeToday}
+                strengthHref={date === today && !rot && !d.info.isHq ? `/tg/manpower/strength?camp=${d.info.id}` : undefined}
                 rot={rot}
               />
             ))}
