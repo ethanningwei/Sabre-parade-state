@@ -1,6 +1,6 @@
 # Conduct strength lists: plan
 
-Planned 2026-11-02 with the user, not built yet. It replaces the strength lists GCs type into **Commanders of N23** by hand: CPT participating strength, OSE and comd training participants, comd training attendance and IPPT lists. The chat export (Feb–Oct 2026) has about 93 OSE and comd training lists and about 45 CPT strength lists. Sabre already knows nearly every reason a man isn't going.
+Planned 2026-11-02 with the user. Slices 1 and 2 are built (below). It replaces the strength lists GCs type into **Commanders of N23** by hand: CPT participating strength, OSE and comd training participants, comd training attendance and IPPT lists. The chat export (Feb–Oct 2026) has about 93 OSE and comd training lists and about 45 CPT strength lists. Sabre already knows nearly every reason a man isn't going.
 
 Whereabouts rules apply: `wb_` tables only, behind a flag, and nothing changes in v1 or the parade state.
 
@@ -48,12 +48,57 @@ OSE and comd training follow their existing template: date, title and team, then
    - Code: the text and the parade-state helpers are pure in `lib/wb/domain/strength-list.ts` (tests: `tests/wb/strength-list.test.ts`); the read is `lib/wb/strength-data.ts`; the screen is `components/tg/strength-list.tsx`.
    - Reasons, first that applies: an approved or recorded absence on the timeline (MA with its place, an event's name); Extra/RF at another camp; the parade state's own entry, **only while its dates cover now** (v1 keeps ended ones until a GC clears them); a report sick today with no outcome (RSI/RSO). A live status is kept apart (LD) and not counted.
    - Checked in the browser pane at 375 px on `sabre_dev` (SLR): ended September MCs left out, Driving and Going after all change the count and the message, Copy copies the message. Not checked on a phone or with real roles (the dev roster has none, so it shows one OTHERS group).
-2. **Conducts** (migration 0016: `wb_conduct`, `wb_conduct_camp`, `wb_conduct_man`; `FEATURE_CONDUCTS`).
-   - **Set up:** a PS or above sets one up: kind, date, report-strength time, and camps (off-shift camps that day come pre-ticked from the shift patterns). Who is in it: everyone in the camp, commanders only, or GCs name them.
-   - **Tell the GCs:** each camp's GC gets a DM when it's set up.
-   - **Report:** his report goes to Commanders of N23 as the text above.
-   - **Roll-up:** the PS sees which camps have reported, the totals by role, and the reasons. **Nudge** DMs a GC who hasn't reported, and **Copy coy total** copies the summary.
-   - **No cron:** Vercel Hobby crons run daily, so nothing fires at the report time by itself. The DM at setup and the Nudge button replace the "send CPT strength once bus move off" reminders.
+2. **Conducts.** 🧪 Built 2026-11-02, pushed with the flag off. Migration **0016** (`wb_coy_chat`, `wb_conduct`, `wb_conduct_camp`, `wb_conduct_man`) on `sabre_dev`, `sabre_test` and **production (applied 2026-11-02)**. Behind `FEATURE_CONDUCTS`.
+   - **Decisions (the user, 2026-11-02):**
+     - whole camps only ("commanders only" and named lists wait for slice 3);
+     - a second send **edits the bot's earlier post** and adds "Updated HHMMH";
+     - the coy total stays **in the app** (Copy coy total), and nothing extra goes into the chat;
+     - a camp's strength is sent by **its GC (SC), or anyone above him** (his PC/PS, OC/2IC/CSM, an ASA) or ADMIN.
+   - **Commanders of N23:** add the bot to the chat and send `/here COMMANDERS` (an ASA, OC/2IC/CSM or ADMIN). It is stored in `wb_coy_chat` and listed in Admin › Commanders' chats, where it can be removed.
+   - **Set up** (Home › Conducts › Set up a conduct, `/tg/conducts/new`):
+     - for a PC or PS, OC/2IC/CSM, an ASA or ADMIN (`conductAccess().setUp`, the `conducts` screen);
+     - fields: the title, the day (today to a week ahead), "strengths due by", and the camps;
+     - camps off shift that day are pre-ticked (`preTicked`, from the shift patterns), and COY HQ is never offered;
+     - each ticked camp's GC/SC with a Sabre account is DMed with a **Send BDK's strength** button (`conducts/camp/<id>`);
+     - the roll-up names the camps with nobody on Sabre to ask.
+   - **Send** (`/tg/conducts/camp/[id]`, from the DM or Home's Needs you line "Send SLR strength · due 1830H"):
+     - it is slice 1's list with the conduct's title, plus **Send** / **Send again** and Copy;
+     - the server rebuilds the men (`strengthFor`) and keeps only the sender's taps;
+     - each send stores every man's line (`wb_conduct_man`, a snapshot), and the next send starts from his taps;
+     - only on the conduct's day, and not once it's cancelled;
+     - with Commanders of N23 not linked (or Telegram failing), the send is still saved and the screen says to copy it in.
+   - **Roll-up** (`/tg/conducts/[id]`):
+     - camps sent ("Sent 1912H · 3SG X", going/total) or waiting;
+     - **Nudge**: a DM to the GC, at most once per 10 minutes;
+     - totals by role and who isn't going, with reasons;
+     - **Copy coy total** (`TOTAL: 74/86`, then each camp, or "not reported");
+     - **Cancel conduct**, which DMs the GCs who haven't sent.
+   - **No cron:** Vercel Hobby crons run daily, so nothing fires at the due time by itself. The DM at set-up and Nudge replace the "send CPT strength once bus move off" reminders.
+   - **Code:**
+     - pure rules: `lib/wb/domain/conducts.ts`;
+     - access: `conductAccess`, `reportsFor`, `isCampCommander`, `coyChatAccess` in `lib/wb/domain/access.ts`;
+     - writes: `lib/wb/conducts.ts`;
+     - reads: `lib/wb/conduct-data.ts`;
+     - actions: `lib/wb/actions/conducts.ts`;
+     - Courier `post` / `editPost`: `lib/wb/telegram/courier.ts`;
+     - `/here COMMANDERS`: `lib/wb/telegram/bot.ts` and `linkCoyChat` in `lib/wb/admin.ts`;
+     - screens: `app/(tg)/tg/conducts/`, `components/tg/conduct-form.tsx`, `conduct-rollup.tsx`, and `strength-list.tsx` (its `send` mode).
+   - **Tests:**
+     - `tests/wb/conducts.test.ts`;
+     - `tests/wb/conducts.db.test.ts`;
+     - the conduct cases in `access.test.ts` and `needs-you.test.ts`.
+   - **Checked** in the browser pane at 375 px on `sabre_dev` with `FEATURE_CONDUCTS=1` and the throwaway token, so offline:
+     - set up with off-shift camps pre-ticked;
+     - Nudge and its wait;
+     - SLR's send screen, with real GC/CBT/SVC roles: Driving, then Send (saved, "not linked"), then Send again;
+     - the roll-up's totals, Cancel, and the Needs you line.
+   - **Not yet checked:** a real post and its edit in a Telegram group (the throwaway token can't reach Telegram), or on a phone.
+   - **Rollout:**
+     1. ✅ 0016 applied to production before the push (Admin › Commanders' chats reads `wb_coy_chat` even with the flag off);
+     2. ✅ pushed with `FEATURE_CONDUCTS` off;
+     3. the user adds the bot to Commanders of N23 and sends `/here COMMANDERS`;
+     4. turn `FEATURE_CONDUCTS=1` on in Vercel and redeploy;
+     5. a phone check on the next CPT.
 3. **Named lists** (OSE, comd training, IPPT).
    - Each GC ticks his men; anyone away that day gets a warning, but can still be picked.
    - Sabre builds the coy list in the existing template, shows which camps haven't named anyone, and posts it to Commanders of N23.

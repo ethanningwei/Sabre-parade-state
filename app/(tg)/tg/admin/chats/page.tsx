@@ -14,6 +14,10 @@ export default async function ChatsPage() {
         Add the bot to a platoon&apos;s commanders chat (or open the platoon&apos;s topic) and send{" "}
         <code className="font-mono">/here PLATOON 6</code>. It needs PC or PS of that platoon, or an admin.
       </p>
+      <p className="text-sm text-muted-foreground">
+        For conduct strengths, add the bot to Commanders of N23 and send <code className="font-mono">/here COMMANDERS</code>. It needs an ASA, the OC, 2IC or CSM,
+        or an admin.
+      </p>
       <ChatsEditor chats={chats.map((c) => ({ ...c, linkedAt: c.linkedAt.toISOString() }))} />
     </div>
   );

@@ -1,13 +1,16 @@
-import type { Audience, Button, CardKey, Courier } from "@/lib/wb/telegram/courier";
+import type { Audience, Button, CardKey, CoyChat, Courier, MessageRef } from "@/lib/wb/telegram/courier";
 
 // The Courier's in-memory adapter: a core function's test asserts who was told
 // and which cards moved, in domain terms, with no Telegram fake. Everything
-// "goes out"; a RecordView or request view in a key is reduced to its id.
+// "goes out"; a RecordView or request view in a key is reduced to its id. A
+// coy-chat post gets message ids 1, 2, … in a chat -1.
 
 export type Sent =
   | { send: Audience; text: string; buttons?: Button[][] }
   | { postCard: { record: string } | { rf: string }; replaces?: readonly string[] }
-  | { redraw: { record: string } | { rf: string } };
+  | { redraw: { record: string } | { rf: string } }
+  | { post: CoyChat; text: string }
+  | { editPost: MessageRef; text: string };
 
 const idOf = (card: CardKey) =>
   "rf" in card ? { rf: typeof card.rf === "string" ? card.rf : card.rf.id } : { record: typeof card.record === "string" ? card.record : card.record.id };
@@ -26,6 +29,14 @@ export function recordingCourier(): Courier & { sent: Sent[] } {
     },
     async redraw(card) {
       sent.push({ redraw: idOf(card) });
+    },
+    async post(to, text) {
+      sent.push({ post: to, text });
+      return { delivery: "sent", ref: { chatId: -1, threadId: null, messageId: sent.filter((s) => "post" in s).length } };
+    },
+    async editPost(ref, text) {
+      sent.push({ editPost: ref, text });
+      return true;
     },
   };
 }

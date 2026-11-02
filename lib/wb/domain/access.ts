@@ -137,6 +137,8 @@ export interface Screens {
   admin: boolean;
   /** Parade state: the v1 web app inside Telegram */
   parade: boolean;
+  /** Conducts: set one up, its roll-up */
+  conducts: boolean;
 }
 export type Screen = keyof Screens;
 
@@ -157,6 +159,7 @@ export function screens(viewer: { grants: readonly GrantRow[] }): Screens {
     shifts: holds(g, ADMINS) || holds(g, PLATOON_DECIDERS),
     admin: holds(g, ADMINS),
     parade: holds(g, PARADE_ROLES),
+    conducts: conductAccess(viewer).setUp,
   };
 }
 
@@ -388,6 +391,30 @@ export function postAccess(viewer: { grants: readonly GrantRow[] }, post: { subu
 export function platoonAccess(viewer: { grants: readonly GrantRow[] }, subunitId: string): { linkChat: boolean } {
   return { linkChat: at(viewer.grants, PLATOON_DECIDERS, { subunitId }) || holds(viewer.grants, ADMINS) };
 }
+
+/** A coy's own chat (Commanders of N23, `/here COMMANDERS`): ADMIN or an ASA, or OC/2IC/CSM. */
+export function coyChatAccess(viewer: { grants: readonly GrantRow[] }): { link: boolean } {
+  return { link: holds(viewer.grants, ADMINS) || companyWide(viewer.grants, COMPANY_DECIDERS) };
+}
+
+// ------------------------------------------------------------------ conducts
+
+/**
+ * Conducts (docs/conducts-plan.md, the user, 2026-11-02). `setUp` (and nudge,
+ * cancel): a PC or PS, OC/2IC/CSM, an ASA or ADMIN, for any camp of the coy:
+ * CPT is the company's, not a platoon's.
+ */
+export function conductAccess(viewer: { grants: readonly GrantRow[] }): { setUp: boolean } {
+  const g = viewer.grants;
+  return { setUp: holds(g, PLATOON_DECIDERS) || holds(g, COMPANY_DECIDERS) || holds(g, ADMINS) };
+}
+
+/** The camp's own GC (SC): Needs you asks him for its strength, not everyone above him. */
+export const isCampCommander = (viewer: { grants: readonly GrantRow[] }, camp: Where) => at(viewer.grants, CAMP_COMMANDERS, camp);
+
+/** Who sends a camp's strength: its GC (SC), or anyone above him (his PC/PS, OC/2IC/CSM, an ASA), or ADMIN. */
+export const reportsFor = (viewer: { grants: readonly GrantRow[] }, camp: Where) =>
+  at(viewer.grants, CAMP_COMMANDERS, camp) || commandsAt(viewer.grants, camp) || holds(viewer.grants, ADMIN);
 
 // ------------------------------------------------------------------ RF
 

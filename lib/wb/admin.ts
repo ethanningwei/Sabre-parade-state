@@ -1,9 +1,10 @@
 import "server-only";
-import { and, count, eq, ne } from "drizzle-orm";
-import { camp, subunit } from "@/lib/db/schema";
+import { and, asc, count, eq, ne } from "drizzle-orm";
+import { camp, coy, subunit } from "@/lib/db/schema";
 import { Refusal } from "@/lib/wb/core";
-import { wbCommanderChat, wbGrant, wbMember } from "@/lib/wb/db/schema";
-import { onlyCampScope, platoonAccess, screens } from "@/lib/wb/domain/access";
+import { wbCommanderChat, wbCoyChat, wbGrant, wbMember } from "@/lib/wb/db/schema";
+import { coyChatAccess, onlyCampScope, platoonAccess, screens } from "@/lib/wb/domain/access";
+import { COY_CHAT_LABEL, type CoyChatKind } from "@/lib/wb/domain/conducts";
 import { linkedToSomeoneElse, TAKEN_MESSAGE } from "@/lib/wb/domain/registration";
 import type { WbRole } from "@/lib/wb/domain/roles";
 import type { Db } from "@/lib/wb/records";
@@ -149,9 +150,53 @@ export async function removeCommanderChat(by: Acting, chatRowId: string) {
     async change({ tx, audit }) {
       mustBeAdmin(by);
       const [c] = await tx.select().from(wbCommanderChat).where(eq(wbCommanderChat.id, chatRowId));
-      if (!c) return;
-      await tx.delete(wbCommanderChat).where(eq(wbCommanderChat.id, c.id));
-      await audit({ action: "unlink-chat", entity: "wb_commander_chat", entityId: c.id, before: c });
+      if (c) {
+        await tx.delete(wbCommanderChat).where(eq(wbCommanderChat.id, c.id));
+        return void (await audit({ action: "unlink-chat", entity: "wb_commander_chat", entityId: c.id, before: c }));
+      }
+      // or a coy's own chat (Commanders of N23): the same list shows both
+      const [k] = await tx.select().from(wbCoyChat).where(eq(wbCoyChat.id, chatRowId));
+      if (!k) return;
+      await tx.delete(wbCoyChat).where(eq(wbCoyChat.id, k.id));
+      await audit({ action: "unlink-coy-chat", entity: "wb_coy_chat", entityId: k.id, before: k });
+    },
+  });
+}
+
+export interface CoyChatLink {
+  kind: CoyChatKind;
+  chatId: number;
+  threadId: number | null;
+  chatTitle: string;
+}
+
+/**
+ * `/here COMMANDERS`: this chat (or topic) becomes the coy's Commanders of N23,
+ * where conduct strengths go. For ADMIN, an ASA or OC/2IC/CSM. Returns the chat
+ * it replaced, or "same" when it already was.
+ */
+export async function linkCoyChat(by: Acting, link: CoyChatLink) {
+  return write(null, by, {
+    parade: false,
+    async change({ tx, audit }) {
+      const label = COY_CHAT_LABEL[link.kind];
+      if (!coyChatAccess(by.actor).link) throw new Refusal(`Only an ASA, the OC, 2IC or CSM (or a Sabre admin) can link ${label}.`);
+      const [c] = await tx.select({ id: coy.id }).from(coy).orderBy(asc(coy.key)).limit(1);
+      if (!c) throw new Refusal("There's no company in Sabre yet.");
+      const [before] = await tx
+        .select()
+        .from(wbCoyChat)
+        .where(and(eq(wbCoyChat.coyId, c.id), eq(wbCoyChat.kind, link.kind)))
+        .for("update");
+      if (before && before.chatId === link.chatId && before.threadId === link.threadId) return "same" as const;
+      const values = { coyId: c.id, ...link, linkedBy: by.actor.id, linkedAt: new Date() };
+      const [row] = await tx
+        .insert(wbCoyChat)
+        .values(values)
+        .onConflictDoUpdate({ target: [wbCoyChat.coyId, wbCoyChat.kind], set: values })
+        .returning({ id: wbCoyChat.id });
+      await audit({ action: "link-coy-chat", entity: "wb_coy_chat", entityId: row.id, before: before ?? null, after: values });
+      return { replaced: before ?? null };
     },
   });
 }

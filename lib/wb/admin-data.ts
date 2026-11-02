@@ -4,7 +4,8 @@ import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import { place } from "@/lib/wb/format";
 import { camp, person, subunit } from "@/lib/db/schema";
-import { wbCommanderChat, wbGrant, wbMember, type WbRole } from "@/lib/wb/db/schema";
+import { wbCommanderChat, wbCoyChat, wbGrant, wbMember, type WbRole } from "@/lib/wb/db/schema";
+import { COY_CHAT_LABEL } from "@/lib/wb/domain/conducts";
 import { inReach, reach, reachLabel, type GrantRow } from "@/lib/wb/domain/access";
 import { reachWhere } from "@/lib/wb/reach-sql";
 import { onStayout } from "@/lib/wb/domain/stayout";
@@ -121,19 +122,27 @@ export interface ChatRow {
   linkedAt: Date;
 }
 
+/** The platoons' commanders chats in parade-state order, then the coy's own (Commanders of N23). */
 export async function listCommanderChats(): Promise<ChatRow[]> {
-  return db
-    .select({
-      id: wbCommanderChat.id,
-      subunitName: subunit.name,
-      chatId: wbCommanderChat.chatId,
-      threadId: wbCommanderChat.threadId,
-      chatTitle: wbCommanderChat.chatTitle,
-      linkedAt: wbCommanderChat.linkedAt,
-    })
-    .from(wbCommanderChat)
-    .innerJoin(subunit, eq(subunit.id, wbCommanderChat.subunitId))
-    .orderBy(asc(subunit.sortOrder));
+  const [platoons, coyChats] = await Promise.all([
+    db
+      .select({
+        id: wbCommanderChat.id,
+        subunitName: subunit.name,
+        chatId: wbCommanderChat.chatId,
+        threadId: wbCommanderChat.threadId,
+        chatTitle: wbCommanderChat.chatTitle,
+        linkedAt: wbCommanderChat.linkedAt,
+      })
+      .from(wbCommanderChat)
+      .innerJoin(subunit, eq(subunit.id, wbCommanderChat.subunitId))
+      .orderBy(asc(subunit.sortOrder)),
+    db.select().from(wbCoyChat),
+  ]);
+  return [
+    ...platoons,
+    ...coyChats.map((c) => ({ id: c.id, subunitName: COY_CHAT_LABEL[c.kind], chatId: c.chatId, threadId: c.threadId, chatTitle: c.chatTitle, linkedAt: c.linkedAt })),
+  ];
 }
 
 // ------------------------------------------------------------------ roster

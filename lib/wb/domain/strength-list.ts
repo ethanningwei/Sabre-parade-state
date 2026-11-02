@@ -79,13 +79,18 @@ export function v1Reason(a: SnapshotAbsence): string {
 
 const GROUPS: Record<string, string> = { GC: "GC", "ST CBT": "CBT", "ST SVC": "SVC" };
 
+/** The group a v1 role is listed under: "GC", "CBT", "SVC", or the role as written. */
+export function groupLabel(role: string): string {
+  const r = roleOf(role);
+  return GROUPS[r] ?? (r || "OTHERS");
+}
+
 /** The men in role order (GC, CBT, SVC, then any other role as it first appears), roster order within, with the taps applied. */
 export function strengthGroups(men: readonly StrengthMan[], taps: Readonly<Record<string, StrengthTap>>): StrengthGroup[] {
   const order = ["GC", "CBT", "SVC"];
   const byLabel = new Map<string, StrengthLine[]>();
   for (const m of men) {
-    const role = roleOf(m.role);
-    const label = GROUPS[role] ?? (role || "OTHERS");
+    const label = groupLabel(m.role);
     if (!order.includes(label)) order.push(label);
     const list = byLabel.get(label) ?? [];
     list.push(lineFor(m, taps[m.personId]));

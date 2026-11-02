@@ -4,8 +4,11 @@ import {
   assignmentAccess,
   campAccess,
   companyOnly,
+  conductAccess,
+  coyChatAccess,
   decideRefusalText,
   inReach,
+  isCampCommander,
   manAccess,
   needsNoApproval,
   onlyCampScope,
@@ -15,6 +18,7 @@ import {
   reachLabel,
   recordAccess,
   reportAccess,
+  reportsFor,
   rfAccess,
   screens,
   visitAccess,
@@ -77,20 +81,20 @@ describe("a GC's grant counts only with a camp (the user, 2026-10-21)", () => {
 // ------------------------------------------------------------------ screens
 
 describe("screens", () => {
-  const S: Screen[] = ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "shifts", "admin", "parade"];
+  const S: Screen[] = ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "shifts", "admin", "parade", "conducts"];
   const row = (...on: Screen[]) => Object.fromEntries(S.map((s) => [s, on.includes(s)]));
   it.each<[Who, Screen[]]>([
     ["nobody", []],
     ["GC · SLR", ["manpower", "hoto", "rf", "add", "roster", "parade"]],
-    ["PS · PLATOON 6", ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "shifts", "parade"]],
-    ["PC · PLATOON 6", ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "shifts", "parade"]],
-    ["OC", ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "parade"]],
-    ["CSM", ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "parade"]],
+    ["PS · PLATOON 6", ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "shifts", "parade", "conducts"]],
+    ["PC · PLATOON 6", ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "shifts", "parade", "conducts"]],
+    ["OC", ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "parade", "conducts"]],
+    ["CSM", ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "parade", "conducts"]],
     // company roles scoped to a platoon decide nothing, but still raise, deploy and edit the roster there
-    ["OC · PLATOON 5", ["rf", "roster", "parade"]],
+    ["OC · PLATOON 5", ["rf", "roster", "parade", "conducts"]],
     // an ASA runs the app: everything a commander sees, plus Admin (2026-11-02)
-    ["ASA", ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "shifts", "admin", "parade"]],
-    ["ADMIN", ["roster", "shifts", "admin", "parade"]],
+    ["ASA", ["inbox", "people", "manpower", "hoto", "rf", "add", "roster", "shifts", "admin", "parade", "conducts"]],
+    ["ADMIN", ["roster", "shifts", "admin", "parade", "conducts"]],
   ])("%s", (who, on) => {
     expect(screens(as(W[who]))).toEqual(row(...on));
   });
@@ -100,6 +104,47 @@ describe("screens", () => {
     expect(companyOnly(as([g("OC"), g("PC", { subunitId: PL6 })]))).toBe(false);
     expect(companyOnly(as(W["PS · PLATOON 6"]))).toBe(false);
     expect(companyOnly(as(W["OC · PLATOON 5"]))).toBe(false);
+  });
+});
+
+// ------------------------------------------------------------------ conducts
+
+describe("conducts (docs/conducts-plan.md, the user, 2026-11-02)", () => {
+  it.each<[Who, boolean]>([
+    ["nobody", false],
+    ["GC · SLR", false],
+    ["PS · PLATOON 6", true],
+    ["PC · PLATOON 6", true],
+    ["OC", true],
+    ["2IC", true],
+    ["CSM", true],
+    ["ASA", true],
+    ["ADMIN", true],
+  ])("%s sets one up: %s", (who, setUp) => {
+    expect(conductAccess(as(W[who]))).toEqual({ setUp });
+  });
+
+  it("a camp's strength: its GC, or anyone above him", () => {
+    expect(reportsFor(as(W["GC · SLR"]), SLR)).toBe(true);
+    expect(reportsFor(as(W["GC · SLR"]), SFT_A)).toBe(false);
+    expect(reportsFor(as(W["PS · PLATOON 6"]), SLR)).toBe(true);
+    expect(reportsFor(as(W["PS · PLATOON 6"]), BDK)).toBe(false);
+    expect(reportsFor(as(W["PC · PLATOON 6"]), SFT_B)).toBe(true);
+    for (const who of ["OC", "2IC", "CSM", "ASA", "ADMIN"] as const) expect(reportsFor(as(W[who]), BDK)).toBe(true);
+    expect(reportsFor(as(W["ASA · SLR"]), BDK)).toBe(false);
+    expect(reportsFor(as(W.nobody), SLR)).toBe(false);
+    expect(reportsFor(as(W["GC · company (campless)"]), SLR)).toBe(false);
+  });
+
+  it("Needs you asks the camp's own GC, not everyone above him", () => {
+    expect(isCampCommander(as(W["GC · SLR"]), SLR)).toBe(true);
+    expect(isCampCommander(as(W["GC · SLR"]), BDK)).toBe(false);
+    expect(isCampCommander(as(W["PS · PLATOON 6"]), SLR)).toBe(false);
+  });
+
+  it("Commanders of N23 is linked by an ASA, OC/2IC/CSM or ADMIN", () => {
+    for (const who of ["ASA", "ADMIN", "OC", "2IC", "CSM"] as const) expect(coyChatAccess(as(W[who])).link).toBe(true);
+    for (const who of ["nobody", "GC · SLR", "PS · PLATOON 6", "PC · PLATOON 6", "OC · PLATOON 5"] as const) expect(coyChatAccess(as(W[who])).link).toBe(false);
   });
 });
 

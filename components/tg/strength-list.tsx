@@ -1,21 +1,52 @@
 "use client";
 
-import { Check, ChevronDown, RotateCcw } from "lucide-react";
+import { Check, ChevronDown, Loader2, RotateCcw, Send } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
-import { Header } from "./form-bits";
+import { Button } from "@/components/ui/button";
+import { sendStrength } from "@/lib/wb/actions/conducts";
+import { toast } from "@/lib/toast";
+import { ErrorBox, Header, useAction } from "./form-bits";
 import { Group, inputClass } from "./ui";
 import { tick } from "./webapp";
 import { DEFAULT_TITLE, strengthGroups, strengthText, TAP_REASONS, type StrengthLine, type StrengthMan, type StrengthTap } from "@/lib/wb/domain/strength-list";
 
 // The strength list's screen: everyone in the camp by role, ✓ or the reason
 // Sabre has. Tap a man to say why he isn't going (or that he is after all);
-// the message below is what gets copied. Nothing is saved: closing the screen
-// forgets the taps.
+// the message below is what gets copied. On its own (Manpower) nothing is
+// saved. For a conduct (`send`), the title is the conduct's and Send posts it
+// into Commanders of N23 (docs/conducts-plan.md, slice 2).
 
-export function StrengthList({ campName, date, men }: { campName: string; date: string; men: StrengthMan[] }) {
-  const [title, setTitle] = useState(DEFAULT_TITLE);
-  const [taps, setTaps] = useState<Record<string, StrengthTap>>({});
+/** A conduct's camp: what Send needs, and what the screen says about it. */
+export interface StrengthSend {
+  conductCampId: string;
+  title: string;
+  /** "Due 1830H" */
+  due: string;
+  /** "Sent 1912H by 3SG JAYVEN", or null before the first send */
+  sent: string | null;
+  /** why it can't be sent now (cancelled, not today), or null */
+  blocked: string | null;
+}
+
+export function StrengthList({
+  campName,
+  date,
+  men,
+  send,
+  initialTaps = {},
+}: {
+  campName: string;
+  date: string;
+  men: StrengthMan[];
+  send?: StrengthSend;
+  initialTaps?: Record<string, StrengthTap>;
+}) {
+  const router = useRouter();
+  const { pending, error, call } = useAction();
+  const [title, setTitle] = useState(send?.title ?? DEFAULT_TITLE);
+  const [taps, setTaps] = useState<Record<string, StrengthTap>>(initialTaps);
   const [open, setOpen] = useState<string | null>(null);
   const groups = useMemo(() => strengthGroups(men, taps), [men, taps]);
   const text = strengthText({ date, title, campName, groups });
@@ -34,11 +65,26 @@ export function StrengthList({ campName, date, men }: { campName: string; date: 
 
   return (
     <div className="flex flex-col gap-5">
-      <Header title={`${campName} strength`} hint="Filled in from Sabre. Tap anyone who isn't going, or who is after all, then copy it into Commanders of N23." />
-      <label className="flex flex-col gap-1.5">
-        <span className="px-1 text-[0.8125rem] font-medium tracking-wide text-muted-foreground uppercase">Conduct</span>
-        <input className={inputClass} value={title} onChange={(e) => setTitle(e.target.value)} autoCapitalize="characters" />
-      </label>
+      {send ? (
+        <Header
+          title={`${campName} strength`}
+          hint={
+            <>
+              {send.title} · {send.due}
+              {send.sent && <span className="block font-medium text-emerald-700 dark:text-emerald-400">{send.sent}</span>}
+            </>
+          }
+        />
+      ) : (
+        <>
+          <Header title={`${campName} strength`} hint="Filled in from Sabre. Tap anyone who isn't going, or who is after all, then copy it into Commanders of N23." />
+          <label className="flex flex-col gap-1.5">
+            <span className="px-1 text-[0.8125rem] font-medium tracking-wide text-muted-foreground uppercase">Conduct</span>
+            <input className={inputClass} value={title} onChange={(e) => setTitle(e.target.value)} autoCapitalize="characters" />
+          </label>
+        </>
+      )}
+      {send?.blocked && <p className="rounded-xl bg-muted px-3 py-2.5 text-sm">{send.blocked}</p>}
       {men.length === 0 ? (
         <p className="px-1 text-sm text-muted-foreground">Nobody is posted to {campName}.</p>
       ) : (
@@ -53,12 +99,39 @@ export function StrengthList({ campName, date, men }: { campName: string; date: 
       <Group title="Message">
         <pre className="overflow-x-auto rounded-2xl bg-card p-4 font-mono text-[0.8125rem] leading-relaxed whitespace-pre-wrap">{text}</pre>
       </Group>
+      <ErrorBox error={error} />
       <div className="sticky bottom-[calc(1rem+env(safe-area-inset-bottom))] flex items-center gap-3 rounded-2xl border bg-card/95 p-3 shadow-lg shadow-black/5 backdrop-blur">
         <p className="flex-1 text-sm">
           <span className="text-xl font-semibold tabular-nums">{going}</span>
           <span className="text-muted-foreground tabular-nums">/{men.length} going</span>
         </p>
-        <CopyButton text={text} label="Copy strength" className="h-12 rounded-xl px-5 text-base" />
+        {send ? (
+          <>
+            <CopyButton text={text} label="Copy" variant="outline" className="h-12 rounded-xl px-4 text-base" />
+            <Button
+              size="lg"
+              className="tg-press h-12 rounded-xl px-5 text-base"
+              disabled={pending || !!send.blocked || men.length === 0}
+              aria-busy={pending}
+              onClick={() =>
+                call(
+                  () => sendStrength({ conductCampId: send.conductCampId, taps }),
+                  (r) => {
+                    if (r.delivery === "sent") toast.success(r.again ? "Updated in Commanders of N23" : "Posted in Commanders of N23");
+                    else if (r.delivery === "no-chat") toast.error("Saved. Commanders of N23 isn't linked yet: copy it in yourself.");
+                    else toast.error("Saved, but Telegram didn't take it. Copy it in yourself.");
+                    router.refresh();
+                  },
+                )
+              }
+            >
+              {pending ? <Loader2 className="animate-spin" /> : <Send aria-hidden />}
+              {send.sent ? "Send again" : "Send"}
+            </Button>
+          </>
+        ) : (
+          <CopyButton text={text} label="Copy strength" className="h-12 rounded-xl px-5 text-base" />
+        )}
       </div>
     </div>
   );

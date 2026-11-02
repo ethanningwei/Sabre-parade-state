@@ -43,12 +43,13 @@ export interface CampInfo {
   subunitName: string;
   isHq: boolean;
   onShift: boolean;
+  coyId: string;
 }
 
 /** Every camp in parade-state order. */
 export async function campsInfo(tx: Db = db): Promise<CampInfo[]> {
   const rows = await tx
-    .select({ id: camp.id, name: camp.name, post: camp.post, subunitId: subunit.id, subunitName: subunit.name, isHq: subunit.isHq, onShift: camp.onShift })
+    .select({ id: camp.id, name: camp.name, post: camp.post, subunitId: subunit.id, subunitName: subunit.name, isHq: subunit.isHq, onShift: camp.onShift, coyId: subunit.coyId })
     .from(camp)
     .innerJoin(subunit, eq(subunit.id, camp.subunitId))
     .orderBy(asc(subunit.sortOrder), asc(camp.sortOrder));

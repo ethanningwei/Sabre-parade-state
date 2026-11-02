@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { subunit } from "@/lib/db/schema";
 import { bootstrapAdminIds } from "@/lib/wb/auth";
 import type { Delivery } from "@/lib/wb/core";
-import { wbCard, wbCommanderChat, wbMember, wbRfCard } from "@/lib/wb/db/schema";
+import { wbCard, wbCommanderChat, wbCoyChat, wbMember, wbRfCard } from "@/lib/wb/db/schema";
+import type { CoyChatKind } from "@/lib/wb/domain/conducts";
 import { rfButtons, rfCardText, type RfRequestView } from "@/lib/wb/domain/rf";
 import { onlyCompanyDecides } from "@/lib/wb/domain/access";
 import { isOutcome } from "@/lib/wb/domain/rules";
@@ -43,6 +44,19 @@ export interface Button {
   data?: string;
 }
 
+/** A coy's own chat (Commanders of N23), linked with `/here COMMANDERS`. */
+export interface CoyChat {
+  coyId: string;
+  kind: CoyChatKind;
+}
+
+/** Where a post went, so the caller can keep it and edit it later. */
+export interface MessageRef {
+  chatId: number;
+  threadId: number | null;
+  messageId: number;
+}
+
 /** A tracked card: posted once, remembered, redrawn in every copy. Pass the view when it's already loaded. */
 export type CardKey = { record: string | RecordView } | { rf: string | RfRequestView };
 
@@ -57,6 +71,10 @@ export interface Courier {
   postCard(card: CardKey, opts?: { replaces?: readonly string[] }): Promise<{ delivery: Delivery; chats: number }>;
   /** Bring every copy of a card up to its current state. */
   redraw(card: CardKey): Promise<void>;
+  /** Post into a coy chat and say where it went (a conduct's strength). The caller keeps the ref. */
+  post(to: CoyChat, text: string): Promise<{ delivery: Delivery; ref: MessageRef | null }>;
+  /** Edit a post made earlier. false: Telegram refused (deleted, too old), so the caller posts again. */
+  editPost(ref: MessageRef, text: string): Promise<boolean>;
 }
 
 const isNotModified = (e: unknown) => String((e as Error)?.message ?? e).includes("message is not modified");
@@ -180,8 +198,38 @@ export function courierOf(out: Outbound | null): Courier {
   const viewOf = async (record: string | RecordView) => (typeof record === "string" ? recordView(record) : record);
   const rfOf = async (request: string | RfRequestView) => (typeof request === "string" ? rfView(request) : request);
 
+  async function post(to: CoyChat, text: string): Promise<{ delivery: Delivery; ref: MessageRef | null }> {
+    const [chat] = await db
+      .select()
+      .from(wbCoyChat)
+      .where(and(eq(wbCoyChat.coyId, to.coyId), eq(wbCoyChat.kind, to.kind)));
+    if (!chat) return { delivery: "no-chat", ref: null };
+    if (!out) return { delivery: "failed", ref: null };
+    try {
+      const msg = await out.api.sendMessage(chat.chatId, text, { message_thread_id: chat.threadId ?? undefined });
+      return { delivery: "sent", ref: { chatId: chat.chatId, threadId: chat.threadId, messageId: msg.message_id } };
+    } catch (e) {
+      console.error("wb coy chat:", e);
+      return { delivery: "failed", ref: null };
+    }
+  }
+
+  async function editPost(ref: MessageRef, text: string): Promise<boolean> {
+    if (!out) return false;
+    try {
+      await out.api.editMessageText(ref.chatId, ref.messageId, text);
+      return true;
+    } catch (e) {
+      if (isNotModified(e)) return true;
+      console.error("wb coy chat edit:", e);
+      return false;
+    }
+  }
+
   return {
     send,
+    post,
+    editPost,
     async postCard(card, opts = {}) {
       if ("rf" in card) return postRf(await rfOf(card.rf));
       const r = await viewOf(card.record);

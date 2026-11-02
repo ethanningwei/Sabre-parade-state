@@ -20,6 +20,7 @@ import { WB_ROLES, type WbRole } from "../domain/roles";
 import { RF_ROLES, WB_ASSIGNMENT_STATES, WB_ASSIGNMENT_TYPES, WB_RF_STATES } from "../domain/rf";
 import { VEHICLE_TYPES, WB_CLAIM_STATES } from "../domain/claims";
 import { PHASES, type ChangeoverLog } from "../domain/rot";
+import { CONDUCT_STATES, COY_CHAT_KINDS } from "../domain/conducts";
 import { WB_PROJECTION_CLOSES, WB_PROJECTION_KINDS } from "../domain/projection-kinds";
 import { WB_SHIFT_KINDS, type WbShiftKind } from "../domain/shifts";
 import { WB_STAYOUT_NIGHT_STATES } from "../domain/stayout";
@@ -698,4 +699,104 @@ export const wbDraftPlacement = pgTable(
     placedAt: tstz("placed_at").defaultNow().notNull(),
   },
   (t) => [index("wb_draft_placement_section_idx").on(t.sectionId)],
+);
+
+// ---------------------------------------------------------------- Conducts (0016)
+
+export const wbCoyChatKind = pgEnum("wb_coy_chat_kind", COY_CHAT_KINDS);
+export const wbConductState = pgEnum("wb_conduct_state", CONDUCT_STATES);
+
+/**
+ * A chat that belongs to the coy, not a platoon: Commanders of N23, where the
+ * conduct strengths go (`/here COMMANDERS`). One per coy and kind.
+ */
+export const wbCoyChat = pgTable(
+  "wb_coy_chat",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    coyId: uuid("coy_id")
+      .notNull()
+      .references(() => coy.id, { onDelete: "cascade" }),
+    kind: wbCoyChatKind("kind").notNull(),
+    chatId: tgId("chat_id").notNull(),
+    /** forum topic; null = the main chat */
+    threadId: tgId("thread_id"),
+    chatTitle: text("chat_title").default("").notNull(),
+    linkedBy: uuid("linked_by").references(() => wbMember.id, { onDelete: "set null" }),
+    linkedAt: tstz("linked_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("wb_coy_chat_uq").on(t.coyId, t.kind)],
+);
+
+/** A conduct (CPT): set up by a PS or above for some camps; each camp's GC sends its strength (docs/conducts-plan.md). */
+export const wbConduct = pgTable(
+  "wb_conduct",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    coyId: uuid("coy_id")
+      .notNull()
+      .references(() => coy.id, { onDelete: "cascade" }),
+    /** "CPT PARTICIPATING STRENGTH": the messages' title */
+    title: text("title").notNull(),
+    date: date("date").notNull(),
+    /** HHMM (SGT): when the strengths are due */
+    reportBy: text("report_by").notNull(),
+    state: wbConductState("state").default("OPEN").notNull(),
+    createdBy: uuid("created_by").references(() => wbMember.id, { onDelete: "set null" }),
+    createdAt: tstz("created_at").defaultNow().notNull(),
+    cancelledBy: uuid("cancelled_by").references(() => wbMember.id, { onDelete: "set null" }),
+    cancelledAt: tstz("cancelled_at"),
+  },
+  (t) => [index("wb_conduct_date_idx").on(t.coyId, t.date)],
+);
+
+/**
+ * One camp in a conduct, and what it sent: the counts, the text as posted,
+ * and the post itself (so a second send edits it).
+ */
+export const wbConductCamp = pgTable(
+  "wb_conduct_camp",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    conductId: uuid("conduct_id")
+      .notNull()
+      .references(() => wbConduct.id, { onDelete: "cascade" }),
+    campId: uuid("camp_id")
+      .notNull()
+      .references(() => camp.id, { onDelete: "cascade" }),
+    reportedAt: tstz("reported_at"),
+    reportedBy: uuid("reported_by").references(() => wbMember.id, { onDelete: "set null" }),
+    going: integer("going").default(0).notNull(),
+    total: integer("total").default(0).notNull(),
+    /** the message as first sent, without "Updated …" */
+    text: text("text").default("").notNull(),
+    chatId: tgId("chat_id"),
+    threadId: tgId("thread_id"),
+    messageId: integer("message_id"),
+    nudgedAt: tstz("nudged_at"),
+  },
+  (t) => [uniqueIndex("wb_conduct_camp_uq").on(t.conductId, t.campId)],
+);
+
+/** Each man in a camp's last send: as he was then (rank, name, role), going or why not, and whose reason. */
+export const wbConductMan = pgTable(
+  "wb_conduct_man",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    conductCampId: uuid("conduct_camp_id")
+      .notNull()
+      .references(() => wbConductCamp.id, { onDelete: "cascade" }),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => person.id, { onDelete: "cascade" }),
+    sortOrder: integer("sort_order").notNull(),
+    rank: text("rank").notNull(),
+    name: text("name").notNull(),
+    role: text("role").default("").notNull(),
+    going: boolean("going").notNull(),
+    reason: text("reason"),
+    /** "auto": Sabre's reason; "tap": the GC's; null: going, untapped */
+    source: text("source"),
+  },
+  (t) => [uniqueIndex("wb_conduct_man_uq").on(t.conductCampId, t.personId)],
 );

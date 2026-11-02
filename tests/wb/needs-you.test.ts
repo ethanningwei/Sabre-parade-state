@@ -74,4 +74,13 @@ describe("needsYou", () => {
     expect(lines.map((l) => l.kind)).toEqual(["short", "parade", "soon"]);
     expect(lines[1].text).toBe("Parade state blocked · 3 issues to fix");
   });
+
+  it("a GC's camp strength for today's conduct, until it's sent, opening the first", () => {
+    const strengths = [
+      { id: "c1", campName: "BDK", reportBy: "1830" },
+      { id: "c2", campName: "KC3", reportBy: "1900" },
+    ];
+    expect(run({ strengths })).toEqual([{ kind: "strength", text: "Send BDK, KC3 strength · due 1830H", href: "/tg/conducts/camp/c1" }]);
+    expect(run({ strengths: [] })).toEqual([]);
+  });
 });

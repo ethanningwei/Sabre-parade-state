@@ -13,7 +13,7 @@ import { onlyCompanyDecides } from "./access";
 //     starting within 48 hours that nobody has decided (the safety net).
 
 export interface NeedLine {
-  kind: "short" | "parade" | "soon" | "approve";
+  kind: "short" | "parade" | "strength" | "soon" | "approve";
   text: string;
   href: string;
 }
@@ -30,6 +30,8 @@ export interface NeedsYouInput {
   today: string;
   /** v1's blocking issues in their scope (issuesInScope); 0 or left out for anyone without "Parade state" */
   paradeIssues?: number;
+  /** today's conduct strengths his camps haven't sent (openReportsFor), soonest due first */
+  strengths?: readonly { id: string; campName: string; reportBy: string }[];
 }
 
 /** A request this close to starting, still undecided, is "soon". */
@@ -42,7 +44,7 @@ function campList(names: readonly string[]): string {
   return names.length <= 2 ? names.join(", ") : `${names[0]} +${names.length - 1}`;
 }
 
-export function needsYou({ pending, short, companyOnly, now, today, paradeIssues = 0 }: NeedsYouInput): NeedLine[] {
+export function needsYou({ pending, short, companyOnly, now, today, paradeIssues = 0, strengths = [] }: NeedsYouInput): NeedLine[] {
   const lines: NeedLine[] = [];
 
   // camps below minimum on approved records, by day (off shift and pending-only don't count)
@@ -57,6 +59,11 @@ export function needsYou({ pending, short, companyOnly, now, today, paradeIssues
   }
 
   if (paradeIssues > 0) lines.push({ kind: "parade", text: `Parade state blocked · ${plural(paradeIssues, "issue")} to fix`, href: "/parade" });
+
+  if (strengths.length) {
+    const names = [...new Set(strengths.map((s) => s.campName))];
+    lines.push({ kind: "strength", text: `Send ${campList(names)} strength · due ${strengths[0].reportBy}H`, href: `/tg/conducts/camp/${strengths[0].id}` });
+  }
 
   const soon = pending.filter((r) => r.startAt.getTime() - now.getTime() <= SOON_MS);
   const rest = pending.filter((r) => r.startAt.getTime() - now.getTime() > SOON_MS && (!companyOnly || onlyCompanyDecides(r.ownerRoles)));

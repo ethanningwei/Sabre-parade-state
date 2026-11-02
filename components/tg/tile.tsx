@@ -15,6 +15,7 @@ export const TILE_TONE = {
   green: "bg-emerald-600 text-white",
   teal: "bg-teal-600 text-white",
   slate: "bg-slate-500 text-white",
+  amber: "bg-amber-600 text-white",
 } as const;
 export type TileTone = keyof typeof TILE_TONE;
 /** No tone: the primary tint every other list uses. */

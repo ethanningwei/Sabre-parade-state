@@ -5,7 +5,7 @@ import type { UserFromGetMe } from "grammy/types";
 import { db } from "@/lib/db";
 import { isEnabled } from "@/lib/flags";
 import { subunit } from "@/lib/db/schema";
-import { linkCommanderChat } from "@/lib/wb/admin";
+import { linkCoyChat, linkCommanderChat } from "@/lib/wb/admin";
 import type { GrantRow } from "@/lib/wb/auth";
 import { recordAccess } from "@/lib/wb/domain/access";
 import { actorOf } from "@/lib/wb/core";
@@ -78,8 +78,10 @@ async function here(ctx: Context) {
   const reply = (text: string) => ctx.reply(text, { message_thread_id: topic ?? undefined });
   if (!isGroup(ctx)) return void (await reply("Send /here in the platoon's commanders chat, e.g. /here PLATOON 6."));
 
-  const subunits = await db.select({ id: subunit.id, name: subunit.name, isHq: subunit.isHq }).from(subunit);
   const arg = typeof ctx.match === "string" ? ctx.match : "";
+  // /here COMMANDERS: the coy's Commanders of N23, where conduct strengths go
+  if (/^\s*COMMANDERS?\s*$/i.test(arg)) return hereCoyChat(ctx, topic, reply);
+  const subunits = await db.select({ id: subunit.id, name: subunit.name, isHq: subunit.isHq }).from(subunit);
   const target = matchSubunit(arg, subunits);
   if (!target) {
     return void (await reply(`Which platoon? e.g. /here PLATOON 6\n\nOne of: ${subunits.map((s) => s.name).join(", ")}`));
@@ -98,6 +100,18 @@ async function here(ctx: Context) {
     ? `\n\nIt replaces ${before.chatTitle || "another chat"}${before.threadId ? ` (topic ${before.threadId})` : ""}.`
     : "";
   await reply(`✅ ${target.name}'s approval cards will come to ${where}.${displaced}`);
+}
+
+async function hereCoyChat(ctx: Context, topic: number | null, reply: (text: string) => Promise<unknown>) {
+  const member = ctx.from ? await memberWithGrants(ctx.from.id) : null;
+  if (!member) return void (await reply("Open Sabre and register first, then try again."));
+  const chatTitle = (ctx.chat && "title" in ctx.chat ? ctx.chat.title : "") ?? "";
+  const res = await linkCoyChat(acting(member), { kind: "COMMANDERS", chatId: ctx.chat!.id, threadId: topic, chatTitle });
+  if (!res.ok) return void (await reply(res.error));
+  if (res.value === "same") return void (await reply("This is already Commanders of N23."));
+  const before = res.value.replaced;
+  const displaced = before ? `\n\nIt replaces ${before.chatTitle || "another chat"}${before.threadId ? ` (topic ${before.threadId})` : ""}.` : "";
+  await reply(`✅ Conduct strengths will come to ${topic ? "this topic" : "this chat"}.${displaced}`);
 }
 
 /** /sick, /leave, /off, /ma, /event, /me: a button straight to that screen. */

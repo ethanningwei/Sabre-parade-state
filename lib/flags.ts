@@ -6,9 +6,10 @@ import { connection } from "next/server";
 //   WHEREABOUTS  the bot webhook, the Mini App (/tg/*), /api/wb/*, crons
 //   PROJECTION   whether the timeline writes into v1 absence/duty (Phase 6)
 //   CLAIMS       transport claims (Phase 7)
+//   CONDUCTS     conducts: set up, strengths into Commanders of N23 (docs/conducts-plan.md)
 // Next-only (notFound, connection): pages, actions and route handlers use it.
 
-export type Feature = "WHEREABOUTS" | "PROJECTION" | "CLAIMS";
+export type Feature = "WHEREABOUTS" | "PROJECTION" | "CLAIMS" | "CONDUCTS";
 
 export function isEnabled(feature: Feature): boolean {
   return process.env[`FEATURE_${feature}`] === "1";
