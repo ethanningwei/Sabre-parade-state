@@ -12,7 +12,8 @@ import { ErrorBox, useAction } from "./form-bits";
 import { Group } from "./ui";
 
 // A conduct's roll-up, the parts you tap: each camp (sent, or waiting with
-// Nudge), Copy coy total, and Cancel. The totals are drawn by the page.
+// Nudge), Copy coy total (a named list: Copy coy list), and Cancel. The
+// totals are drawn by the page.
 
 export interface RollupCamp {
   id: string;
@@ -29,7 +30,20 @@ export interface RollupCamp {
   sendHref: string | null;
 }
 
-export function ConductRollup({ conductId, open, camps, coyTotal }: { conductId: string; open: boolean; camps: RollupCamp[]; coyTotal: string }) {
+export function ConductRollup({
+  conductId,
+  open,
+  camps,
+  coyTotal,
+  named = false,
+}: {
+  conductId: string;
+  open: boolean;
+  camps: RollupCamp[];
+  /** a named list: the coy list as posted */
+  coyTotal: string;
+  named?: boolean;
+}) {
   const router = useRouter();
   const { pending, error, call } = useAction();
   const [busy, setBusy] = useState<string | null>(null);
@@ -54,6 +68,7 @@ export function ConductRollup({ conductId, open, camps, coyTotal }: { conductId:
       <Group title="Camps" rows>
         {camps.map((c) => {
           const cooling = c.cooling;
+          const count = named ? (c.going ? `${c.going} named` : "NIL") : `${c.going}/${c.total}`;
           const body = (
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="font-medium">{c.campName}</span>
@@ -67,13 +82,13 @@ export function ConductRollup({ conductId, open, camps, coyTotal }: { conductId:
               {c.sendHref ? (
                 <Link href={c.sendHref} className="flex min-w-0 flex-1 items-center gap-2 active:opacity-70">
                   {body}
-                  {c.sent && <span className="shrink-0 text-sm font-medium tabular-nums">{`${c.going}/${c.total}`}</span>}
+                  {c.sent && <span className="shrink-0 text-sm font-medium tabular-nums">{count}</span>}
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" aria-hidden />
                 </Link>
               ) : (
                 <>
                   {body}
-                  {c.sent && <span className="shrink-0 text-sm font-medium tabular-nums">{`${c.going}/${c.total}`}</span>}
+                  {c.sent && <span className="shrink-0 text-sm font-medium tabular-nums">{count}</span>}
                 </>
               )}
               {open && !c.sent && !c.noGc && (
@@ -87,11 +102,15 @@ export function ConductRollup({ conductId, open, camps, coyTotal }: { conductId:
         })}
       </Group>
       <ErrorBox error={error} />
-      <CopyButton text={coyTotal} label="Copy coy total" variant="outline" className="h-12 w-full rounded-xl text-base" />
+      <CopyButton text={coyTotal} label={named ? "Copy coy list" : "Copy coy total"} variant="outline" className="h-12 w-full rounded-xl text-base" />
       {open &&
         (confirming ? (
           <div className="flex flex-col gap-2 rounded-2xl bg-card p-3">
-            <p className="text-sm">Cancel it? The GCs who haven&apos;t sent are told. Posts already in Commanders of N23 stay.</p>
+            <p className="text-sm">
+              {named
+                ? "Cancel it? The GCs who haven't named anyone are told, and the list in Commanders of N23 says it's cancelled."
+                : "Cancel it? The GCs who haven't sent are told. Posts already in Commanders of N23 stay."}
+            </p>
             <div className="flex gap-2">
               <Button size="lg" variant="outline" className="tg-press h-12 flex-1 rounded-xl" onClick={() => setConfirming(false)}>
                 Keep it

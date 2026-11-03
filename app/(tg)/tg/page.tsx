@@ -135,7 +135,7 @@ export default async function TgHome() {
               />
             )}
             {decides && <Tile href="/tg/inbox" tone="red" icon={<Inbox />} title="Inbox" badge={pending.length + owed.length} hint={inboxHint(pending, owed.length, now)} />}
-            {conducts && <Tile href="/tg/conducts" tone="amber" icon={<ClipboardList />} title="Conducts" hint="CPT strengths: set one up, see who's sent" />}
+            {conducts && <Tile href="/tg/conducts" tone="amber" icon={<ClipboardList />} title="Conducts" hint="CPT strengths and named lists: set one up, see who's sent" />}
             {hoto && <Tile href="/tg/hoto" tone="orange" icon={<ArrowLeftRight />} title="HOTO" hint="Log a handover" />}
             {rf && <Tile href="/tg/rf" tone="pink" icon={<Bus />} title="RF and duties" badge={openRf.length} hint={rfHint(openRf.map((r) => r.campName))} />}
             {sees.people && <Tile href="/tg/people" tone="slate" icon={<History />} title="Person history" hint="Anyone's records; void a mistake" />}

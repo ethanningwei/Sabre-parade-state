@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ddmmyy, toSgt } from "@/lib/parade/time";
 import { onDay, type ShiftPattern } from "./shifts";
 import { addDays } from "./timeline";
+import { NAMED_TITLE, TEAMS } from "./named-list";
 import { DEFAULT_TITLE } from "./strength-list";
 
 // Conducts (slice 2 of docs/conducts-plan.md): a PS or above sets one up for
@@ -11,6 +12,10 @@ import { DEFAULT_TITLE } from "./strength-list";
 
 export const CONDUCT_STATES = ["OPEN", "CANCELLED"] as const;
 export type ConductState = (typeof CONDUCT_STATES)[number];
+
+/** STRENGTH: whole camps (CPT, slice 2). NAMED: each GC names who's going (OSE, comd training, IPPT, slice 3). */
+export const CONDUCT_KINDS = ["STRENGTH", "NAMED"] as const;
+export type ConductKind = (typeof CONDUCT_KINDS)[number];
 
 /** Chats that belong to the coy rather than a platoon, linked with `/here COMMANDERS`. */
 export const COY_CHAT_KINDS = ["COMMANDERS"] as const;
@@ -41,6 +46,9 @@ export const hhmmH = (at: Date) => `${toSgt(at).time}H`;
 
 /** The camp's message after a second send: the same post, edited, says so. */
 export const updatedText = (text: string, at: Date) => `${text}\n\nUpdated ${hhmmH(at)}`;
+
+/** A named list's post once the conduct is cancelled. */
+export const cancelledText = (text: string, at: Date) => `${text}\n\n❌ Cancelled ${hhmmH(at)}`;
 
 /** The DM a camp's GC gets, at set-up and on a nudge. */
 export function askText(c: { title: string; date: string; reportBy: string }, campName: string, nudge = false): string {
@@ -117,21 +125,44 @@ export function coyTotalText(c: { title: string; date: string }, camps: readonly
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3])[0-5]\d$/, "Report by is a time like 1830");
 
-/** The set-up form. `today` bounds the date: today to a week ahead. */
+/**
+ * The set-up form. `today` bounds the date: today to a week ahead. A named
+ * list's names are due by a day from today to the conduct's day (the day
+ * before by default, or the day itself when that's today); a strength's are
+ * due on the day, and it has no team.
+ */
 export function conductInput(today: string) {
-  return z.object({
-    title: z
-      .string()
-      .trim()
-      .transform((s) => s.toUpperCase() || DEFAULT_TITLE)
-      .pipe(z.string().max(80, "Keep the conduct's name under 80 characters")),
-    date: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .refine((d) => d >= today, "That date has passed")
-      .refine((d) => d <= addDays(today, AHEAD_DAYS), `Set it up at most ${AHEAD_DAYS} days ahead`),
-    reportBy: hhmm,
-    campIds: z.array(z.uuid()).min(1, "Tick at least one camp"),
-  });
+  return z
+    .object({
+      kind: z.enum(CONDUCT_KINDS).default("STRENGTH"),
+      title: z
+        .string()
+        .trim()
+        .transform((s) => s.toUpperCase())
+        .pipe(z.string().max(80, "Keep the conduct's name under 80 characters")),
+      date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .refine((d) => d >= today, "That date has passed")
+        .refine((d) => d <= addDays(today, AHEAD_DAYS), `Set it up at most ${AHEAD_DAYS} days ahead`),
+      team: z.enum(TEAMS).nullable().default(null),
+      dueDate: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .nullable()
+        .default(null),
+      reportBy: hhmm,
+      campIds: z.array(z.uuid()).min(1, "Tick at least one camp"),
+    })
+    .transform((v) => {
+      const named = v.kind === "NAMED";
+      return {
+        ...v,
+        title: v.title || (named ? NAMED_TITLE : DEFAULT_TITLE),
+        team: named ? v.team : null,
+        dueDate: named ? (v.dueDate ?? (v.date > today ? addDays(v.date, -1) : v.date)) : null,
+      };
+    })
+    .refine((v) => v.dueDate === null || (v.dueDate >= today && v.dueDate <= v.date), { message: "Names are due between today and the conduct's day", path: ["dueDate"] });
 }
 export type ConductInput = z.output<ReturnType<typeof conductInput>>;

@@ -1,6 +1,6 @@
 # Conduct strength lists: plan
 
-Planned 2026-11-02 with the user. Slices 1 and 2 are built (below). It replaces the strength lists GCs type into **Commanders of N23** by hand: CPT participating strength, OSE and comd training participants, comd training attendance and IPPT lists. The chat export (Feb–Oct 2026) has about 93 OSE and comd training lists and about 45 CPT strength lists. Sabre already knows nearly every reason a man isn't going.
+Planned 2026-11-02 with the user. Slices 1 and 2 are built and pushed; slice 3 is built (below). It replaces the strength lists GCs type into **Commanders of N23** by hand: CPT participating strength, OSE and comd training participants, comd training attendance and IPPT lists. The chat export (Feb–Oct 2026) has about 93 OSE and comd training lists and about 45 CPT strength lists. Sabre already knows nearly every reason a man isn't going.
 
 Whereabouts rules apply: `wb_` tables only, behind a flag, and nothing changes in v1 or the parade state.
 
@@ -30,7 +30,7 @@ CBT: 05/08
 ...
 ```
 
-OSE and comd training follow their existing template: date, title and team, then `Participants`, `Total Strength`, and per platoon a count, camps and names.
+OSE and comd training follow their existing template: date, title and team, then `Participants`, `Total Strength`, and per platoon a count, camps and names (slice 3, below).
 
 ## Where the reasons come from
 - **Filled in by Sabre, out:**
@@ -99,6 +99,48 @@ OSE and comd training follow their existing template: date, title and team, then
      3. the user adds the bot to Commanders of N23 and sends `/here COMMANDERS`;
      4. turn `FEATURE_CONDUCTS=1` on in Vercel and redeploy;
      5. a phone check on the next CPT.
-3. **Named lists** (OSE, comd training, IPPT).
-   - Each GC ticks his men; anyone away that day gets a warning, but can still be picked.
-   - Sabre builds the coy list in the existing template, shows which camps haven't named anyone, and posts it to Commanders of N23.
+3. **Named lists** (OSE, comd training, IPPT). 🧪 Built 2026-11-03, not pushed (waiting on migration **0017** for production). Migration **0017** (`wb_conduct`: `kind`, `team`, `due_date`, `text`, `chat_id`, `thread_id`, `message_id`; all additive, old rows become `STRENGTH`) on `sabre_dev` and `sabre_test`. Behind `FEATURE_CONDUCTS`.
+   - **The format**, from the chat export: 93 OSE & comd training lists over 11 conducts, each a chain where Syafiq posts the empty template and every GC reposts it with his names (4491 → 4632, 8324, 9368). In all 93, Total Strength and the Plt counts were left blank; a camp that named nobody wrote `NIL`.
+     ```
+     120826 OSE & COMD TRAINING
+     (Team A)
+
+     Participants
+
+     Total Strength: 21
+
+     Plt 5: 6
+
+     HDN:
+     LCP CASEY
+
+     TFT:
+     NIL
+     ```
+     Sabre fills in the counts (a platoon's once any of its camps has sent). A waiting camp keeps a blank heading. Camps go by Sabre's name (`SRF B`, where the chat writes `SRF`). Names are trimmed and in role order (GC, CBT, SVC, then others). No reasons in the post.
+   - **Decisions (the user, 2026-11-03):**
+     - set-up **posts the empty list** into Commanders of N23, and every camp's send **edits that one post** ("Updated HHMMH");
+     - camps still waiting are shown **in the app only** (the roll-up), never as an extra line in the post;
+     - **IPPT uses the same template** (type IPPT as the title); the export has no named IPPT list from Vigilance;
+     - **7 days ahead** at most, as for a strength; names are due by **a day and a time** (default the day before, 1800), and a GC can send until the end of the conduct's day.
+   - **Defaults taken with the plan (approved 2026-11-03):**
+     - **Away that day:** anything touching 0000–2359 of the day warns: an approved or recorded absence, a pending one (`AL … pending`), Extra/RF elsewhere, a parade-state entry covering any part of it, a live status. An undated parade-state MA counts only today (it's that day's appointment); other undated entries (MP60, a course) count. RSI/RSO only when the day is today. A warning only: he can still be picked.
+     - **Pre-ticked:** every camp with no partner team, and of each pair the team off at 1200 that day (SRF's 7/7 team too). The Team line is the team most ticked pairs belong to (none on a tie), editable A / B / None.
+     - **Cancel** DMs the GCs still waiting and edits the post with "❌ Cancelled HHMMH".
+     - No "commanders only" mode (the GC ticks his commanders); a comd training *attendance* list isn't part of it.
+     - Who: as slice 2 (`conductAccess().setUp` sets up, nudges, cancels; `reportsFor` names a camp's men).
+   - **Set up** (`/tg/conducts/new`): **Strength (CPT)** or **Named list** at the top. Named: title `OSE & COMD TRAINING`, Team, Day, Names due on (today to the day) and by, camps by `namedPreTicked`. The GCs' DM has a **Name SLR's men** button (`conducts/camp/<id>`).
+   - **Name your men** (`/tg/conducts/camp/[id]`, `components/tg/named-list.tsx`): the camp's men by role with checkboxes; an away man shows "AL 051126 · away that day" (amber), and "picked though away" once ticked. Send / Send again; **Nobody from SLR** (confirm) sends NIL; a preview of the camp's lines and **Copy coy list**. Blocked once cancelled or after the day.
+   - **Roll-up** (`/tg/conducts/[id]`): N named, camps named (or NIL) or waiting with Nudge, By platoon, **Picked though away**, Copy coy list (the post's text), Cancel. The list tags it "Named". Needs you: "Name SLR's men · due 041126 1800H" from set-up until he sends.
+   - **Concurrency:** a send locks the `wb_conduct` row, rebuilds the coy list from every camp inside the transaction and stores it in `wb_conduct.text`; the edit afterwards re-reads the newest text, so two GCs sending at once still leave the post right. With no chat at set-up, the first send posts it (and keeps the ref only if no other send got there first); a post Telegram won't edit is posted again.
+   - **Code:**
+     - pure: `lib/wb/domain/named-list.ts` (`namedListText`, `namedPreTicked`, `teamFor`, `byRole`, `plt`, `manLine`, `namedAskText`, `dueLabel`); `conductInput` (kind, team, dueDate) and `cancelledText` in `domain/conducts.ts`; `v1CoversDay` in `domain/strength-list.ts`; Needs you's `names` line;
+     - reads: `strengthOn(campId, date)` in `lib/wb/strength-data.ts` (shares `strengthFor`'s body); `namedText`, and the named fields in `conductView`, `conductCampView`, `openReportsFor` (`lib/wb/conduct-data.ts`);
+     - writes: `reportNames`, and the named branches of `setUpConduct`, `nudgeConductCamp`, `cancelConduct` (`lib/wb/conducts.ts`); action `sendNames`.
+   - **Tests:** `tests/wb/named-list.test.ts` (the text word for word, pre-ticks, team, the form, `v1CoversDay`, the DM, Needs you); the named-list block in `tests/wb/conducts.db.test.ts` (template at set-up, names editing the one post, NIL, warnings, no chat, the day, cancel, nudge, Needs you, `strengthOn`). 854 tests.
+   - **Checked** in the browser pane at 375 px on `sabre_dev` (`FEATURE_CONDUCTS=1`, throwaway token, offline): set-up pre-ticked SFT A, OSU A, PYAD A, SRF B and every single camp with Team A; the template as stored; SLR with an AL on the day (warned, picked anyway), Send ("not linked yet"); TFT Nobody → NIL; the roll-up's counts, By platoon and Picked though away; Cancel. Found and fixed on the way: an undated parade-state MA warned for every future day; a roster name's stray space reached the list.
+   - **Not yet checked:** the real post and its edits in Commanders of N23, a GC's DM and Needs you on a phone (dev has no GCs on Sabre).
+   - **Rollout:**
+     1. apply 0017 to production **before** the push (Conducts' screens read the new columns even for a strength);
+     2. push to `whereabouts` and `main`, flag still off;
+     3. with slice 2's steps 3–4 done (bot in Commanders of N23, `FEATURE_CONDUCTS=1`), use it for the next OSE.

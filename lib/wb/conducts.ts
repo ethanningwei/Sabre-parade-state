@@ -1,26 +1,31 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { ddmmyy } from "@/lib/parade/time";
 import { Refusal, type Delivery } from "@/lib/wb/core";
 import { wbConduct, wbConductCamp, wbConductMan } from "@/lib/wb/db/schema";
 import { conductAccess, reportsFor } from "@/lib/wb/domain/access";
-import { askText, canNudge, updatedText, type ConductInput } from "@/lib/wb/domain/conducts";
+import { askText, canNudge, cancelledText, updatedText, type ConductInput } from "@/lib/wb/domain/conducts";
+import { byRole, namedAskText } from "@/lib/wb/domain/named-list";
 import { strengthGroups, strengthText, type StrengthTap } from "@/lib/wb/domain/strength-list";
 import { todaySgt } from "@/lib/wb/domain/timeline";
-import { campGcs, conductCoyId, waitingCamps } from "@/lib/wb/conduct-data";
+import { campGcs, conductCoyId, namedText, waitingCamps } from "@/lib/wb/conduct-data";
 import { campsInfo } from "@/lib/wb/forecast-data";
 import { currentPhase } from "@/lib/wb/phase";
 import type { Db } from "@/lib/wb/records";
-import { strengthFor } from "@/lib/wb/strength-data";
-import type { Courier } from "@/lib/wb/telegram/courier";
+import { strengthFor, strengthOn } from "@/lib/wb/strength-data";
+import type { Courier, MessageRef } from "@/lib/wb/telegram/courier";
 import { write, type Acting } from "@/lib/wb/write";
 
-// Conducts' writes (slice 2 of docs/conducts-plan.md, the user, 2026-11-02):
-// a PS or above sets one up and each camp's GC is DMed; the GC (or anyone
-// above him) sends the camp's strength, which the bot posts into Commanders
-// of N23, editing its earlier post on a second send; nudge and cancel. None
-// touches the parade state. Vigilance only.
+// Conducts' writes (docs/conducts-plan.md): a PS or above sets one up and
+// each camp's GC is DMed; nudge and cancel. None touches the parade state.
+// Vigilance only.
+//   - A strength (slice 2, the user, 2026-11-02): the GC (or anyone above him)
+//     sends the camp's strength, which the bot posts into Commanders of N23,
+//     editing its earlier post on a second send.
+//   - A named list (slice 3, the user, 2026-11-03): set-up posts the empty
+//     coy list there; each camp's GC names who's going, and that one post is
+//     edited to the list as it stands.
 
 const SETUP_REFUSAL = "Only a PS or above, an ASA or an admin can set up a conduct.";
 
@@ -28,7 +33,15 @@ async function notInRot(tx: Db) {
   if ((await currentPhase(tx)).phase === "ROT") throw new Refusal("Conducts are for Ops Vigilance only: there's no CPT in ROT.");
 }
 
-const sendButton = (conductCampId: string, campName: string) => [[{ text: `Send ${campName}'s strength`, route: `conducts/camp/${conductCampId}` }]];
+const sendButton = (conductCampId: string, campName: string, named = false) => [
+  [{ text: named ? `Name ${campName}'s men` : `Send ${campName}'s strength`, route: `conducts/camp/${conductCampId}` }],
+];
+
+type Asked = { kind: "STRENGTH" | "NAMED"; title: string; date: string; reportBy: string; team: string | null; dueDate: string | null };
+const ask = (c: Asked, campName: string, nudge = false) => (c.kind === "NAMED" ? namedAskText(c, campName, nudge) : askText(c, campName, nudge));
+
+const refOf = (r: { chatId: number | null; threadId: number | null; messageId: number | null }): MessageRef | null =>
+  r.chatId !== null && r.messageId !== null ? { chatId: r.chatId, threadId: r.threadId, messageId: r.messageId } : null;
 
 /** Set one up for the camps ticked, and DM each camp's GC. Says which camps have nobody on Sabre to ask. */
 export async function setUpConduct(courier: Courier, by: Acting, input: ConductInput) {
@@ -44,24 +57,34 @@ export async function setUpConduct(courier: Courier, by: Acting, input: ConductI
       if (camps.length !== wanted.size) throw new Refusal("One of those camps isn't a guardroom. Reload and try again.");
       const [row] = await tx
         .insert(wbConduct)
-        .values({ coyId, title: input.title, date: input.date, reportBy: input.reportBy, createdBy: by.actor.id })
+        .values({ coyId, kind: input.kind, title: input.title, date: input.date, reportBy: input.reportBy, team: input.team, dueDate: input.dueDate, createdBy: by.actor.id })
         .returning({ id: wbConduct.id });
       const rows = await tx
         .insert(wbConductCamp)
         .values(camps.map((x) => ({ conductId: row.id, campId: x.id })))
         .returning({ id: wbConductCamp.id, campId: wbConductCamp.campId });
+      const text = input.kind === "NAMED" ? await namedText(row.id, tx) : "";
+      if (text) await tx.update(wbConduct).set({ text }).where(eq(wbConduct.id, row.id));
       await audit({ action: "conduct-setup", entity: "wb_conduct", entityId: row.id, after: { ...input, camps: camps.map((x) => x.name) } });
-      return { id: row.id, conduct: input, camps: rows.map((r) => ({ id: r.id, campId: r.campId, campName: camps.find((x) => x.id === r.campId)!.name })) };
+      return { id: row.id, coyId, conduct: input, text, camps: rows.map((r) => ({ id: r.id, campId: r.campId, campName: camps.find((x) => x.id === r.campId)!.name })) };
     },
     async tell(v, courier) {
+      const named = v.conduct.kind === "NAMED";
       const gcs = await campGcs(v.camps.map((c) => c.campId));
       const noGc: string[] = [];
       for (const c of v.camps) {
         const mine = gcs.filter((g) => g.campId === c.campId);
         if (!mine.length) noGc.push(c.campName);
-        for (const g of mine) await courier.send({ telegramId: g.telegramUserId }, askText(v.conduct, c.campName), sendButton(c.id, c.campName));
+        for (const g of mine) await courier.send({ telegramId: g.telegramUserId }, ask(v.conduct, c.campName), sendButton(c.id, c.campName, named));
       }
-      return { id: v.id, noGc };
+      // a named list: the empty coy list goes up now, as the template does today
+      let delivery: Delivery | null = null;
+      if (named) {
+        const posted = await courier.post({ coyId: v.coyId, kind: "COMMANDERS" }, v.text);
+        delivery = posted.delivery;
+        if (posted.ref) await db.update(wbConduct).set({ chatId: posted.ref.chatId, threadId: posted.ref.threadId, messageId: posted.ref.messageId }).where(eq(wbConduct.id, v.id));
+      }
+      return { id: v.id, noGc, delivery };
     },
   });
 }
@@ -89,6 +112,7 @@ export async function reportConductStrength(courier: Courier, by: Acting, input:
       await notInRot(tx);
       const [c] = await tx.select().from(wbConductCamp).where(eq(wbConductCamp.id, row.id)).for("update");
       const [conduct] = await tx.select().from(wbConduct).where(eq(wbConduct.id, c.conductId));
+      if (conduct.kind === "NAMED") throw new Refusal("This conduct is a named list. Reload and try again.");
       if (conduct.state === "CANCELLED") throw new Refusal("This conduct was cancelled.");
       if (conduct.date !== todaySgt(now)) throw new Refusal(`Strengths are sent on the day: this conduct is on ${ddmmyy(conduct.date)}.`);
       const text = strengthText({ date: conduct.date, title: conduct.title, campName: camp.name, groups });
@@ -130,6 +154,76 @@ export async function reportConductStrength(courier: Courier, by: Acting, input:
   });
 }
 
+/**
+ * A camp's names for a named list: the men are Sabre's (only the camp's own
+ * can be named), each with why Sabre thinks he's away that day, if it does.
+ * Picking him anyway is allowed: the roll-up lists him. The conduct's row is
+ * locked, so two camps sending at once build the coy list one after the
+ * other; the post is then edited to the newest list.
+ */
+export async function reportNames(courier: Courier, by: Acting, input: { conductCampId: string; personIds: readonly string[] }, now: Date = new Date()) {
+  const [row] = await db
+    .select({ id: wbConductCamp.id, conductId: wbConductCamp.conductId, campId: wbConductCamp.campId, date: wbConduct.date, kind: wbConduct.kind })
+    .from(wbConductCamp)
+    .innerJoin(wbConduct, eq(wbConduct.id, wbConductCamp.conductId))
+    .where(eq(wbConductCamp.id, input.conductCampId));
+  if (!row) return { ok: false as const, error: "That conduct is gone." };
+  if (row.kind !== "NAMED") return { ok: false as const, error: "This conduct takes the camp's whole strength. Reload and try again." };
+  const camp = (await campsInfo()).find((c) => c.id === row.campId);
+  const found = camp ? await strengthOn(camp.id, row.date, now) : null;
+  if (!camp || !found) return { ok: false as const, error: "That camp is gone." };
+  const wanted = new Set(input.personIds);
+  const picked = byRole(found.men.filter((m) => wanted.has(m.personId)));
+
+  return write(courier, by, {
+    parade: false,
+    async change({ tx, audit }) {
+      if (!reportsFor(by.actor, { subunitId: camp.subunitId, campId: camp.id })) throw new Refusal(`Only ${camp.name}'s GC, or a commander above him, can name its men.`);
+      await notInRot(tx);
+      const [conduct] = await tx.select().from(wbConduct).where(eq(wbConduct.id, row.conductId)).for("update");
+      const [c] = await tx.select().from(wbConductCamp).where(eq(wbConductCamp.id, row.id));
+      if (conduct.state === "CANCELLED") throw new Refusal("This conduct was cancelled.");
+      if (conduct.date < todaySgt(now)) throw new Refusal(`This conduct was on ${ddmmyy(conduct.date)}. Names can't be changed now.`);
+      await tx.delete(wbConductMan).where(eq(wbConductMan.conductCampId, c.id));
+      if (picked.length) {
+        await tx.insert(wbConductMan).values(
+          picked.map((m, i) => {
+            const warn = m.away ?? m.status;
+            return { conductCampId: c.id, personId: m.personId, sortOrder: i, rank: m.rank, name: m.name, role: m.role, going: true, reason: warn, source: warn ? "auto" : null };
+          }),
+        );
+      }
+      await tx.update(wbConductCamp).set({ going: picked.length, total: found.men.length, text: "", reportedAt: now, reportedBy: by.actor.id }).where(eq(wbConductCamp.id, c.id));
+      const text = await namedText(conduct.id, tx);
+      await tx.update(wbConduct).set({ text }).where(eq(wbConduct.id, conduct.id));
+      await audit({
+        action: "conduct-names",
+        entity: "wb_conduct_camp",
+        entityId: c.id,
+        before: c.reportedAt ? { named: c.going } : null,
+        after: { camp: camp.name, named: picked.map((m) => `${m.rank} ${m.name}`), away: picked.filter((m) => m.away ?? m.status).length },
+      });
+      return { conductId: conduct.id, coyId: conduct.coyId, again: !!c.reportedAt, text };
+    },
+    async tell(v, courier): Promise<{ delivery: Delivery; text: string; again: boolean }> {
+      // the newest list, whichever send finished last
+      const [latest] = await db.select().from(wbConduct).where(eq(wbConduct.id, v.conductId));
+      const text = latest?.text || v.text;
+      const ref = latest ? refOf(latest) : null;
+      if (ref && (await courier.editPost(ref, updatedText(text, now)))) return { delivery: "sent", text, again: v.again };
+      // never posted (no chat at set-up), or the post is gone: post it, unless another send just did
+      const posted = await courier.post({ coyId: v.coyId, kind: "COMMANDERS" }, ref ? updatedText(text, now) : text);
+      if (posted.ref) {
+        await db
+          .update(wbConduct)
+          .set({ chatId: posted.ref.chatId, threadId: posted.ref.threadId, messageId: posted.ref.messageId })
+          .where(and(eq(wbConduct.id, v.conductId), ref ? eq(wbConduct.messageId, ref.messageId) : isNull(wbConduct.messageId)));
+      }
+      return { delivery: posted.delivery, text, again: v.again };
+    },
+  });
+}
+
 /** DM a waiting camp's GC again. Once per 10 minutes. Says how many there were to ask, and how many DMs went. */
 export async function nudgeConductCamp(courier: Courier, by: Acting, conductCampId: string, now: Date = new Date()) {
   return write(courier, by, {
@@ -140,7 +234,7 @@ export async function nudgeConductCamp(courier: Courier, by: Acting, conductCamp
       if (!c) throw new Refusal("That conduct is gone.");
       const [conduct] = await tx.select().from(wbConduct).where(eq(wbConduct.id, c.conductId));
       if (conduct.state === "CANCELLED") throw new Refusal("This conduct was cancelled.");
-      if (c.reportedAt) throw new Refusal("That camp has sent its strength.");
+      if (c.reportedAt) throw new Refusal(conduct.kind === "NAMED" ? "That camp has named its men." : "That camp has sent its strength.");
       if (!canNudge(c.nudgedAt, now)) throw new Refusal("Nudged in the last 10 minutes. Give him a moment.");
       await tx.update(wbConductCamp).set({ nudgedAt: now }).where(eq(wbConductCamp.id, c.id));
       const camp = (await campsInfo(tx)).find((x) => x.id === c.campId);
@@ -150,7 +244,7 @@ export async function nudgeConductCamp(courier: Courier, by: Acting, conductCamp
     async tell(v, courier) {
       const gcs = await campGcs([v.campId]);
       let sent = 0;
-      for (const g of gcs) sent += await courier.send({ telegramId: g.telegramUserId }, askText(v.conduct, v.campName, true), sendButton(v.id, v.campName));
+      for (const g of gcs) sent += await courier.send({ telegramId: g.telegramUserId }, ask(v.conduct, v.campName, true), sendButton(v.id, v.campName, v.conduct.kind === "NAMED"));
       return { asked: gcs.length, sent };
     },
   });
@@ -170,8 +264,13 @@ export async function cancelConduct(courier: Courier, by: Acting, conductId: str
       return { conduct: c, waiting: await waitingCamps(c.id, tx) };
     },
     async tell(v, courier) {
+      const named = v.conduct.kind === "NAMED";
       const gcs = await campGcs(v.waiting.map((w) => w.campId));
-      for (const g of gcs) await courier.send({ telegramId: g.telegramUserId }, `❌ ${ddmmyy(v.conduct.date)} ${v.conduct.title} is cancelled. No need to send the strength.`);
+      const what = named ? "No need to name anyone." : "No need to send the strength.";
+      for (const g of gcs) await courier.send({ telegramId: g.telegramUserId }, `❌ ${ddmmyy(v.conduct.date)} ${v.conduct.title} is cancelled. ${what}`);
+      // a named list's post says so too
+      const ref = named ? refOf(v.conduct) : null;
+      if (ref) await courier.editPost(ref, cancelledText(v.conduct.text, now));
       return gcs.length;
     },
   });

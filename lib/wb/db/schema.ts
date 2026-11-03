@@ -20,7 +20,7 @@ import { WB_ROLES, type WbRole } from "../domain/roles";
 import { RF_ROLES, WB_ASSIGNMENT_STATES, WB_ASSIGNMENT_TYPES, WB_RF_STATES } from "../domain/rf";
 import { VEHICLE_TYPES, WB_CLAIM_STATES } from "../domain/claims";
 import { PHASES, type ChangeoverLog } from "../domain/rot";
-import { CONDUCT_STATES, COY_CHAT_KINDS } from "../domain/conducts";
+import { CONDUCT_KINDS, CONDUCT_STATES, COY_CHAT_KINDS } from "../domain/conducts";
 import { WB_PROJECTION_CLOSES, WB_PROJECTION_KINDS } from "../domain/projection-kinds";
 import { WB_SHIFT_KINDS, type WbShiftKind } from "../domain/shifts";
 import { WB_STAYOUT_NIGHT_STATES } from "../domain/stayout";
@@ -705,6 +705,7 @@ export const wbDraftPlacement = pgTable(
 
 export const wbCoyChatKind = pgEnum("wb_coy_chat_kind", COY_CHAT_KINDS);
 export const wbConductState = pgEnum("wb_conduct_state", CONDUCT_STATES);
+export const wbConductKind = pgEnum("wb_conduct_kind", CONDUCT_KINDS);
 
 /**
  * A chat that belongs to the coy, not a platoon: Commanders of N23, where the
@@ -728,7 +729,12 @@ export const wbCoyChat = pgTable(
   (t) => [uniqueIndex("wb_coy_chat_uq").on(t.coyId, t.kind)],
 );
 
-/** A conduct (CPT): set up by a PS or above for some camps; each camp's GC sends its strength (docs/conducts-plan.md). */
+/**
+ * A conduct: set up by a PS or above for some camps (docs/conducts-plan.md).
+ * STRENGTH (CPT): each camp's GC sends its whole strength, posted per camp.
+ * NAMED (OSE, comd training, IPPT): each GC names who's going, and one coy
+ * list in Commanders of N23 is edited as the camps send (slice 3).
+ */
 export const wbConduct = pgTable(
   "wb_conduct",
   {
@@ -742,6 +748,17 @@ export const wbConduct = pgTable(
     /** HHMM (SGT): when the strengths are due */
     reportBy: text("report_by").notNull(),
     state: wbConductState("state").default("OPEN").notNull(),
+    kind: wbConductKind("kind").default("STRENGTH").notNull(),
+    /** "A" | "B": a named list's "(Team A)" line; null: none */
+    team: text("team"),
+    /** when the names are due (with reportBy); null: the conduct's day */
+    dueDate: date("due_date"),
+    /** a named list's coy list as last built, without "Updated …" */
+    text: text("text").default("").notNull(),
+    /** a named list's one post in Commanders of N23 */
+    chatId: tgId("chat_id"),
+    threadId: tgId("thread_id"),
+    messageId: integer("message_id"),
     createdBy: uuid("created_by").references(() => wbMember.id, { onDelete: "set null" }),
     createdAt: tstz("created_at").defaultNow().notNull(),
     cancelledBy: uuid("cancelled_by").references(() => wbMember.id, { onDelete: "set null" }),
@@ -795,7 +812,7 @@ export const wbConductMan = pgTable(
     role: text("role").default("").notNull(),
     going: boolean("going").notNull(),
     reason: text("reason"),
-    /** "auto": Sabre's reason; "tap": the GC's; null: going, untapped */
+    /** "auto": Sabre's reason; "tap": the GC's; null: going, untapped. A named list keeps only the men picked: "auto" = picked though away (the reason) */
     source: text("source"),
   },
   (t) => [uniqueIndex("wb_conduct_man_uq").on(t.conductCampId, t.personId)],

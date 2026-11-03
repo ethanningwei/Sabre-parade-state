@@ -10,11 +10,12 @@ import { todaySgt } from "@/lib/wb/domain/timeline";
 import { miniApp, zId } from "@/lib/wb/input";
 import { courier } from "@/lib/wb/telegram/courier";
 
-// The Mini App's conducts (slice 2 of docs/conducts-plan.md, FEATURE_CONDUCTS).
+// The Mini App's conducts (slices 2 and 3 of docs/conducts-plan.md, FEATURE_CONDUCTS).
 // Rules are in lib/wb/conducts.ts and lib/wb/domain/conducts.ts; this checks input.
 
 const zTap = z.union([z.object({ going: z.literal(true) }), z.object({ going: z.literal(false), reason: z.string().trim().min(1, "Say why").max(60) })]);
 const reportInput = z.object({ conductCampId: zId, taps: z.record(z.uuid(), zTap) });
+const namesInput = z.object({ conductCampId: zId, personIds: z.array(z.uuid()).max(200) });
 
 export async function setUpConduct(input: z.input<ReturnType<typeof conductInput>>) {
   requireFeature();
@@ -31,6 +32,16 @@ export async function sendStrength(input: z.input<typeof reportInput>) {
   requireFeature("CONDUCTS");
   return run(async () => {
     const res = await conducts.reportConductStrength(await courier(), miniApp(await actionMember()), reportInput.parse(input));
+    if (!res.ok) throw new UserError(res.error);
+    return { delivery: res.value.delivery, text: res.value.text, again: res.value.again };
+  });
+}
+
+export async function sendNames(input: z.input<typeof namesInput>) {
+  requireFeature();
+  requireFeature("CONDUCTS");
+  return run(async () => {
+    const res = await conducts.reportNames(await courier(), miniApp(await actionMember()), namesInput.parse(input));
     if (!res.ok) throw new UserError(res.error);
     return { delivery: res.value.delivery, text: res.value.text, again: res.value.again };
   });

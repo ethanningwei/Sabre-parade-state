@@ -69,6 +69,19 @@ export function v1Covers(a: SnapshotAbsence, now: { date: string; time: string }
   return true;
 }
 
+/**
+ * Whether a parade-state absence touches any moment of that day: a named list
+ * warns of anyone away then. An undated MA is today's appointment, not every
+ * day's; any other undated entry (MP60, a course) may run on, so it counts.
+ */
+export function v1CoversDay(a: SnapshotAbsence, date: string, today: string): boolean {
+  if (a.type === "MA" && !a.startDate && !a.endDate) return date === today;
+  if (a.startDate && a.startDate > date) return false;
+  // an end at midnight is the start of that day
+  if (a.endDate && (a.endDate < date || (a.endDate === date && a.endTime === "0000"))) return false;
+  return true;
+}
+
 /** A parade-state absence as the lists write it. */
 export function v1Reason(a: SnapshotAbsence): string {
   const when = a.startDate || a.endDate ? dayRange(a.startDate ? { date: a.startDate } : null, a.endDate ? { date: a.endDate, time: a.endTime ?? "2359" } : null) : "";

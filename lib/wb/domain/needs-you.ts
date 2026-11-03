@@ -1,6 +1,7 @@
 import type { GridRow } from "./forecast";
 import type { WbRole } from "./roles";
 import { onlyCompanyDecides } from "./access";
+import { dueLabel } from "./named-list";
 
 // Home's "Needs you" card: only what this member should act on, soon, in
 // their scope. Pure: no I/O. Agreed with the user 2026-10-16:
@@ -13,7 +14,7 @@ import { onlyCompanyDecides } from "./access";
 //     starting within 48 hours that nobody has decided (the safety net).
 
 export interface NeedLine {
-  kind: "short" | "parade" | "strength" | "soon" | "approve";
+  kind: "short" | "parade" | "strength" | "names" | "soon" | "approve";
   text: string;
   href: string;
 }
@@ -30,8 +31,11 @@ export interface NeedsYouInput {
   today: string;
   /** v1's blocking issues in their scope (issuesInScope); 0 or left out for anyone without "Parade state" */
   paradeIssues?: number;
-  /** today's conduct strengths his camps haven't sent (openReportsFor), soonest due first */
-  strengths?: readonly { id: string; campName: string; reportBy: string }[];
+  /**
+   * what his camps haven't sent (openReportsFor), soonest first: today's
+   * conduct strengths, and named lists from set-up to their day
+   */
+  strengths?: readonly { id: string; campName: string; reportBy: string; kind?: "STRENGTH" | "NAMED"; date?: string; dueDate?: string | null }[];
 }
 
 /** A request this close to starting, still undecided, is "soon". */
@@ -60,9 +64,16 @@ export function needsYou({ pending, short, companyOnly, now, today, paradeIssues
 
   if (paradeIssues > 0) lines.push({ kind: "parade", text: `Parade state blocked · ${plural(paradeIssues, "issue")} to fix`, href: "/parade" });
 
-  if (strengths.length) {
-    const names = [...new Set(strengths.map((s) => s.campName))];
-    lines.push({ kind: "strength", text: `Send ${campList(names)} strength · due ${strengths[0].reportBy}H`, href: `/tg/conducts/camp/${strengths[0].id}` });
+  const whole = strengths.filter((s) => s.kind !== "NAMED");
+  if (whole.length) {
+    const names = [...new Set(whole.map((s) => s.campName))];
+    lines.push({ kind: "strength", text: `Send ${campList(names)} strength · due ${whole[0].reportBy}H`, href: `/tg/conducts/camp/${whole[0].id}` });
+  }
+  const named = strengths.filter((s) => s.kind === "NAMED");
+  if (named.length) {
+    const names = [...new Set(named.map((s) => s.campName))];
+    const first = named[0];
+    lines.push({ kind: "names", text: `Name ${names.length === 1 ? `${names[0]}'s` : campList(names)} men · due ${dueLabel({ date: first.date ?? today, dueDate: first.dueDate ?? null, reportBy: first.reportBy })}`, href: `/tg/conducts/camp/${first.id}` });
   }
 
   const soon = pending.filter((r) => r.startAt.getTime() - now.getTime() <= SOON_MS);
