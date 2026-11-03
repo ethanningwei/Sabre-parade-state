@@ -1,6 +1,6 @@
 # Conduct strength lists: plan
 
-Planned 2026-11-02 with the user. Slices 1 and 2 are built and pushed; slice 3 is built (below). It replaces the strength lists GCs type into **Commanders of N23** by hand: CPT participating strength, OSE and comd training participants, comd training attendance and IPPT lists. The chat export (Feb–Oct 2026) has about 93 OSE and comd training lists and about 45 CPT strength lists. Sabre already knows nearly every reason a man isn't going.
+Planned 2026-11-02 with the user. Slices 1, 2 and 3 are built and pushed (below). It replaces the strength lists GCs type into **Commanders of N23** by hand: CPT participating strength, OSE and comd training participants, comd training attendance and IPPT lists. The chat export (Feb–Oct 2026) has about 93 OSE and comd training lists and about 45 CPT strength lists. Sabre already knows nearly every reason a man isn't going.
 
 Whereabouts rules apply: `wb_` tables only, behind a flag, and nothing changes in v1 or the parade state.
 
@@ -99,7 +99,7 @@ OSE and comd training follow their existing template: date, title and team, then
      3. the user adds the bot to Commanders of N23 and sends `/here COMMANDERS`;
      4. turn `FEATURE_CONDUCTS=1` on in Vercel and redeploy;
      5. a phone check on the next CPT.
-3. **Named lists** (OSE, comd training, IPPT). 🧪 Built 2026-11-03, not pushed (waiting on migration **0017** for production). Migration **0017** (`wb_conduct`: `kind`, `team`, `due_date`, `text`, `chat_id`, `thread_id`, `message_id`; all additive, old rows become `STRENGTH`) on `sabre_dev` and `sabre_test`. Behind `FEATURE_CONDUCTS`.
+3. **Named lists** (OSE, comd training, IPPT). 🧪 Built 2026-11-03, pushed with the flag off. Migration **0017** (`wb_conduct`: `kind`, `team`, `due_date`, `text`, `chat_id`, `thread_id`, `message_id`; all additive, old rows become `STRENGTH`) on `sabre_dev`, `sabre_test` and **production (applied 2026-11-03)**; not yet on the preview database. Behind `FEATURE_CONDUCTS`.
    - **The format**, from the chat export: 93 OSE & comd training lists over 11 conducts, each a chain where Syafiq posts the empty template and every GC reposts it with his names (4491 → 4632, 8324, 9368). In all 93, Total Strength and the Plt counts were left blank; a camp that named nobody wrote `NIL`.
      ```
      120826 OSE & COMD TRAINING
@@ -141,6 +141,6 @@ OSE and comd training follow their existing template: date, title and team, then
    - **Checked** in the browser pane at 375 px on `sabre_dev` (`FEATURE_CONDUCTS=1`, throwaway token, offline): set-up pre-ticked SFT A, OSU A, PYAD A, SRF B and every single camp with Team A; the template as stored; SLR with an AL on the day (warned, picked anyway), Send ("not linked yet"); TFT Nobody → NIL; the roll-up's counts, By platoon and Picked though away; Cancel. Found and fixed on the way: an undated parade-state MA warned for every future day; a roster name's stray space reached the list.
    - **Not yet checked:** the real post and its edits in Commanders of N23, a GC's DM and Needs you on a phone (dev has no GCs on Sabre).
    - **Rollout:**
-     1. apply 0017 to production **before** the push (Conducts' screens read the new columns even for a strength);
-     2. push to `whereabouts` and `main`, flag still off;
+     1. ✅ 0017 applied to production before the push (Conducts' screens read the new columns even for a strength);
+     2. ✅ pushed to `whereabouts` and `main`, flag still off;
      3. with slice 2's steps 3–4 done (bot in Commanders of N23, `FEATURE_CONDUCTS=1`), use it for the next OSE.
