@@ -5,6 +5,7 @@ import { ForbiddenError, type Viewer } from "@/lib/authz";
 import { writeAudit, type Tx } from "@/lib/core/audit";
 import type { db } from "@/lib/db";
 import { UserError } from "@/lib/errors";
+import { LOCKED_TEXT, projectionLive } from "@/lib/wb/projection";
 
 export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -21,6 +22,11 @@ export async function run<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
     console.error(e);
     return { ok: false, error: "Something went wrong. Please try again." };
   }
+}
+
+/** While Sabre owns the parade state (projection on), the web app can't edit it: it all goes through the Mini App (the user, 2026-11-06). */
+export async function assertParadeOpen() {
+  if (await projectionLive()) throw new UserError(LOCKED_TEXT);
 }
 
 export async function audit(

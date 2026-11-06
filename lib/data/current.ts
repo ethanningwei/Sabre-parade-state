@@ -1,6 +1,6 @@
 import "server-only";
 import { cache } from "react";
-import { syncQuietly } from "@/lib/wb/projection";
+import { projectionLive, syncQuietly } from "@/lib/wb/projection";
 import { paradeView } from "@/lib/wb/rot-parade";
 import { getCoy, loadSnapshot } from "./snapshot";
 
@@ -17,3 +17,6 @@ export const currentParade = cache(async () => {
   return paradeView(coyRow.id, await loadSnapshot(coyRow));
 });
 export const currentSnapshot = cache(async () => (await currentParade()).snapshot);
+// Projection on: Sabre owns the parade state, so the web app shows it read-only
+// (statuses, shifts, Extra/RF/SOL; the actions refuse too).
+export const currentLocked = cache(() => projectionLive());

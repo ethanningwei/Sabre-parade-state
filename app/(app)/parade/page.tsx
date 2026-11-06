@@ -1,17 +1,19 @@
 import { desc, eq, isNotNull } from "drizzle-orm";
 import { ParadeGenerator } from "@/components/parade-generator";
+import { SabreLock } from "@/components/sabre-lock";
 import { requireViewer } from "@/lib/authz";
-import { currentCoy, currentSnapshot } from "@/lib/data/current";
+import { currentCoy, currentLocked, currentSnapshot } from "@/lib/data/current";
 import { db } from "@/lib/db";
 import { paradeState, user } from "@/lib/db/schema";
 import { currentCaa, validate } from "@/lib/parade";
 
 export default async function ParadePage() {
   const caa = currentCaa();
-  const [viewer, coyRow, snapshot, recentSends] = await Promise.all([
+  const [viewer, coyRow, snapshot, locked, recentSends] = await Promise.all([
     requireViewer(),
     currentCoy(),
     currentSnapshot(),
+    currentLocked(),
     db
       .select({
         caaDate: paradeState.caaDate,
@@ -27,7 +29,7 @@ export default async function ParadePage() {
   ]);
   const issues = validate(snapshot, caa);
 
-  return (
+  const generator = (
     <ParadeGenerator
       defaultCaa={caa}
       initialIssues={issues}
@@ -35,5 +37,12 @@ export default async function ParadePage() {
       telegramReady={Boolean(coyRow.telegramChatId && process.env.TELEGRAM_BOT_TOKEN)}
       recentSends={recentSends.map((s) => ({ caaDate: s.caaDate, caaTime: s.caaTime, sentAt: s.sentAt!.toISOString(), by: s.by }))}
     />
+  );
+  if (!locked) return generator;
+  return (
+    <div className="flex flex-col gap-4">
+      <SabreLock />
+      {generator}
+    </div>
   );
 }

@@ -5,7 +5,7 @@ import { actionViewer, assertCanEditCamp, assertCanEditPerson } from "@/lib/auth
 import { setCampShiftCore, setStatusCore } from "@/lib/core/attendance";
 import { db } from "@/lib/db";
 import { ABSENCE_TYPES } from "@/lib/parade";
-import { run, zDate, zTime } from "./shared";
+import { assertParadeOpen, run, zDate, zTime } from "./shared";
 
 const statusInput = z.object({
   personIds: z.array(z.string().uuid()).min(1, "Pick at least one person"),
@@ -25,6 +25,7 @@ export async function setStatus(raw: StatusInput) {
   return run(async () => {
     const viewer = await actionViewer();
     const input = statusInput.parse(raw);
+    await assertParadeOpen();
     for (const id of input.personIds) await assertCanEditPerson(viewer, id);
     await db.transaction((tx) => setStatusCore(tx, viewer.id, input));
     return undefined;
@@ -35,6 +36,7 @@ export async function setCampShift(campId: string, onShift: boolean) {
   return run(async () => {
     const viewer = await actionViewer();
     z.string().uuid().parse(campId);
+    await assertParadeOpen();
     await assertCanEditCamp(viewer, campId);
     await db.transaction((tx) => setCampShiftCore(tx, viewer.id, campId, onShift));
     return undefined;

@@ -5,7 +5,7 @@ import { actionViewer, assertCanEditCamp, assertCanEditDuty } from "@/lib/authz"
 import { endDutyCore, saveDutyCore } from "@/lib/core/duties";
 import { db } from "@/lib/db";
 import { DUTY_TYPES } from "@/lib/parade";
-import { run, zDate, zTime } from "./shared";
+import { assertParadeOpen, run, zDate, zTime } from "./shared";
 
 const dutyInput = z.object({
   id: z.string().uuid().optional(),
@@ -28,6 +28,7 @@ export async function saveDuty(raw: DutyInput) {
   return run(async () => {
     const viewer = await actionViewer();
     const input = dutyInput.parse(raw);
+    await assertParadeOpen();
     const saved = await db.transaction((tx) =>
       saveDutyCore(tx, viewer.id, input, {
         camp: (campId) => assertCanEditCamp(viewer, campId),
@@ -43,6 +44,7 @@ export async function endDuty(dutyId: string) {
   return run(async () => {
     const viewer = await actionViewer();
     z.string().uuid().parse(dutyId);
+    await assertParadeOpen();
     await assertCanEditDuty(viewer, dutyId);
     await db.transaction((tx) => endDutyCore(tx, viewer.id, dutyId));
     return undefined;

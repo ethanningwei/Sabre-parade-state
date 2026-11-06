@@ -1,5 +1,6 @@
 import { SearchX } from "lucide-react";
 import { Header } from "@/components/tg/form-bits";
+import { BackButton } from "@/components/tg/back-button";
 import { RecordActions } from "@/components/tg/record-actions";
 import { addedBy, RecordSummary } from "@/components/tg/record-summary";
 import { ParadeStatusLine } from "@/components/tg/parade-status";
@@ -8,7 +9,7 @@ import { VisitSection } from "@/components/tg/visit-section";
 import { requireFeaturePage } from "@/lib/flags";
 import { requireRegistered } from "@/lib/wb/auth";
 import { KIND_LABEL } from "@/lib/wb/domain/describe";
-import { recordAccess, visitAccess } from "@/lib/wb/domain/access";
+import { manAccess, recordAccess, visitAccess } from "@/lib/wb/domain/access";
 import { isOutcome, VISIT_KINDS } from "@/lib/wb/domain/rules";
 import { photoIds, readDiagnoses } from "@/lib/wb/medical";
 import { paradeStatuses } from "@/lib/wb/projection";
@@ -47,6 +48,8 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
   const showVisit = !!visit && (canOutcome || visit.outcome.length > 0 || !!visit.anchor.outcomeAt);
   // projection on: is it on the parade state yet?
   const parade = (await paradeStatuses([r])).get(r.id);
+  // ended and still on it: his GC, PC or PS says he's back (the web app can't, while Sabre owns the parade state)
+  const back = parade?.on && parade.back && manAccess(member, r).confirmsBack ? parade.back : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -59,6 +62,7 @@ export default async function RecordPage({ params }: { params: Promise<{ id: str
           <ParadeStatusLine s={parade} />
         </p>
       )}
+      {back && <BackButton projectionId={back} label={`${r.rank} ${r.name}`} />}
       {visit && showVisit && (
         <VisitSection
           outcome={visit.outcome}

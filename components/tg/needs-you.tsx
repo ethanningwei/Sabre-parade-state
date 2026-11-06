@@ -5,7 +5,7 @@ import { ParadeStateLink } from "@/components/tg/parade-state-tile";
 import { Group } from "@/components/tg/ui";
 import type { NeedLine } from "@/lib/wb/domain/needs-you";
 
-const DOT: Record<NeedLine["kind"], string> = { short: "bg-destructive", parade: "bg-destructive", strength: "bg-amber-500", names: "bg-amber-500", soon: "bg-amber-500", approve: "bg-muted-foreground/50" };
+const DOT: Record<NeedLine["kind"], string> = { short: "bg-destructive", back: "bg-destructive", parade: "bg-destructive", strength: "bg-amber-500", names: "bg-amber-500", soon: "bg-amber-500", approve: "bg-muted-foreground/50" };
 const ROW = "flex min-h-12 items-center gap-3 px-4 py-2.5 transition-colors duration-150 active:bg-muted";
 
 /** Home's "Needs you": at most one line per kind of problem; nothing at all when nothing's due. */

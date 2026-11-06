@@ -8,6 +8,7 @@ import type { Delivery } from "@/lib/wb/core";
 import { decide, notRight, sayWhy, submit, undo, voidRecord, withdraw, type Result } from "@/lib/wb/decide";
 import { NOT_ON_ROSTER } from "@/lib/wb/domain/rules";
 import { eventFrom, eventInput, leaveFrom, leaveInput, maFrom, maInput, miniApp, offFrom, rangeFrom, rangeInput, sickFrom, sickInput, zId, type OwnRecord } from "@/lib/wb/input";
+import { confirmBack } from "@/lib/wb/projection";
 import { clashFor, personWhere } from "@/lib/wb/records";
 import { courier } from "@/lib/wb/telegram/courier";
 
@@ -207,5 +208,15 @@ export async function giveReason(input: z.input<typeof whyInput>) {
     const member = await actionMember();
     const a = whyInput.parse(input);
     return decided(await sayWhy(await courier(), miniApp(member), a.recordId, a.note));
+  });
+}
+
+/** "He's back" on a record whose MC or leave has ended: the parade state marks him present (his GC, PC or PS). */
+export async function confirmBackOnRecord(projectionId: string) {
+  requireFeature();
+  return run(async () => {
+    const res = await confirmBack(miniApp(await actionMember()), zId.parse(projectionId));
+    if (!res.ok) throw new UserError(res.error);
+    return res.value;
   });
 }

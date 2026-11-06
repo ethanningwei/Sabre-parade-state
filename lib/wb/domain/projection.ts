@@ -11,7 +11,11 @@
 // - One open absence per man: the highest of HL > MC > OL > AL > OFF > OTHERS
 //   > MA in force now.
 // - Never overwrite an absence a GC typed: same type agrees, anything else is
-//   a conflict, reported and left alone.
+//   a conflict, reported and left alone. Unless Sabre owns the parade state
+//   (`takeOver`, the user, 2026-11-06: the web app is locked then, so nobody
+//   could ever clear it): the timeline's record replaces the GC's entry, and
+//   its Extra/RF/SOL replaces his duties. v1's "RF @ X" for a duty is still
+//   the duty's business.
 // - Never auto-revert: when a record ends, its absence stays open until a
 //   commander confirms "Back" (then it closes). A void closes it at once.
 // - A row the projector wrote and a GC then closed or edited by hand is let go
@@ -161,6 +165,8 @@ export interface PlanInput {
   projections: readonly PProjection[];
   /** men on stay-out tonight; empty outside 2100–0600. Optional so older callers work */
   stayouts?: readonly PStayout[];
+  /** Sabre owns the parade state (the web app can't edit it): a GC's own entry gives way to the timeline. Optional so older callers work */
+  takeOver?: boolean;
 }
 
 // ------------------------------------------------------------------ the plan
@@ -192,10 +198,11 @@ export interface DutyValues {
 
 export type Write =
   /** open or change the man's absence: setStatus (same type edits in place, else replaces). A stay-out has no record, only its night */
-  | { op: "absence"; personId: string; recordId: string | null; stayoutNight?: string; values: AbsenceValues; replaces: PProjection | null; why: "open" | "update" | "switch" }
+  | { op: "absence"; personId: string; recordId: string | null; stayoutNight?: string; values: AbsenceValues; replaces: PProjection | null; why: "open" | "update" | "switch" | "take-over" }
   /** close the absence the projector owns: setStatus PRESENT. DONE: a stay-out night over at 0600 */
   | { op: "close-absence"; personId: string; projection: PProjection; why: "VOID" | "BACK" | "DONE" }
-  | { op: "duty"; personId: string; assignmentId: string; values: DutyValues; projection: PProjection | null; why: "open" | "update" }
+  /** `ends`: a GC's own duties for him, ended first (take-over) */
+  | { op: "duty"; personId: string; assignmentId: string; values: DutyValues; projection: PProjection | null; why: "open" | "update" | "take-over"; ends?: string[] }
   | { op: "end-duty"; personId: string; assignmentId: string | null; projection: PProjection; why: "STOOD_DOWN" | "BACK" | "VOID" }
   /**
    * flip camp.on_shift; events lists every HOTO it settles. `weekly` is set for
@@ -450,7 +457,8 @@ export function planProjection(input: PlanInput): Plan {
     const v = dutyValues(a, input.homeOf.get(a.personId));
     const his = input.duties.filter((d) => d.personId === a.personId && !ownerOfDuty.has(d.id));
     const same = his.find((d) => d.type === v.type && d.campId === v.campId);
-    if (same) plan.notes.push({ op: "agrees", personId: a.personId, assignmentId: a.id });
+    if (input.takeOver && his.length) plan.writes.push({ op: "duty", personId: a.personId, assignmentId: a.id, values: v, projection: null, why: "take-over", ends: his.map((d) => d.id) });
+    else if (same) plan.notes.push({ op: "agrees", personId: a.personId, assignmentId: a.id });
     else if (his.length)
       plan.notes.push({
         op: "conflict",
@@ -487,6 +495,12 @@ export function planProjection(input: PlanInput): Plan {
 
     if (top) {
       const values = absenceValues(top)!;
+      if (v1 && !mineLive && input.takeOver && !v1.dutyId) {
+        // a GC's own entry, while Sabre owns the parade state: the record replaces it
+        if (offShift) plan.notes.push({ op: "waiting", personId, recordId: top.id, reason: `${input.camps.find((c) => c.id === home)?.name ?? "His team"} is off shift` });
+        else plan.writes.push({ op: "absence", personId, recordId: top.id, values, replaces: null, why: "take-over" });
+        continue;
+      }
       if (v1 && !mineLive) {
         // a GC's own entry (or v1's "RF @ X" for a duty): never overwritten
         if (v1.type === values.status && !v1.dutyId) plan.notes.push({ op: "agrees", personId, recordId: top.id });

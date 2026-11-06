@@ -75,6 +75,15 @@ describe("needsYou", () => {
     expect(lines[1].text).toBe("Parade state blocked · 3 issues to fix");
   });
 
+  it("men waiting for Back: one line before v1's issues, opening Back?", () => {
+    expect(run({ back: 0 })).toEqual([]);
+    expect(run({ back: 1 })).toEqual([{ kind: "back", text: "1 man waiting for Back", href: "/tg/back" }]);
+    expect(run({ back: 2, paradeIssues: 2 }).map((l) => [l.kind, l.text])).toEqual([
+      ["back", "2 men waiting for Back"],
+      ["parade", "Parade state blocked · 2 issues to fix"],
+    ]);
+  });
+
   it("a GC's camp strength for today's conduct, until it's sent, opening the first", () => {
     const strengths = [
       { id: "c1", campName: "BDK", reportBy: "1830" },

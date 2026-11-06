@@ -2,9 +2,10 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CampRoster } from "@/components/camp-roster";
+import { SabreLock } from "@/components/sabre-lock";
 import { canEditCamp, requireViewer } from "@/lib/authz";
 import { getReasonSuggestions } from "@/lib/data/reasons";
-import { currentSnapshot } from "@/lib/data/current";
+import { currentLocked, currentSnapshot } from "@/lib/data/current";
 import { computeCoy, currentCaa, validate } from "@/lib/parade";
 import { strengthOf } from "@/lib/status";
 import { sabreLinksForCamp } from "@/lib/wb/v1-links";
@@ -12,7 +13,7 @@ import { sabreLinksForCamp } from "@/lib/wb/v1-links";
 export default async function CampPage({ params, searchParams }: PageProps<"/c/[campId]">) {
   const { campId } = await params;
   const { person } = await searchParams;
-  const [viewer, snapshot, reasons] = await Promise.all([requireViewer(), currentSnapshot(), getReasonSuggestions()]);
+  const [viewer, snapshot, reasons, locked] = await Promise.all([requireViewer(), currentSnapshot(), getReasonSuggestions(), currentLocked()]);
   const caa = currentCaa();
 
   const sub = computeCoy(snapshot).subunits.find((s) => s.camps.some((c) => c.camp.id === campId));
@@ -44,6 +45,7 @@ export default async function CampPage({ params, searchParams }: PageProps<"/c/[
           </a>
         )}
       </div>
+      {locked && <SabreLock />}
       <CampRoster
         camp={{ id: campState.camp.id, name: campState.camp.name, onShift: campState.onShift }}
         isHq={sub.subunit.isHq}
@@ -53,7 +55,7 @@ export default async function CampPage({ params, searchParams }: PageProps<"/c/[
         people={campState.camp.people}
         issues={issues}
         duties={duties.map((d) => ({ id: d.id, type: d.type, rank: d.rank, name: d.name }))}
-        canEdit={canEditCamp(viewer, { subunitId: sub.subunit.id, campId })}
+        canEdit={!locked && canEditCamp(viewer, { subunitId: sub.subunit.id, campId })}
         reasons={reasons}
         today={caa.date}
         openPersonId={typeof person === "string" ? person : null}

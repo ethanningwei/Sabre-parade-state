@@ -10,11 +10,13 @@ import { dueLabel } from "./named-list";
 //   - never ONENS, Gaps, other platoons' RF requests, or anything that's only news;
 //   - v1's blocking issues in their scope (2026-10-17): the parade state can't
 //     be generated until they're fixed, so it opens v1's Parade screen;
+//   - men waiting for Back (2026-11-06): what ended is still on the parade
+//     state, and while Sabre owns it only Back? takes it off;
 //   - OC/2IC/CSM count only requests only the company decides, plus any request
 //     starting within 48 hours that nobody has decided (the safety net).
 
 export interface NeedLine {
-  kind: "short" | "parade" | "strength" | "names" | "soon" | "approve";
+  kind: "short" | "back" | "parade" | "strength" | "names" | "soon" | "approve";
   text: string;
   href: string;
 }
@@ -31,6 +33,8 @@ export interface NeedsYouInput {
   today: string;
   /** v1's blocking issues in their scope (issuesInScope); 0 or left out for anyone without "Parade state" */
   paradeIssues?: number;
+  /** men in his scope whose record or Extra/RF/SOL has ended, waiting for his Back (backFor) */
+  back?: number;
   /**
    * what his camps haven't sent (openReportsFor), soonest first: today's
    * conduct strengths, and named lists from set-up to their day
@@ -48,7 +52,7 @@ function campList(names: readonly string[]): string {
   return names.length <= 2 ? names.join(", ") : `${names[0]} +${names.length - 1}`;
 }
 
-export function needsYou({ pending, short, companyOnly, now, today, paradeIssues = 0, strengths = [] }: NeedsYouInput): NeedLine[] {
+export function needsYou({ pending, short, companyOnly, now, today, paradeIssues = 0, back = 0, strengths = [] }: NeedsYouInput): NeedLine[] {
   const lines: NeedLine[] = [];
 
   // camps below minimum on approved records, by day (off shift and pending-only don't count)
@@ -62,6 +66,7 @@ export function needsYou({ pending, short, companyOnly, now, today, paradeIssues
     lines.push({ kind: "short", text, href: `/tg/manpower?date=${shortDays[0].date}` });
   }
 
+  if (back > 0) lines.push({ kind: "back", text: `${plural(back, "man", "men")} waiting for Back`, href: "/tg/back" });
   if (paradeIssues > 0) lines.push({ kind: "parade", text: `Parade state blocked · ${plural(paradeIssues, "issue")} to fix`, href: "/parade" });
 
   const whole = strengths.filter((s) => s.kind !== "NAMED");

@@ -505,6 +505,18 @@ export const wbProjection = pgTable(
   ],
 );
 
+/**
+ * Switches an admin flips in the Mini App (2026-11-06). One row per switch;
+ * no row = on. `PROJECTION`: whether Sabre owns the parade state (only while
+ * FEATURE_PROJECTION is set too); on, the web app can't edit it.
+ */
+export const wbSetting = pgTable("wb_setting", {
+  key: text("key").primaryKey(),
+  on: boolean("on").notNull(),
+  updatedAt: tstz("updated_at").defaultNow().notNull(),
+  updatedBy: uuid("updated_by").references(() => wbMember.id, { onDelete: "set null" }),
+});
+
 // ---------------------------------------------------------------- stay-out (2026-10-27)
 
 export const wbStayoutNightState = pgEnum("wb_stayout_night_state", WB_STAYOUT_NIGHT_STATES);

@@ -1,21 +1,22 @@
 import { AlertTriangle, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { SabreLock } from "@/components/sabre-lock";
 import { ShiftToggle } from "@/components/shift-toggle";
 import { StrengthBar } from "@/components/strength-bar";
 import { Card } from "@/components/ui/card";
 import { canEditCamp, requireViewer } from "@/lib/authz";
-import { currentParade } from "@/lib/data/current";
+import { currentLocked, currentParade } from "@/lib/data/current";
 import { computeCoy, currentCaa, validate } from "@/lib/parade";
 import { strengthOf } from "@/lib/status";
 import { CountUp } from "@/components/count-up";
 
 export default async function SubunitPage({ params }: PageProps<"/s/[subunitId]">) {
   const { subunitId } = await params;
-  const [viewer, { snapshot, phase }] = await Promise.all([requireViewer(), currentParade()]);
+  const [viewer, { snapshot, phase }, locked] = await Promise.all([requireViewer(), currentParade(), currentLocked()]);
   const state = computeCoy(snapshot).subunits.find((s) => s.subunit.id === subunitId);
   if (!state) notFound();
-  const canEdit = (campId: string) => canEditCamp(viewer, { subunitId, campId });
+  const canEdit = (campId: string) => !locked && canEditCamp(viewer, { subunitId, campId });
 
   const issuesByCamp = new Map<string, number>();
   for (const i of validate(snapshot, currentCaa())) {
@@ -35,6 +36,7 @@ export default async function SubunitPage({ params }: PageProps<"/s/[subunitId]"
           <span className="text-base text-muted-foreground">/{state.total}</span>
         </p>
       </div>
+      {locked && <SabreLock />}
 
       <div className="flex flex-col gap-3">
         {state.camps.map((c) => {

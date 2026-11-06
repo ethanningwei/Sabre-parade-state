@@ -1,6 +1,6 @@
 // The projector through the database: shadow mode writes nothing; live, the
-// timeline reaches v1 (loadSnapshot) through the v1 cores, a GC's own entry is
-// never overwritten, an ended MC waits for "Back", a void closes, a deploy is a
+// timeline reaches v1 (loadSnapshot) through the v1 cores, a GC's own entry
+// gives way to an approved record, an ended MC waits for "Back", a void closes, a deploy is a
 // v1 duty with its home absence, stand down ends it, a HOTO flips on_shift,
 // switching projection off leaves ordinary v1 rows, and a stay-out man is on
 // the night parade state as (STAYOUT). Uses sabre_test.
@@ -15,7 +15,7 @@ import { absence, auditLog, camp, duty, person, user } from "@/lib/db/schema";
 import { renderParadeState } from "@/lib/parade/render";
 import { sgtToInstant } from "@/lib/parade/time";
 import { validate } from "@/lib/parade/validate";
-import { wbAssignment, wbAudit, wbMember, wbProjection, wbRecord, wbShiftEvent, wbShiftOverride, wbShiftPattern, wbStayoutNight } from "@/lib/wb/db/schema";
+import { wbAssignment, wbAudit, wbMember, wbProjection, wbRecord, wbSetting, wbShiftEvent, wbShiftOverride, wbShiftPattern, wbStayoutNight } from "@/lib/wb/db/schema";
 import { WEEKDAYS } from "@/lib/wb/domain/shifts";
 import { exampleSnapshot } from "../fixtures/example-snapshot";
 
@@ -32,6 +32,10 @@ const { recordingCourier } = await import("./recording-courier");
 const { revertedSince, projectionReport } = await import("@/lib/wb/projection");
 const { keepShift } = await import("@/lib/wb/shifts");
 const { setCampShiftCore } = await import("@/lib/core/attendance");
+const { handTyped, projectionLive, setProjection, takeOffHandTyped } = await import("@/lib/wb/projection");
+const { setStatus } = await import("@/lib/actions/attendance");
+const { saveDuty } = await import("@/lib/actions/duties");
+const { saveDutyCore } = await import("@/lib/core/duties");
 
 const at = (date: string, time = "0000") => sgtToInstant({ date, time });
 const NOW = at("2026-10-14", "1000");
@@ -56,6 +60,7 @@ beforeEach(async () => {
   vi.stubEnv("FEATURE_WHEREABOUTS", "1");
   vi.stubEnv("FEATURE_PROJECTION", "");
   await db.delete(wbProjection);
+  await db.delete(wbSetting);
   await db.delete(wbMember).where(eq(wbMember.telegramUserId, TG));
   await db.delete(wbAssignment);
   await db.delete(wbShiftEvent);
@@ -78,6 +83,7 @@ beforeEach(async () => {
 afterAll(async () => {
   if (reachable) {
     await db.delete(wbProjection);
+    await db.delete(wbSetting);
     // a weekday pattern left on BDK takes it off shift at weekends for the next file
     await db.delete(wbShiftEvent);
     await db.delete(wbShiftOverride);
@@ -125,7 +131,8 @@ describe("the Mini App's 'on the parade state?'", () => {
     const ma = await record({ kind: "MA", personId: t1, state: "RECORDED", startAt: new Date(t - day), endAt: new Date(t + day), maTiming: "1300" });
     const got = await paradeStatuses([al, off, later, ma]);
     expect(got.get(al.id)).toEqual({ on: true });
-    expect(got.get(off.id)).toEqual({ on: false, why: "the GC has him as COURSE" });
+    // the GC's COURSE gave way to the approved OFF (Sabre owns the parade state)
+    expect(got.get(off.id)).toEqual({ on: true });
     expect(got.get(later.id)).toEqual({ on: false, why: "goes on when it starts" });
     expect(got.get(ma.id)).toEqual({ on: false, why: "his other record shows instead" });
   });
@@ -228,17 +235,37 @@ describe("live (FEATURE_PROJECTION on)", () => {
     expect((await db.select().from(user).where(eq(user.id, PROJECTOR_USER.id)))[0]).toMatchObject({ active: false, role: "pending" });
   });
 
-  it("never overwrites a GC's own absence", async (ctx) => {
+  it("a GC's own absence gives way to an approved record, and Sabre owns it from then on", async (ctx) => {
     if (!reachable) ctx.skip();
     live();
     await db.transaction((tx) =>
       setStatusCore(tx, GC, { personIds: [t1], status: "OTHERS", otherReason: "COURSE", startDate: null, startTime: null, endDate: null, endTime: null, maTiming: "", maLocation: "" }),
     );
-    await record({ kind: "AL", personId: t1 });
+    const gcRow = await openOf(t1);
+    const al = await record({ kind: "AL", personId: t1 });
     const res = await syncProjection(NOW);
-    expect(res.applied).toBe(0);
-    expect(res.plan.notes).toMatchObject([{ op: "conflict", personId: t1, want: "AL", has: "COURSE" }]);
-    expect(await openOf(t1)).toMatchObject({ type: "OTHERS", otherReason: "COURSE", createdBy: GC });
+    expect(res.plan.writes).toMatchObject([{ op: "absence", personId: t1, why: "take-over" }]);
+    expect(res.applied).toBe(1);
+    expect(await openOf(t1)).toMatchObject({ type: "AL", createdBy: PROJECTOR_USER.id });
+    expect((await db.select().from(absence).where(eq(absence.id, gcRow.id)))[0].closedAt).not.toBeNull();
+    // the record's void takes it off again
+    await db.update(wbRecord).set({ state: "CANCELLED" }).where(eq(wbRecord.id, al.id));
+    await syncProjection(NOW);
+    expect(await openOf(t1)).toBeUndefined();
+  });
+
+  it("a GC's own duty gives way to an Extra/RF/SOL in Sabre", async (ctx) => {
+    if (!reachable) ctx.skip();
+    live();
+    const gcDuty = await db.transaction((tx) =>
+      saveDutyCore(tx, GC, { type: "EXTRA", rank: "", name: "", personId: t1, campId: ids.bdk, startDate: "2026-10-13", startTime: null, endDate: "2026-10-15", endTime: null }),
+    );
+    await db.insert(wbAssignment).values({ personId: t1, type: "RF", campId: ids.bdk, startAt: at("2026-10-13", "2100"), endAt: at("2026-10-16", "2100") });
+    const res = await syncProjection(NOW);
+    expect(res.failed).toEqual([]);
+    expect(res.plan.writes).toMatchObject([{ op: "duty", why: "take-over", ends: [gcDuty.id] }]);
+    const open = await db.select().from(duty).where(and(eq(duty.personId, t1), isNull(duty.closedAt)));
+    expect(open).toMatchObject([{ type: "RF", createdBy: PROJECTOR_USER.id }]);
   });
 
   it("an ended MC stays open until Back is confirmed; a void closes at once", async (ctx) => {
@@ -470,5 +497,67 @@ describe("stay-out (2026-10-27)", () => {
     expect(msg && "buttons" in msg && msg.buttons?.map((r) => r[0].text)).toEqual(["✅ Correct", expect.stringMatching(/^🛏 .* staying in$/)]);
     // not on the parade state yet at 1900
     expect(await openOf(t1)).toBeUndefined();
+  });
+});
+
+describe("the admins' switch (2026-11-06)", () => {
+  const admin = async () => {
+    const [m] = await db.insert(wbMember).values({ telegramUserId: TG, registeredAt: new Date() }).returning();
+    const as = (role: "ADMIN" | "GC") => ({
+      actor: { id: m.id, personId: null, grants: [{ role, subunitId: null, campId: role === "GC" ? ids.tft : null }], registered: true },
+      via: "MINIAPP" as const,
+    });
+    return { admin: as("ADMIN"), gc: as("GC") };
+  };
+  const present = { status: "PRESENT" as const };
+
+  it("on, the web app can't edit the parade state; switched off in the Mini App, it can and nothing is written", async (ctx) => {
+    if (!reachable) ctx.skip();
+    live();
+    session.user = { id: GC, name: "projection test gc", role: "admin", subunitId: null, active: true };
+    const who = await admin();
+    expect(await projectionLive()).toBe(true); // no row: on
+    expect(await setStatus({ personIds: [t1], status: "OFF", startDate: "2026-10-14", endDate: "2026-10-14" })).toMatchObject({ ok: false, error: expect.stringContaining("follows Sabre") });
+    expect(await saveDuty({ type: "EXTRA", personId: t1, campId: ids.bdk, startDate: "2026-10-14", endDate: "2026-10-15" })).toMatchObject({ ok: false });
+
+    // only an admin switches it
+    expect(await setProjection(who.gc, false)).toMatchObject({ ok: false });
+    expect(await setProjection(who.admin, false)).toMatchObject({ ok: true });
+    expect(await projectionLive()).toBe(false);
+    expect((await db.select().from(wbAudit).where(and(eq(wbAudit.action, "projection-off"), eq(wbAudit.memberId, who.admin.actor.id)))).length).toBe(1);
+    await record({ kind: "AL", personId: t2 });
+    const res = await syncProjection(NOW);
+    expect(res.live).toBe(false);
+    expect(await openOf(t2)).toBeUndefined();
+    expect(await setStatus({ personIds: [t1], ...present })).toMatchObject({ ok: true });
+
+    // FEATURE_PROJECTION unset wins over the switch
+    vi.stubEnv("FEATURE_PROJECTION", "");
+    expect(await setProjection(who.admin, true)).toMatchObject({ ok: false });
+    live();
+    expect(await setProjection(who.admin, true)).toMatchObject({ ok: true });
+    expect(await projectionLive()).toBe(true);
+  });
+
+  it("lists what was typed in the web app with nothing behind it, and an admin takes it off", async (ctx) => {
+    if (!reachable) ctx.skip();
+    live();
+    const who = await admin();
+    await db.transaction((tx) =>
+      setStatusCore(tx, GC, { personIds: [t2], status: "MC", otherReason: "", startDate: "2026-10-12", startTime: null, endDate: "2026-10-13", endTime: null, maTiming: "", maLocation: "" }),
+    );
+    await record({ kind: "AL", personId: t1 });
+    await syncProjection(NOW);
+    const typed = await handTyped();
+    const mc = typed.find((t) => t.kind === "ABSENCE" && t.what === "MC 12/10–13/10");
+    expect(mc?.who).toContain("(TFT)");
+    // Sabre's own AL isn't listed
+    const al = await openOf(t1);
+    expect(typed.some((t) => t.id === al.id)).toBe(false);
+    expect(await takeOffHandTyped(who.gc, "ABSENCE", mc!.id)).toMatchObject({ ok: false });
+    expect(await takeOffHandTyped(who.admin, "ABSENCE", mc!.id)).toMatchObject({ ok: true });
+    expect(await openOf(t2)).toBeUndefined();
+    expect(await takeOffHandTyped(who.admin, "ABSENCE", mc!.id)).toMatchObject({ ok: false, error: "That's already off the parade state." });
+    expect(await takeOffHandTyped(who.admin, "ABSENCE", al.id)).toMatchObject({ ok: false, error: expect.stringContaining("Sabre wrote that one") });
   });
 });

@@ -56,11 +56,11 @@ function writeLine(w: Exclude<Write, { op: "shift" }>, camps: ReadonlyMap<string
   switch (w.op) {
     case "absence":
       if (w.stayoutNight) return `${w.why === "open" ? "+" : "~"} 🏠 Stay-out tonight, until 0600`;
-      return `${w.why === "open" ? "+" : "~"} ${absenceText(w.values)}${w.why === "switch" ? " (replaces the last one)" : ""}`;
+      return `${w.why === "open" ? "+" : "~"} ${absenceText(w.values)}${w.why === "switch" ? " (replaces the last one)" : w.why === "take-over" ? " (replaces the GC's entry)" : ""}`;
     case "close-absence":
       return `− back, present (${w.projection.stayoutNight && w.why === "VOID" ? "staying in, or no longer stay-out" : WHY[w.why]})`;
     case "duty":
-      return `${w.why === "open" ? "+" : "~"} ${dutyText(w.values, camps)}`;
+      return `${w.why === "open" ? "+" : "~"} ${dutyText(w.values, camps)}${w.why === "take-over" ? " (replaces the GC's entry)" : ""}`;
     case "end-duty":
       return `− duty ended (${WHY[w.why]})`;
   }

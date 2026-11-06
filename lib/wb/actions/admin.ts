@@ -7,11 +7,13 @@ import * as writes from "@/lib/wb/admin";
 import { actionMember, requireScreen } from "@/lib/wb/auth";
 import { miniApp } from "@/lib/wb/input";
 import { place } from "@/lib/wb/format";
+import { setProjection, takeOffHandTyped } from "@/lib/wb/projection";
 import { WB_ROLES } from "@/lib/wb/db/schema";
 import { rosterContaining } from "@/lib/wb/roster";
 import type { Outcome } from "@/lib/wb/write";
 
-// Mini App admin (ADMIN grant only): members, grants, commanders' chats. The
+// Mini App admin (ADMIN grant only): members, grants, commanders' chats, the
+// projection switch. The
 // writes, and who may make them, are in lib/wb/admin.ts; this checks input.
 
 const id = z.uuid();
@@ -82,4 +84,18 @@ export async function removeGrant(grantId: string) {
 export async function removeCommanderChat(chatRowId: string) {
   requireFeature();
   return run(async () => done(await writes.removeCommanderChat(await asAdmin(), id.parse(chatRowId))));
+}
+
+// ---------------------------------------------------------------- projection
+
+/** Admin › Projection's switch: on, Sabre owns the parade state and the web app can't edit it. */
+export async function setProjectionOn(on: boolean) {
+  requireFeature();
+  return run(async () => done(await setProjection(await asAdmin(), z.boolean().parse(on))));
+}
+
+/** Take a hand-typed absence or Extra/RF/SOL off the parade state. */
+export async function takeOff(kind: "ABSENCE" | "DUTY", entryId: string) {
+  requireFeature();
+  return run(async () => done(await takeOffHandTyped(await asAdmin(), z.enum(["ABSENCE", "DUTY"]).parse(kind), id.parse(entryId))));
 }

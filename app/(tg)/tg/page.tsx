@@ -22,6 +22,7 @@ import { place } from "@/lib/wb/format";
 import { rosterSelf } from "@/lib/wb/me";
 import { profileOf } from "@/lib/wb/members";
 import { paradeIssueCount } from "@/lib/wb/parade-link";
+import { backFor } from "@/lib/wb/projection";
 import { currentPhase } from "@/lib/wb/phase";
 import { nowAndNext, onensOwedFor, pendingFor, type RecordView } from "@/lib/wb/records";
 import { assignmentsOf, openRequests } from "@/lib/wb/rf-data";
@@ -46,7 +47,7 @@ export default async function TgHome() {
   const conducts = sees.conducts && conductsOn;
   const now = new Date();
   const today = todaySgt(now);
-  const [[me, self], pending, owed, openRf, short, waiting, paradeIssues, strengths] = await Promise.all([
+  const [[me, self], pending, owed, openRf, short, waiting, paradeIssues, strengths, back] = await Promise.all([
     Promise.all([profileOf(member), rosterSelf(member)]),
     decides ? pendingFor(member) : Promise.resolve([] as RecordView[]),
     decides ? onensOwedFor(member.grants) : Promise.resolve([] as RecordView[]),
@@ -56,12 +57,13 @@ export default async function TgHome() {
     // never breaks Home: no line rather than an error
     parade ? paradeIssueCount(member.grants).catch(() => 0) : Promise.resolve(0),
     conductsOn ? openReportsFor(member, today) : Promise.resolve([]),
+    member.grants.length ? backFor(member, now).then((d) => d.length).catch(() => 0) : Promise.resolve(0),
   ]);
   const [{ current, next }, duties] = await Promise.all([
     self ? nowAndNext(self.personId) : { current: null, next: null },
     self ? assignmentsOf(self.personId) : [],
   ]);
-  const needs = needsYou({ pending, short, companyOnly: companyOnly(member), now, today, paradeIssues, strengths });
+  const needs = needsYou({ pending, short, companyOnly: companyOnly(member), now, today, paradeIssues, back, strengths });
   const commands = parade || decides || manpower || hoto || rf || sees.add || roster || conducts;
 
   return (

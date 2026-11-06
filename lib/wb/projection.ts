@@ -12,8 +12,8 @@ import { wbAudit } from "@/lib/wb/audit";
 import { wbAudit as wbAuditTable } from "@/lib/wb/db/schema";
 import { Refusal } from "@/lib/wb/core";
 import { write, type Acting, type Outcome } from "@/lib/wb/write";
-import { wbAssignment, wbMember, wbProjection, wbRecord, wbShiftEvent, wbShiftOverride, wbShiftPattern, wbStayoutNight } from "@/lib/wb/db/schema";
-import { manAccess } from "@/lib/wb/domain/access";
+import { wbAssignment, wbMember, wbProjection, wbRecord, wbSetting, wbShiftEvent, wbShiftOverride, wbShiftPattern, wbStayoutNight } from "@/lib/wb/db/schema";
+import { manAccess, screens } from "@/lib/wb/domain/access";
 import { toPattern } from "@/lib/wb/forecast-data";
 import {
   absenceRow,
@@ -35,6 +35,11 @@ import { onStayout, stayoutNight } from "@/lib/wb/domain/stayout";
 // syncProjection() writes it through v1's own cores (lib/core) as the
 // "Sabre (whereabouts)" v1 user, only when FEATURE_PROJECTION is on. Off, it's
 // the shadow: the same plan, reported and never written.
+//
+// Live only with FEATURE_WHEREABOUTS and FEATURE_PROJECTION set and the
+// admins' switch (Admin › Projection, wb_setting) on. Live, Sabre owns the
+// parade state: the web app can't edit statuses, shifts or Extra/RF/SOL, and
+// a GC's own entries give way to the timeline (the user, 2026-11-06).
 //
 // It runs after every whereabouts write that touches the parade state
 // (lib/wb/write.ts), before the web app loads a parade state
@@ -58,6 +63,16 @@ export interface SyncResult {
 }
 
 type Reader = Pick<Tx, "select">;
+
+/** Is the projection live (Sabre owns the parade state)? The flags, then the admins' switch: no row is on. */
+export async function projectionLive(tx: Reader = db): Promise<boolean> {
+  if (!(isEnabled("WHEREABOUTS") && isEnabled("PROJECTION"))) return false;
+  const [row] = await tx.select({ on: wbSetting.on }).from(wbSetting).where(eq(wbSetting.key, "PROJECTION"));
+  return row?.on ?? true;
+}
+
+/** What the web app says when someone tries to edit the parade state while Sabre owns it. */
+export const LOCKED_TEXT = "The parade state follows Sabre now: update statuses, Extra/RF/SOL and HOTOs in the Mini App.";
 
 /** Everything the plan needs, read in one go. */
 export async function loadPlanInput(tx: Reader, now: Date): Promise<PlanInput> {
@@ -230,6 +245,8 @@ export async function loadPlanInput(tx: Reader, now: Date): Promise<PlanInput> {
     homeOf: new Map(people.map((p) => [p.id, p.campId])),
     projections: [...projections, ...byHand].map(asP),
     stayouts,
+    // the plan is what it would write live, and live Sabre owns the parade state
+    takeOver: true,
   };
 }
 
@@ -277,6 +294,7 @@ async function apply(tx: Tx, w: Write, now: Date) {
       return;
     }
     case "duty": {
+      for (const id of w.ends ?? []) await endDutyCore(tx, ME, id);
       const saved = await saveDutyCore(tx, ME, { ...w.values, id: w.projection?.dutyId ?? undefined });
       const wrote = dutyRow(w.values);
       if (w.projection) await tx.update(wbProjection).set({ wrote, updatedAt: now, backConfirmedAt: null, backConfirmedBy: null }).where(eq(wbProjection.id, w.projection.id));
@@ -326,7 +344,7 @@ async function applyMark(tx: Tx, m: Mark, now: Date) {
  * so a caller in the web app can't be broken by the projector.
  */
 export async function syncProjection(now: Date = new Date()): Promise<SyncResult> {
-  const live = isEnabled("WHEREABOUTS") && isEnabled("PROJECTION");
+  const live = await projectionLive();
   if (!live) return { live, busy: false, plan: await planNow(now), applied: 0, failed: [] };
 
   return db.transaction(async (tx) => {
@@ -357,9 +375,8 @@ export async function syncProjection(now: Date = new Date()): Promise<SyncResult
 
 /** For callers that mustn't fail because of the projector: v1 page loads and whereabouts writes. */
 export async function syncQuietly(): Promise<void> {
-  if (!(isEnabled("WHEREABOUTS") && isEnabled("PROJECTION"))) return;
   try {
-    await syncProjection();
+    if (await projectionLive()) await syncProjection();
   } catch (e) {
     console.error("projection sync failed", e);
   }
@@ -395,7 +412,7 @@ export async function projectionReport(res: Pick<SyncResult, "plan" | "live" | "
 /** The report for now without writing anything (`wb:setup -- diff`, Admin › Projection). */
 export async function diffNow(now: Date = new Date()): Promise<string> {
   const plan = await planNow(now);
-  const live = isEnabled("WHEREABOUTS") && isEnabled("PROJECTION");
+  const live = await projectionLive();
   return formatProjection({ plan, mode: live ? "pending" : "shadow", ...(await reportNames()) });
 }
 
@@ -460,6 +477,12 @@ export async function dueBack(until: Date): Promise<DueBack[]> {
   ].sort((a, b) => a.endAt.getTime() - b.endAt.getTime());
 }
 
+/** What has ended and waits for this member to say he's back (his GC, PC or PS), while Sabre owns the parade state. */
+export async function backFor(member: Parameters<typeof manAccess>[0], now: Date = new Date()): Promise<DueBack[]> {
+  if (!(await projectionLive())) return [];
+  return (await dueBack(now)).filter((d) => manAccess(member, d).confirmsBack);
+}
+
 /** "✅ Back" from the evening message: noted now, and the parade state marks him present once it has ended. */
 export async function confirmBack(by: Acting, projectionId: string): Promise<Outcome<{ label: string; closed: boolean }>> {
   const res = await write(null, by, {
@@ -491,7 +514,7 @@ export async function confirmBack(by: Acting, projectionId: string): Promise<Out
 // ------------------------------------------------------------------ the Mini App
 
 /** Whether a record is on the parade state, and if not, why. */
-export type ParadeStatus = { on: true; note?: string } | { on: false; why: string };
+export type ParadeStatus = { on: true; note?: string; /** ended, waiting for Back: the projection to confirm */ back?: string } | { on: false; why: string };
 
 /**
  * For the record page and today's Day view, while projection is on (an empty
@@ -503,12 +526,12 @@ export async function paradeStatuses(
   now: Date = new Date(),
 ): Promise<Map<string, ParadeStatus>> {
   const out = new Map<string, ParadeStatus>();
-  if (!(isEnabled("WHEREABOUTS") && isEnabled("PROJECTION")) || !records.length) return out;
+  if (!records.length || !(await projectionLive())) return out;
   await syncQuietly();
   const ids = records.map((r) => r.id);
   const [owned, plan] = await Promise.all([
     db
-      .select({ recordId: wbProjection.recordId, backConfirmedAt: wbProjection.backConfirmedAt })
+      .select({ id: wbProjection.id, recordId: wbProjection.recordId, backConfirmedAt: wbProjection.backConfirmedAt })
       .from(wbProjection)
       .where(and(isNull(wbProjection.closedAt), inArray(wbProjection.recordId, ids))),
     planNow(now),
@@ -519,7 +542,8 @@ export async function paradeStatuses(
     if (!STANDING_STATES.includes(r.state) || !v1TypeOf(r)) continue;
     const mine = ownedBy.get(r.id);
     if (mine) {
-      out.set(r.id, mine.backConfirmedAt ? { on: true, note: "Back confirmed: marked present when it ends" } : { on: true });
+      const due = r.endAt !== null && r.endAt.getTime() <= now.getTime();
+      out.set(r.id, mine.backConfirmedAt ? { on: true, note: "Back confirmed: marked present when it ends" } : due ? { on: true, note: "ended, waiting for Back", back: mine.id } : { on: true });
       continue;
     }
     const n = noteOf.get(r.id);
@@ -535,7 +559,7 @@ export async function paradeStatuses(
 
 /** paradeStatuses by record id (the Day view has ids, not rows). */
 export async function paradeStatusesOf(recordIds: readonly string[], now: Date = new Date()): Promise<Map<string, ParadeStatus>> {
-  if (!(isEnabled("WHEREABOUTS") && isEnabled("PROJECTION")) || !recordIds.length) return new Map();
+  if (!recordIds.length || !(await projectionLive())) return new Map();
   const rows = await db
     .select({ id: wbRecord.id, personId: wbRecord.personId, kind: wbRecord.kind, state: wbRecord.state, absent: wbRecord.absent, startAt: wbRecord.startAt, endAt: wbRecord.endAt })
     .from(wbRecord)
@@ -552,4 +576,103 @@ export async function projectedCounts(): Promise<{ absences: number; duties: num
     .groupBy(wbProjection.kind);
   const n = (k: string) => rows.find((r) => r.kind === k)?.n ?? 0;
   return { absences: n("ABSENCE"), duties: n("DUTY") };
+}
+
+// ------------------------------------------------------------------ the admins' switch and hand-typed entries
+
+/** Admin › Projection's switch: Sabre owns the parade state, or the web app edits it as before. */
+export async function setProjection(by: Acting, on: boolean, now: Date = new Date()) {
+  return write(null, by, {
+    // turned on: the sync runs once it commits
+    parade: true,
+    async change({ tx, audit }) {
+      if (!screens(by.actor).admin) throw new Refusal("Only an admin can switch projection on or off.");
+      if (!(isEnabled("WHEREABOUTS") && isEnabled("PROJECTION"))) throw new Refusal("FEATURE_PROJECTION isn't set on Vercel, so it stays off.");
+      const [before] = await tx.select({ on: wbSetting.on }).from(wbSetting).where(eq(wbSetting.key, "PROJECTION"));
+      await tx
+        .insert(wbSetting)
+        .values({ key: "PROJECTION", on, updatedAt: now, updatedBy: by.actor.id })
+        .onConflictDoUpdate({ target: wbSetting.key, set: { on, updatedAt: now, updatedBy: by.actor.id } });
+      await audit({ action: on ? "projection-on" : "projection-off", entity: "wb_setting", entityId: null, before: { on: before?.on ?? true }, after: { on } });
+    },
+  });
+}
+
+/** An absence or Extra/RF/SOL on the parade state that Sabre didn't write: typed in the web app. */
+export interface HandTyped {
+  kind: "ABSENCE" | "DUTY";
+  id: string;
+  /** "PTE TAN (BDK)" */
+  who: string;
+  /** "MC 05/11–07/11", "RF @ SLR" */
+  what: string;
+}
+
+const ddmm = (d: string | null) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : "");
+const span = (a: string | null, b: string | null) => (a || b ? ` ${ddmm(a) || "?"}–${ddmm(b) || "?"}` : "");
+
+/**
+ * Open v1 absences and duties no projection owns, in roster order (Admin ›
+ * Projection, while Sabre owns the parade state). A duty's "RF @ X" home
+ * absence goes with its duty, so it isn't listed on its own.
+ */
+export async function handTyped(): Promise<HandTyped[]> {
+  const ownedAbsence = alias(wbProjection, "owned_absence");
+  const ownedDuty = alias(wbProjection, "owned_duty");
+  const serving = alias(camp, "serving");
+  const [absences, duties] = await Promise.all([
+    db
+      .select({ id: absence.id, rank: person.rank, name: person.name, campName: camp.name, type: absence.type, otherReason: absence.otherReason, startDate: absence.startDate, endDate: absence.endDate })
+      .from(absence)
+      .innerJoin(person, and(eq(person.id, absence.personId), eq(person.active, true)))
+      .innerJoin(camp, eq(camp.id, person.campId))
+      .innerJoin(subunit, eq(subunit.id, camp.subunitId))
+      .leftJoin(ownedAbsence, and(eq(ownedAbsence.absenceId, absence.id), isNull(ownedAbsence.closedAt)))
+      .where(and(isNull(absence.closedAt), isNull(absence.dutyId), isNull(ownedAbsence.id)))
+      .orderBy(subunit.sortOrder, camp.sortOrder, person.sortOrder),
+    db
+      .select({ id: duty.id, rank: duty.rank, name: duty.name, type: duty.type, campName: serving.name, startDate: duty.startDate, endDate: duty.endDate })
+      .from(duty)
+      .innerJoin(serving, eq(serving.id, duty.campId))
+      .innerJoin(subunit, eq(subunit.id, serving.subunitId))
+      .leftJoin(ownedDuty, and(eq(ownedDuty.dutyId, duty.id), isNull(ownedDuty.closedAt)))
+      .where(and(isNull(duty.closedAt), isNull(ownedDuty.id)))
+      .orderBy(subunit.sortOrder, serving.sortOrder, duty.name),
+  ]);
+  return [
+    ...absences.map((a) => ({
+      kind: "ABSENCE" as const,
+      id: a.id,
+      who: `${a.rank} ${a.name} (${a.campName})`,
+      what: `${a.type === "OTHERS" ? a.otherReason || "OTHERS" : a.type}${span(a.startDate, a.endDate)}`,
+    })),
+    ...duties.map((d) => ({ kind: "DUTY" as const, id: d.id, who: `${d.rank} ${d.name}`.trim(), what: `${d.type} @ ${d.campName}${span(d.startDate, d.endDate)}` })),
+  ];
+}
+
+/** "Take off" a hand-typed entry (admins): he's present, or the duty ends, written by the projector's v1 user. */
+export async function takeOffHandTyped(by: Acting, kind: HandTyped["kind"], id: string) {
+  return write(null, by, {
+    parade: true,
+    async change({ tx: t, audit }) {
+      const tx = t as Tx;
+      if (!screens(by.actor).admin) throw new Refusal("Only an admin can take an entry off the parade state.");
+      await ensureProjectorUser(tx);
+      if (kind === "ABSENCE") {
+        const [a] = await tx.select().from(absence).where(and(eq(absence.id, id), isNull(absence.closedAt))).for("update");
+        if (!a) throw new Refusal("That's already off the parade state.");
+        const [owner] = await tx.select({ id: wbProjection.id }).from(wbProjection).where(and(eq(wbProjection.absenceId, id), isNull(wbProjection.closedAt)));
+        if (owner || a.dutyId) throw new Refusal("Sabre wrote that one: change its record instead.");
+        await setStatusCore(tx, ME, { personIds: [a.personId], status: "PRESENT", otherReason: "", startDate: null, startTime: null, endDate: null, endTime: null, maTiming: "", maLocation: "" });
+        await audit({ action: "take-off", entity: "absence", entityId: id, before: { personId: a.personId, type: a.type, otherReason: a.otherReason, startDate: a.startDate, endDate: a.endDate } });
+      } else {
+        const [d] = await tx.select().from(duty).where(and(eq(duty.id, id), isNull(duty.closedAt))).for("update");
+        if (!d) throw new Refusal("That's already off the parade state.");
+        const [owner] = await tx.select({ id: wbProjection.id }).from(wbProjection).where(and(eq(wbProjection.dutyId, id), isNull(wbProjection.closedAt)));
+        if (owner) throw new Refusal("Sabre wrote that one: stand him down instead.");
+        await endDutyCore(tx, ME, id);
+        await audit({ action: "take-off", entity: "duty", entityId: id, before: { personId: d.personId, type: d.type, campId: d.campId, startDate: d.startDate, endDate: d.endDate } });
+      }
+    },
+  });
 }
