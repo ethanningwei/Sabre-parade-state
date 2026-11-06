@@ -6,7 +6,7 @@ import { todaySgt } from "@/lib/wb/domain/timeline";
 import { rosterSelf } from "@/lib/wb/me";
 
 // Statuses he already had when he joined Sabre (2026-10-27): the last step of
-// registration (?from=register), Home's "Any statuses from before Sabre?", and
+// registration (?from=register), Home's "Any statuses from before registering?", and
 // My records' "Add a status you already have".
 export default async function DeclareStatusesPage({ searchParams }: { searchParams: Promise<{ from?: string | string[] }> }) {
   await requireFeaturePage();

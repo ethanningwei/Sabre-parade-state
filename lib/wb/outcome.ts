@@ -254,7 +254,7 @@ export async function saveOutcome(courier: Courier, acting: Acting, input: Outco
   });
 }
 
-/** "No statuses from before Sabre": only remembers that he was asked, so Home stops asking. */
+/** "No statuses from before registering": only remembers that he was asked, so Home stops asking. */
 export async function noStatusesToDeclare(acting: Acting): Promise<Outcome<null>> {
   return write(null, acting, {
     parade: false,

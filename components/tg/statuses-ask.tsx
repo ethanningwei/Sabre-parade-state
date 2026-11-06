@@ -6,7 +6,7 @@ import { noStatuses } from "@/lib/wb/actions/medical";
 import { BigButton, BigLink, ErrorBox, useAction } from "./form-bits";
 
 /**
- * Home, until he answers (2026-10-27): statuses he had before Sabre, so his
+ * Home, until he answers (2026-10-27): statuses he had before registering, so his
  * commanders see them. Everyone registered before registration asked.
  */
 export function StatusesAsk() {
@@ -17,7 +17,7 @@ export function StatusesAsk() {
       <div className="flex items-start gap-3">
         <FileHeart className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
         <div className="flex flex-col gap-0.5">
-          <p className="font-medium">Any statuses from before Sabre?</p>
+          <p className="font-medium">Any statuses from before registering?</p>
           <p className="text-sm text-muted-foreground">Add any you still have, permanent or temporary, so your commanders see them.</p>
         </div>
       </div>
