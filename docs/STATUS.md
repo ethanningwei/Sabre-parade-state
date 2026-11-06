@@ -98,6 +98,7 @@ The parade-state engine is `lib/parade/` (pure TypeScript, no I/O). Its output m
 - **No per-person history screen yet.** Closed `absence` rows and `audit_log` hold the data.
 - **iPhone Safari wasn't tested in an emulator:** Playwright WebKit segfaults on this Mac when emulating a phone. The iOS date-field fix in `app/globals.css` is based on documented Safari behaviour. Confirm on a real phone.
 - **Desktop uses the mobile layout,** centred with a bottom nav. It's fine, but it isn't a desktop design.
+- **No MC export to Sheets (next step, the user, 2026-11-06).** MCs live only in Sabre's DB and on the parade state. Nothing writes them to an "MC & Status" Google Sheet, and any such sheet the old bot or a person kept stopped getting new MCs at cutover. The one sheet Sabre writes is the transport claims sheet (`lib/wb/sheets.ts`). If an MC sheet is wanted (MO, higher HQ), build it as an export like claims: same service account, append-only, retried by the evening round. First confirm which sheet, its columns, and who reads it.
 
 ---
 
