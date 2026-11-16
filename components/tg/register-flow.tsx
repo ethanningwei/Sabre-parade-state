@@ -53,7 +53,7 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
       const res = await findMe(name);
       if (!res.ok) return fail(res.error);
       const r = res.data;
-      if (r.kind === "too-many") return fail(`That matches ${r.count} people. Type more of your name.`);
+      if (r.kind === "too-many") return fail(`That matches ${r.count} people. Add your surname too.`);
       if (r.kind === "none") return go({ at: "nomatch", typed: name.trim() });
       if (r.kind === "one") return go({ at: "confirm", person: r.person });
       go({ at: "pick", people: r.people });
@@ -81,7 +81,7 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
             search();
           }}
         >
-          <Label htmlFor="name">Who are you?</Label>
+          <Label htmlFor="name">What&apos;s your first name?</Label>
           <Input
             id="name"
             autoFocus
@@ -89,10 +89,11 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
             autoComplete="off"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Your name on the parade state"
+            placeholder="e.g. JUN WEI"
             className={fieldClass}
           />
-          <Submit page pending={pending} missing={name.trim().length < 2 ? "Type at least two letters of your name." : null}>
+          <p className="text-xs text-muted-foreground">The name people call you. No need for your surname.</p>
+          <Submit page pending={pending} missing={name.trim().length < 2 ? "Type at least two letters of your first name." : null}>
             Find me
           </Submit>
         </form>
@@ -102,11 +103,12 @@ export function RegisterFlow({ structure, initial }: { structure: SubunitWithCam
         <section className="flex flex-col gap-3">
           <p className="font-medium">I can&apos;t find “{step.typed}”</p>
           <p className="text-sm text-muted-foreground">
-            Almost everybody is on the parade state, so check the spelling first. Ask your GC or PS if you&apos;re unsure
-            of your parade-state name. If you really aren&apos;t on it, I can set you up and your PS will see you on Roster.
+            Almost everybody is on the parade state, so check the spelling first, or try the other name you go by (your
+            English name, or your Chinese or Malay one). Still stuck? Ask your GC or PS how you&apos;re written on the
+            parade state. If you really aren&apos;t on it, I can set you up and your PS will see you on Roster.
           </p>
           <Button size="lg" className={bigButtonClass} onClick={() => go({ at: "name" })}>
-            Try my name again
+            Try again
           </Button>
           <Button size="lg" variant="outline" className={bigButtonClass} onClick={() => go({ at: "self", typed: step.typed })}>
             I&apos;m not on it — set me up
@@ -197,7 +199,7 @@ function SelfForm({
   const sub = structure.find((s) => s.id === subunitId);
   const roles = sub ? rolesFor(sub.isHq) : [];
   const missing =
-    name.trim().length < 2 ? "Fill in your name." : !subunitId ? "Pick your platoon." : !campId ? "Pick your camp." : !role ? "Pick your role." : !rank ? "Pick your rank." : null;
+    name.trim().length < 2 ? "Fill in your first name." : !subunitId ? "Pick your platoon." : !campId ? "Pick your camp." : !role ? "Pick your role." : !rank ? "Pick your rank." : null;
 
   return (
     <form
@@ -212,7 +214,7 @@ function SelfForm({
         );
       }}
     >
-      <Field label="Your name, as on the parade state">
+      <Field label="Your first name" hint="This is how you'll be written on the parade state.">
         <Input value={name} onChange={(e) => setName(e.target.value)} autoCapitalize="characters" className={fieldClass} />
       </Field>
       <Field label="Which platoon?">

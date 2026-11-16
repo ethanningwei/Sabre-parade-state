@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ddmmyy, leaveDays, linkedToSomeoneElse, matchName, nric4, PICK_MAX } from "@/lib/wb/domain/registration";
+import { ddmmyy, leaveDays, linkedToSomeoneElse, matchFirstName, matchName, nric4, PICK_MAX } from "@/lib/wb/domain/registration";
 import { roleOf, rolesFor } from "@/lib/wb/domain/roles";
 
 const person = (name: string, linkedMemberId: string | null = null) => ({ personId: `p:${name}`, name, linkedMemberId });
@@ -41,6 +41,49 @@ describe("name matching", () => {
     expect(linkedToSomeoneElse(pool[4], "m2")).toBe(true);
     expect(linkedToSomeoneElse(pool[4], "m1")).toBe(false);
     expect(linkedToSomeoneElse(pool[0], "m2")).toBe(false);
+  });
+});
+
+describe("first-name matching (registration)", () => {
+  const roster = [
+    person("JUN WEI"),
+    person("XU CHENXI"),
+    person("MUHAMMAD ANIQ"),
+    person("ZULKARNAIN"),
+    person("ISAAC"),
+    person("ISAAC TAN"),
+    person("MUHAMMAD HAKIMI"),
+    person("WAYNE TOH (UNDERSTUDY)"),
+  ];
+
+  it("offers every name holding his as whole words, exact ones first", () => {
+    expect(matchFirstName("jun wei", roster)).toEqual({ kind: "one", person: roster[0] });
+    expect(matchFirstName("wayne", roster)).toEqual({ kind: "one", person: roster[7] });
+    const xaviers = [person("TAN WEI JIE XAVIER"), person("XAVIER ANG"), person("XAVIER"), person("BRIAN"), person("IAN THAM")];
+    expect(matchFirstName("Xavier", xaviers)).toEqual({ kind: "pick", people: [xaviers[2], xaviers[0], xaviers[1]] });
+    expect(matchFirstName("ian", xaviers)).toEqual({ kind: "one", person: xaviers[4] });
+    expect(matchFirstName("randall", [person("SHO YAN HNG, RANDALL")])).toMatchObject({ kind: "one" });
+  });
+
+  it("then part-words, as matchName", () => {
+    expect(matchFirstName("isaa", roster)).toEqual({ kind: "pick", people: [roster[4], roster[5]] });
+  });
+
+  it("ignores spaces and punctuation", () => {
+    expect(matchFirstName("junwei", roster)).toEqual({ kind: "one", person: roster[0] });
+    expect(matchFirstName("Chen Xi", roster)).toEqual({ kind: "one", person: roster[1] });
+  });
+
+  it("falls back to the names sharing the most whole words", () => {
+    expect(matchFirstName("muhd aniq", roster)).toEqual({ kind: "one", person: roster[2] });
+    expect(matchFirstName("Muhammad Zulkarnain", roster)).toEqual({ kind: "one", person: roster[3] });
+    expect(matchFirstName("isaac tan", roster)).toEqual({ kind: "one", person: roster[5] });
+    expect(matchFirstName("isaac lim", roster)).toEqual({ kind: "pick", people: [roster[4], roster[5]] });
+  });
+
+  it("doesn't match on MUHAMMAD or BIN alone", () => {
+    expect(matchFirstName("mohd bin ali", roster)).toEqual({ kind: "none" });
+    expect(matchFirstName("zzz", roster)).toEqual({ kind: "none" });
   });
 });
 

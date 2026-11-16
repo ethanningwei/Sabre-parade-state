@@ -39,6 +39,58 @@ export function matchName<C extends Candidate>(query: string, pool: readonly C[]
   return { kind: "pick", people: hits };
 }
 
+// Prefixes too common to pick a man out by: "MUHAMMAD" alone would match half a platoon.
+const COMMON_WORDS = new Set(["BIN", "BINTE", "BINTI", "MUHAMMAD", "MUHAMMED", "MUHAMAD", "MUHD", "MOHD", "MOHAMED", "MOHAMMAD", "MOHAMMED", "MOHAMAD"]);
+const squash = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+const words = (s: string) =>
+  s
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter((w) => w.length >= 3 && !COMMON_WORDS.has(w));
+
+function found<C extends Candidate>(hits: C[]): MatchResult<C> {
+  if (!hits.length) return { kind: "none" };
+  if (hits.length > PICK_MAX) return { kind: "too-many", count: hits.length };
+  if (hits.length === 1) return { kind: "one", person: hits[0] };
+  return { kind: "pick", people: hits };
+}
+
+const plain = (s: string) =>
+  s
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean)
+    .join(" ");
+
+/**
+ * Registration asks for his first name, not his parade-state name, which he
+ * doesn't know (the user, 2026-11-16). Parade-state names are a first name
+ * ("XAVIER"), a first name and surname ("XAVIER ANG") or a full NRIC name
+ * ("TAN WEI JIE XAVIER", Shield's Platoon 1), so first every name holding his
+ * as whole words, exact ones first: "XAVIER" offers all three, "IAN" doesn't
+ * offer BRIAN. Then matchName's part-words, then spaces and punctuation
+ * ignored ("JUNWEI" finds JUN WEI), then the names sharing the most whole
+ * words with his ("MUHD ANIQ" finds MUHAMMAD ANIQ, "ISAAC LIM" offers each
+ * ISAAC). He confirms whoever comes back.
+ */
+export function matchFirstName<C extends Candidate>(query: string, pool: readonly C[]): MatchResult<C> {
+  const q = plain(query);
+  if (!q) return { kind: "none" };
+  const whole = pool.filter((p) => ` ${plain(p.name)} `.includes(` ${q} `));
+  if (whole.length) return found([...whole].sort((a, b) => Number(plain(b.name) === q) - Number(plain(a.name) === q)));
+  const first = matchName(query, pool);
+  if (first.kind !== "none") return first;
+  const sq = squash(query);
+  if (sq.length < 2) return first;
+  const squashed = pool.filter((p) => squash(p.name).includes(sq));
+  if (squashed.length) return found(squashed);
+  const mine = new Set(words(query));
+  if (!mine.size) return first;
+  const scored = pool.map((p) => ({ p, n: words(p.name).filter((w) => mine.has(w)).length }));
+  const best = Math.max(0, ...scored.map((s) => s.n));
+  return best ? found(scored.filter((s) => s.n === best).map((s) => s.p)) : first;
+}
+
 /** Linked to another account: one account, one profile. His own link is fine (re-registering). */
 export const linkedToSomeoneElse = (c: Candidate, memberId: string) =>
   c.linkedMemberId !== null && c.linkedMemberId !== memberId;

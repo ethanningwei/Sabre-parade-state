@@ -46,6 +46,18 @@ export async function rosterContaining(query: string): Promise<RosterPerson[]> {
     .orderBy(asc(subunit.sortOrder), asc(camp.sortOrder), asc(person.sortOrder));
 }
 
+/** Every active roster person, in roster order. A few hundred rows: registration matches over all of them. */
+export async function activeRoster(): Promise<RosterPerson[]> {
+  return db
+    .select(rosterColumns)
+    .from(person)
+    .innerJoin(camp, eq(camp.id, person.campId))
+    .innerJoin(subunit, eq(subunit.id, camp.subunitId))
+    .leftJoin(wbMember, eq(wbMember.personId, person.id))
+    .where(eq(person.active, true))
+    .orderBy(asc(subunit.sortOrder), asc(camp.sortOrder), asc(person.sortOrder));
+}
+
 export async function rosterPerson(personId: string): Promise<(RosterPerson & { active: boolean }) | null> {
   const [row] = await db
     .select({ ...rosterColumns, active: person.active })

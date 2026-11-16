@@ -5,10 +5,10 @@ import { run, UserError } from "@/lib/actions/shared";
 import { requireFeature } from "@/lib/flags";
 import { actionMember } from "@/lib/wb/auth";
 import { miniApp } from "@/lib/wb/input";
-import { ddmmyy, leaveDays, linkedToSomeoneElse, matchName, nric4 } from "@/lib/wb/domain/registration";
+import { ddmmyy, leaveDays, linkedToSomeoneElse, matchFirstName, nric4 } from "@/lib/wb/domain/registration";
 import { RANKS } from "@/lib/wb/domain/roles";
 import { registerMember } from "@/lib/wb/register";
-import { rosterContaining } from "@/lib/wb/roster";
+import { activeRoster } from "@/lib/wb/roster";
 import { toSgt } from "@/lib/parade/time";
 
 export interface FoundPerson {
@@ -27,14 +27,14 @@ export type FindResult =
   | { kind: "one"; person: FoundPerson }
   | { kind: "pick"; people: FoundPerson[] };
 
-/** Registration step 1: who is this? Matches against active roster names. */
+/** Registration step 1: who is this? His first name, matched against active roster names. */
 export async function findMe(name: string) {
   requireFeature();
   return run(async (): Promise<FindResult> => {
     const me = await actionMember();
-    const q = z.string().trim().min(2, "Type at least 2 letters of your name.").max(100).parse(name);
-    const result = matchName(q, await rosterContaining(q));
-    const show = (p: Awaited<ReturnType<typeof rosterContaining>>[number]): FoundPerson => ({
+    const q = z.string().trim().min(2, "Type at least 2 letters of your first name.").max(100).parse(name);
+    const result = matchFirstName(q, await activeRoster());
+    const show = (p: Awaited<ReturnType<typeof activeRoster>>[number]): FoundPerson => ({
       personId: p.personId,
       rank: p.rank,
       name: p.name,
@@ -93,7 +93,7 @@ const registerInput = z
     personId: z.uuid().optional(),
     self: z
       .object({
-        name: z.string().trim().min(2, "Type your name as on the parade state.").max(100),
+        name: z.string().trim().min(2, "Type your first name.").max(100),
         campId: z.uuid("Pick your camp."),
         role: z.string().min(1, "Pick your role."),
         rank: z.enum(RANKS, "Pick your rank."),
